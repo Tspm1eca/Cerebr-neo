@@ -12,8 +12,8 @@ Cerebr 是一款强大的浏览器 AI 助手扩展，现已支持 Chrome、Firef
 
 ---
 ## 個人修改
-<img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/c062ba79-65c7-49fe-92a3-c95bef342793" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/3c2c6e86-f826-4415-b9c1-3e63c2b24aca" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/3a75b671-f708-4765-8373-717e30fa93df" /> 
-<img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/12fd9b36-b701-404c-b271-ef2dc7c15aa2" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/ce7214a0-a5eb-4948-8d88-0532a1cb30bf" />
+<img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/996c681d-4319-46b4-aec1-9b559fdc980f" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/c062ba79-65c7-49fe-92a3-c95bef342793" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/3c2c6e86-f826-4415-b9c1-3e63c2b24aca" /> 
+<img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/3a75b671-f708-4765-8373-717e30fa93df" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/12fd9b36-b701-404c-b271-ef2dc7c15aa2" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/ce7214a0-a5eb-4948-8d88-0532a1cb30bf" />  
 ---
 ## 原版訊息
 
