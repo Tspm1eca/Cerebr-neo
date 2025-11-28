@@ -363,6 +363,11 @@ export async function updateAIMessage({
                 link.rel = 'noopener noreferrer';
             });
 
+            // 为新渲染的代码块添加复制按钮
+            if (window.addCopyButtonToCodeBlocks) {
+                window.addCopyButtonToCodeBlocks(mainContent);
+            }
+
             return true;
         }
         return true; // 如果文本没有变长，也认为是成功的

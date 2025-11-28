@@ -574,6 +574,7 @@ export function initChatContainer({
          setupGlobalEvents();
          initializeUserQuestions();
          addCopyButtonToCodeBlocks(chatContainer); // 为已存在的代码块添加按钮
+         window.addCopyButtonToCodeBlocks = addCopyButtonToCodeBlocks;
      }
 
      // 立即执行初始化
