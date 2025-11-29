@@ -253,6 +253,20 @@ export async function initQuickChat({
             const promptInput = itemElement.querySelector('.quick-chat-option-prompt-input');
             const deleteButton = itemElement.querySelector('.quick-chat-option-button.delete');
 
+            // 阻止输入框点击事件冒泡，防止触发外部的点击处理（如关闭菜单等）导致焦点丢失
+            const stopPropagation = (e) => {
+                e.stopPropagation();
+            };
+
+            [iconInput, titleInput, promptInput].forEach(input => {
+                input.addEventListener('click', stopPropagation);
+                // 注意：这里不需要阻止 focus 事件的冒泡，因为 focus 不会冒泡，
+                // 但有些框架或浏览器行为可能会模拟 focusin/focusout 冒泡。
+                // 为了保险起见，可以保留，或者只处理 click。
+                // 参考 api-card.js 的实现，这里也加上。
+                input.addEventListener('focus', stopPropagation);
+            });
+
             // 圖標輸入事件
             iconInput.addEventListener('input', (e) => {
                 quickChatOptions[index].icon = e.target.value;
