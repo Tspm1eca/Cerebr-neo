@@ -158,8 +158,34 @@ export async function appendMessage({
 
     // 处理消息中的链接
     messageDiv.querySelectorAll('a').forEach(link => {
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
+        const href = link.getAttribute('href');
+        if (href && href.startsWith('cite:')) {
+            link.classList.add('citation-link');
+            // 移除 cite: 前缀，获取要搜索的文本
+            const textToFind = decodeURIComponent(href.substring(5));
+            link.title = `跳转到: "${textToFind}"`;
+
+            link.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                // 发送消息给 content script
+                try {
+                    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                    if (tab) {
+                        await chrome.tabs.sendMessage(tab.id, {
+                            type: 'SCROLL_TO_TEXT',
+                            text: textToFind
+                        });
+                    }
+                } catch (error) {
+                    console.error('发送跳转指令失败:', error);
+                }
+            });
+        } else {
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+        }
     });
 
     // 处理消息中的图片标签
@@ -359,8 +385,33 @@ export async function updateAIMessage({
 
             // 处理新染的链接
             lastMessage.querySelectorAll('a').forEach(link => {
-                link.target = '_blank';
-                link.rel = 'noopener noreferrer';
+                const href = link.getAttribute('href');
+                if (href && href.startsWith('cite:')) {
+                    link.classList.add('citation-link');
+                    // 移除 cite: 前缀
+                    const textToFind = decodeURIComponent(href.substring(5));
+                    link.title = `跳转到: "${textToFind}"`;
+
+                    link.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        try {
+                            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                            if (tab) {
+                                await chrome.tabs.sendMessage(tab.id, {
+                                    type: 'SCROLL_TO_TEXT',
+                                    text: textToFind
+                                });
+                            }
+                        } catch (error) {
+                            console.error('发送跳转指令失败:', error);
+                        }
+                    });
+                } else {
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                }
             });
 
             // 为新渲染的代码块添加复制按钮

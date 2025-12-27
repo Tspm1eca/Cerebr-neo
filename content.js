@@ -451,6 +451,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
+    // 处理 SCROLL_TO_TEXT 消息
+    if (message.type === 'SCROLL_TO_TEXT') {
+        const result = scrollToText(message.text);
+        sendResponse({ success: result });
+        return true;
+    }
+
     return true;
 });
 
@@ -743,6 +750,75 @@ async function extractTextFromPDF(url) {
   }
 }
 
+
+// 滚动到指定文本
+function scrollToText(text) {
+    if (!text) return false;
+
+    try {
+        // 记录当前滚动位置
+        const currentScrollX = window.scrollX;
+        const currentScrollY = window.scrollY;
+
+        // 先移除当前选区，以免影响搜索起始位置（虽然开启了 wrapAround）
+        window.getSelection().removeAllRanges();
+
+        // window.find(aString, aCaseSensitive, aBackwards, aWrapAround, aWholeWord, aSearchInFrames, aShowDialog);
+        // 使用 wrapAround=true 确保全文档搜索
+        const found = window.find(text, false, false, true, false, true, false);
+
+        if (found) {
+            // 立即恢复原来的滚动位置，抵消 window.find 可能造成的瞬间跳转
+            window.scrollTo(currentScrollX, currentScrollY);
+
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                const element = range.startContainer.nodeType === Node.ELEMENT_NODE
+                    ? range.startContainer
+                    : range.startContainer.parentElement;
+
+                if (element) {
+                    // 使用 requestAnimationFrame 确保在恢复滚动位置后执行平滑滚动
+                    requestAnimationFrame(() => {
+                        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    });
+
+                    // 添加高亮动画
+                    // 创建一个高亮覆盖层或者直接修改背景色
+                    // 这里直接修改背景色，为了不破坏原有样式，使用 data 属性存储原有值
+                    // 注意：这可能会被原有样式覆盖，或者覆盖原有样式
+
+                    // 更好的方式：使用 CSS Highlight API (如果支持) 或者创建一个绝对定位的高亮层
+                    // 简单起见，暂时使用背景色闪烁
+
+                    const originalTransition = element.style.transition;
+                    const originalBg = element.style.backgroundColor;
+
+                    element.style.transition = 'background-color 0.5s ease';
+                    element.style.backgroundColor = 'rgba(255, 235, 59, 0.5)'; // 柔和的黄色
+
+                    setTimeout(() => {
+                        element.style.backgroundColor = originalBg;
+                        setTimeout(() => {
+                            element.style.transition = originalTransition;
+                        }, 500);
+                    }, 2000);
+
+                    return true;
+                }
+            }
+        } else {
+             // 备用方案：如果 window.find 失败（例如在某些复杂 DOM 结构中），
+             // 可以尝试遍历 TextNode。但考虑到性能和 window.find 的通用性，
+             // 暂时只依赖 window.find。AI 生成的引用通常是页面上的可见文本。
+             console.log('未找到文本:', text);
+        }
+    } catch (e) {
+        console.error('滚动到文本失败:', e);
+    }
+    return false;
+}
 
 // 添加GPT分词估算函数
 async function estimateGPTTokens(text) {

@@ -78,6 +78,21 @@
     text-decoration: underline;
 }
 
+/* 引用链接样式 */
+.message a.citation-link {
+    color: var(--cerebr-link-color);
+    text-decoration: none;
+    border-bottom: 1px dashed currentColor;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.message a.citation-link:hover {
+    text-decoration: none;
+    background-color: rgba(0, 0, 0, 0.05);
+    border-bottom-style: solid;
+}
+
 .message blockquote {
     margin: 0.5em 0;
     padding-left: 12px;

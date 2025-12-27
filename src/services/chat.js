@@ -49,7 +49,8 @@ export async function callAPI({
     }
 
     // 构建系统消息
-    let systemPrompt = apiConfig.advancedSettings?.systemPrompt || '';
+    const defaultSystemPrompt = `當你引用網頁內容時，請使用 Markdown 鏈接格式 [編號](cite:引用文本)。例如，如果你想引用"機器學習是一種人工智能"，請寫成 [1](cite:機器學習是一種人工智能)。\n為了防止語法錯誤，如果引用的文本中包含雙引號（"）、括號或特殊符號，請務必將其轉換為 URL 編碼（例如將 " 轉為 %22），確保鏈接語法完整。請確保引用的文本內容本身（解碼後）與網頁內容一致，不要修改或縮略。`;
+    let systemPrompt = apiConfig.advancedSettings?.systemPrompt || defaultSystemPrompt;
     systemPrompt = systemPrompt.replace(/\{\{userLanguage\}\}/gm, userLanguage)
 
     const systemMessage = {
