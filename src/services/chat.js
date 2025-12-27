@@ -51,19 +51,23 @@ export async function callAPI({
     }
 
     // 构建系统消息
-    let systemPrompt = apiConfig.advancedSettings?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-    systemPrompt = systemPrompt.replace(/\{\{userLanguage\}\}/gm, userLanguage)
+    let systemMessageContent = '';
+
+    if (webpageInfo && webpageInfo.pages && webpageInfo.pages.length > 0) {
+        let systemPrompt = apiConfig.advancedSettings?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+        systemPrompt = systemPrompt.replace(/\{\{userLanguage\}\}/gm, userLanguage);
+
+        const pagesContent = webpageInfo.pages.map(page => {
+            const prefix = page.isCurrent ? '当前网页内容' : '其他打开的网页';
+            return `\n${prefix}：\n标题：${page.title}\nURL：${page.url}\n内容：${page.content}`;
+        }).join('\n\n---\n');
+
+        systemMessageContent = `${systemPrompt}${pagesContent}`;
+    }
 
     const systemMessage = {
         role: "system",
-        content: `${systemPrompt}${
-            (webpageInfo && webpageInfo.pages) ?
-            webpageInfo.pages.map(page => {
-                const prefix = page.isCurrent ? '当前网页内容' : '其他打开的网页';
-                return `\n${prefix}：\n标题：${page.title}\nURL：${page.url}\n内容：${page.content}`;
-            }).join('\n\n---\n') :
-            ''
-        }`
+        content: systemMessageContent
     };
 
     // 确保消息数组中有系统消息
