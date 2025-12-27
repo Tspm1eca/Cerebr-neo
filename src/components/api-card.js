@@ -23,6 +23,9 @@
  * @param {function} params.onCardChange - 卡片内容变更回调函数
  * @param {number} params.selectedIndex - 当前选中的卡片索引
  */
+
+export const DEFAULT_SYSTEM_PROMPT = `當你引用網頁內容時，請使用 Markdown 鏈接格式 [編號](cite:引用文本)。例如，如果你想引用"機器學習是一種人工智能"，請寫成 [1](cite:機器學習是一種人工智能)。\n為了防止語法錯誤，如果引用的文本中包含雙引號（"）、括號或特殊符號，請務必將其轉換為 URL 編碼（例如將 " 轉為 %22），確保鏈接語法完整。請確保引用的文本內容本身（解碼後）與網頁內容一致，不要修改或縮略。`;
+
 export function renderAPICards({
     apiConfigs,
     apiCardsContainer,
@@ -127,11 +130,10 @@ function createAPICard({
     apiKeyInput.value = config.apiKey || '';
     baseUrlInput.value = config.baseUrl || '';
     modelNameInput.value = config.modelName || '';
-   titleModelNameInput.value = config.titleModelName || '';
+    titleModelNameInput.value = config.titleModelName || '';
 
     // 设置系统提示的默认值
-    const defaultSystemPrompt = `重要提示：當你引用網頁內容時，請使用 Markdown 鏈接格式 [編號](cite:引用文本)。例如，如果你想引用"機器學習是一種人工智能"，請寫成 [1](cite:機器學習是一種人工智能)。這將允許用戶點擊鏈接並滾動到網頁上的相應位置。\n特別注意：為了防止語法錯誤，如果引用的文本中包含雙引號（"）、括號或特殊符號，請務必將其轉換為 URL 編碼（例如將 " 轉為 %22），確保鏈接語法完整。請確保引用的文本內容本身（解碼後）與網頁內容一致，不要修改或縮略。`;
-    systemPromptInput.value = config.advancedSettings?.systemPrompt || defaultSystemPrompt;
+    systemPromptInput.value = config.advancedSettings?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
     // 设置高级设置的展开/折叠状态
     const isExpanded = config.advancedSettings?.isExpanded || false;

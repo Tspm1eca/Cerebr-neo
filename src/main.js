@@ -629,8 +629,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else {
                 apiConfigs = [{
                     apiKey: '',
-                    baseUrl: 'https://api.openai.com/v1/chat/completions',
-                    modelName: 'gpt-4o'
+                    baseUrl: 'https://api.CloseAi.com/v1/chat/completions',
+                    modelName: ''
                 }];
                 // 只有在没有任何配置的情况下才保存默认配置
                 await saveAPIConfigs();
@@ -648,8 +648,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             // 只有在出错的情况下才使用默认值
             apiConfigs = [{
                 apiKey: '',
-                baseUrl: 'https://api.openai.com/v1/chat/completions',
-                modelName: 'gpt-4o'
+                baseUrl: 'https://api.CloseAi.com/v1/chat/completions',
+                modelName: ''
             }];
             selectedConfigIndex = 0;
             renderAPICardsWithCallbacks();
