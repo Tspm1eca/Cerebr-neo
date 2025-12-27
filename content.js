@@ -591,6 +591,16 @@ async function extractPageContent(skipWaitContent = false) {
         tempContainer.querySelectorAll(selector).forEach(element => element.remove());
     });
 
+    // 保留链接
+    tempContainer.querySelectorAll('a').forEach(a => {
+        const text = a.innerText.trim();
+        const href = a.href;
+        if (text && href && href.startsWith('http')) {
+            // 使用 a.href 获取绝对 URL，并确保是有效的 http/https 链接
+            a.replaceWith(' ' + text + ' (' + href + ') ');
+        }
+    });
+
     let mainContent = tempContainer.innerText + frameContent;
     mainContent = mainContent.replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n').trim();
 

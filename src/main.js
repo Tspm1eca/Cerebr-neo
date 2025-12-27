@@ -415,6 +415,20 @@ document.addEventListener('DOMContentLoaded', async () => {
        }
     });
 
+    // Close subpages with Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            // Close settings page
+            if (unifiedSettingsPage.style.display === 'flex') {
+                unifiedSettingsPage.style.display = 'none';
+            }
+            // Close chat list (history) page
+            if (chatListPage.classList.contains('show')) {
+                hideChatList(chatListPage);
+            }
+        }
+    });
+
    // 初始化网页内容二级菜单
    if (isExtensionEnvironment) {
     initWebpageMenu({ webpageQAContainer, webpageContentMenu });
