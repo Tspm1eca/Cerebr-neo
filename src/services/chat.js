@@ -33,6 +33,81 @@ import { DEFAULT_SYSTEM_PROMPT } from '../components/api-card.js';
  */
 
 /**
+ * 提取並替換文本中的URL
+ * @param {string} text - 原始文本
+ * @param {Map<string, string>} urlToIdMap - URL到ID的映射
+ * @param {Map<string, string>} idToUrlMap - ID到URL的映射
+ * @returns {string} 處理後的文本
+ */
+function extractAndReplaceUrls(text, urlToIdMap, idToUrlMap) {
+    if (!text) return text;
+
+    // 匹配URL的正規表示式
+    const urlRegex = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g;
+
+    return text.replace(urlRegex, (match) => {
+        let url = match;
+        let suffix = '';
+
+        // 處理結尾的標點符號
+        // 循環去除常見的結尾標點，直到剩下的部分看起來像一個合法的URL結尾
+        const trailingPunctuation = /[)\]}.:;!?,"']$/;
+
+        while (trailingPunctuation.test(url)) {
+            const lastChar = url[url.length - 1];
+
+            // 特殊處理括號：只有在不平衡的情況下才移除
+            // 例如：https://en.wikipedia.org/wiki/Graph_(discrete_mathematics) 應該保留
+            // 而 (https://example.com) 中的 ) 應該移除
+            if (lastChar === ')') {
+                const openCount = (url.match(/\(/g) || []).length;
+                const closeCount = (url.match(/\)/g) || []).length;
+                if (closeCount > openCount) {
+                    url = url.slice(0, -1);
+                    suffix = lastChar + suffix;
+                } else {
+                    break; // 括號平衡，應該是URL的一部分
+                }
+            } else {
+                // 其他標點符號直接移除
+                url = url.slice(0, -1);
+                suffix = lastChar + suffix;
+            }
+        }
+
+        if (urlToIdMap.has(url)) {
+            return urlToIdMap.get(url) + suffix;
+        }
+
+        const id = `URLREF${urlToIdMap.size + 1}`;
+        urlToIdMap.set(url, id);
+        idToUrlMap.set(id, url);
+        return id + suffix;
+    });
+}
+
+/**
+ * 還原文本中的URL
+ * @param {string} text - 包含ID的文本
+ * @param {Map<string, string>} idToUrlMap - ID到URL的映射
+ * @returns {string} 還原後的文本
+ */
+function restoreUrls(text, idToUrlMap) {
+    if (!text || idToUrlMap.size === 0) return text;
+
+    // 使用正則表達式來匹配 URLREF<數字> 的格式
+    // 這樣可以避免因為AI輸出不完整或包含額外字符導致的還原失敗
+    // 也能更精確地匹配我們生成的ID
+    return text.replace(/URLREF(\d+)/g, (match, idNum) => {
+        const id = `URLREF${idNum}`;
+        if (idToUrlMap.has(id)) {
+            return idToUrlMap.get(id);
+        }
+        return match;
+    });
+}
+
+/**
  * 调用API发送消息并处理响应
  * @param {APIParams} params - API调用参数
  * @param {Object} chatManager - 聊天管理器实例
@@ -50,6 +125,10 @@ export async function callAPI({
         throw new Error('API 配置不完整');
     }
 
+    // 初始化URL映射表
+    const urlToIdMap = new Map();
+    const idToUrlMap = new Map();
+
     // 构建系统消息
     let systemMessageContent = '';
 
@@ -59,7 +138,11 @@ export async function callAPI({
 
         const pagesContent = webpageInfo.pages.map(page => {
             const prefix = page.isCurrent ? '当前网页内容' : '其他打开的网页';
-            return `\n${prefix}：\n标题：${page.title}\nURL：${page.url}\n内容：${page.content}`;
+            const contentWithMappedUrls = extractAndReplaceUrls(page.content, urlToIdMap, idToUrlMap);
+            // URL本身也映射，以防模型引用
+            // const mappedUrl = extractAndReplaceUrls(page.url, urlToIdMap, idToUrlMap);
+            // 決定不映射頁面元數據中的URL，因為這對用戶識別很重要，且數量少
+            return `\n${prefix}：\n标题：${page.title}\nURL：${page.url}\n内容：${contentWithMappedUrls}`;
         }).join('\n\n---\n');
 
         systemMessageContent = `${systemPrompt}${pagesContent}`;
@@ -71,10 +154,24 @@ export async function callAPI({
     };
 
     // 确保消息数组中有系统消息
-    // 删除消息列表中的reasoning_content字段
+    // 删除消息列表中的reasoning_content字段，並處理URL映射
     const processedMessages = messages.map(msg => {
-        const { reasoning_content, updating, ...rest } = msg;
-        return rest;
+        const { reasoning_content, updating, content, ...rest } = msg;
+
+        // 處理content中的URL
+        let processedContent = content;
+        if (typeof content === 'string') {
+            processedContent = extractAndReplaceUrls(content, urlToIdMap, idToUrlMap);
+        } else if (Array.isArray(content)) {
+            processedContent = content.map(item => {
+                if (item.type === 'text' && item.text) {
+                    return { ...item, text: extractAndReplaceUrls(item.text, urlToIdMap, idToUrlMap) };
+                }
+                return item;
+            });
+        }
+
+        return { ...rest, content: processedContent };
     });
 
     if (systemMessage.content.trim() && (processedMessages.length === 0 || processedMessages[0].role !== "system")) {
@@ -122,6 +219,15 @@ export async function callAPI({
                 if (chatManager && chatId) {
                     // 创建一个副本以避免回调函数意外修改
                     const messageCopy = { ...currentMessage };
+
+                    // 還原URL
+                    if (messageCopy.content) {
+                        messageCopy.content = restoreUrls(messageCopy.content, idToUrlMap);
+                    }
+                    if (messageCopy.reasoning_content) {
+                        messageCopy.reasoning_content = restoreUrls(messageCopy.reasoning_content, idToUrlMap);
+                    }
+
                     chatManager.updateLastMessage(chatId, messageCopy, false); // 流式更新
                     onMessageUpdate(chatId, messageCopy);
                     lastUpdateTime = Date.now();
@@ -140,7 +246,16 @@ export async function callAPI({
                        dispatchUpdate();
                    }
                    // 流结束，进行最终更新
-                   chatManager.updateLastMessage(chatId, { ...currentMessage }, true);
+                   // 最終更新也需要還原URL
+                   const finalMessage = { ...currentMessage };
+                   if (finalMessage.content) {
+                       finalMessage.content = restoreUrls(finalMessage.content, idToUrlMap);
+                   }
+                   if (finalMessage.reasoning_content) {
+                       finalMessage.reasoning_content = restoreUrls(finalMessage.reasoning_content, idToUrlMap);
+                   }
+
+                   chatManager.updateLastMessage(chatId, finalMessage, true);
                    break;
                }
 
