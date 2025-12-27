@@ -269,30 +269,24 @@ export async function updateAIMessage({
     text,
     chatContainer
 }) {
-    let lastMessage = chatContainer.querySelector('.message:last-child');
-
-    // 如果最后一条消息是等待动画，则移除它，并准备创建新消息
-    if (lastMessage && lastMessage.classList.contains('waiting')) {
-        lastMessage.remove();
-        lastMessage = null; // 重置 lastMessage 以便后续逻辑创建新消息
+    // 移除等待消息
+    const waitingMessage = chatContainer.querySelector('.message.waiting');
+    if (waitingMessage) {
+        waitingMessage.remove();
     }
 
+    // 優先尋找正在更新中的 AI 消息
+    let lastMessage = chatContainer.querySelector('.ai-message.updating');
     const currentText = lastMessage ? lastMessage.getAttribute('data-original-text') || '' : '';
-
 
     // 处理文本内容
     const textContent = typeof text === 'string' ? text : text.content;
     const reasoningContent = typeof text === 'string' ? null : text.reasoning_content;
 
-    // 如果新文本的开头与当前文本不一致，则认为消息不连续，置空lastMessage
-    if (!textContent.startsWith(currentText) && currentText !== '') {
-        lastMessage = null;
-    }
-
-    if (lastMessage && lastMessage.classList.contains('ai-message')) {
+    if (lastMessage) {
         // 获取当前显示的文本
-        // 如果新文本比当前文本长，说有新内容需要更新
-        if (textContent.length > currentText.length || reasoningContent) {
+        // 只要内容发生变化就更新（包括重置/变短的情况，这对应于重试）
+        if (textContent !== currentText || reasoningContent) {
             // 更新原始文本属性
             lastMessage.setAttribute('data-original-text', textContent);
 
@@ -343,8 +337,8 @@ export async function updateAIMessage({
                 // 获取当前显示的文本
                 const currentReasoningText = reasoningTextDiv.getAttribute('data-original-text') || '';
 
-                // 如果新文本比当前文本长，说明有新内容需要更新
-                if (reasoningContent.length > currentReasoningText.length) {
+                // 只要内容发生变化就更新
+                if (reasoningContent !== currentReasoningText) {
                     // 更新原始文本属性
                     reasoningTextDiv.setAttribute('data-original-text', reasoningContent);
                     // 更新显示内容

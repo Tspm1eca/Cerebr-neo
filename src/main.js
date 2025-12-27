@@ -55,6 +55,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 修改: 创建一个对象引用来保存当前控制器
     const abortControllerRef = { current: null };
     let currentController = null;
+    let activeRequestId = null; // 用于跟踪当前活动的请求ID
 
     // 创建UI工具配置
     const uiConfig = {
@@ -217,6 +218,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     async function regenerateMessage(messageElement) {
         if (!messageElement) return;
 
+        // 生成新的请求ID
+        const currentRequestId = Date.now().toString();
+        activeRequestId = currentRequestId;
+
         // 如果有正在更新的AI消息，停止它
         const updatingMessage = chatContainer.querySelector('.ai-message.updating');
         if (updatingMessage && currentController) {
@@ -282,7 +287,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             createWaitingMessage(chatContainer);
 
             // 调用带重试逻辑的 API
-            await callAPIWithRetry(apiParams, chatManager, currentChat.id, chatContainerManager.syncMessage);
+            await callAPIWithRetry(apiParams, chatManager, currentChat.id, (chatId, message) => {
+                // 只有当仍然是当前活动的请求时才更新界面
+                if (currentRequestId === activeRequestId) {
+                    chatContainerManager.syncMessage(chatId, message);
+                }
+            });
 
         } catch (error) {
             if (error.name === 'AbortError') {
@@ -290,21 +300,31 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
             console.error('重新生成消息失败:', error);
-            appendMessage({
-                text: '重新生成失败: ' + error.message,
-                sender: 'ai',
-                chatContainer,
-                skipHistory: true,
-            });
+            // 只有当仍然是当前活动的请求时才显示错误
+            if (currentRequestId === activeRequestId) {
+                appendMessage({
+                    text: '重新生成失败: ' + error.message,
+                    sender: 'ai',
+                    chatContainer,
+                    skipHistory: true,
+                });
+            }
         } finally {
-            const lastMessage = chatContainer.querySelector('.ai-message:last-child');
-            if (lastMessage) {
-                lastMessage.classList.remove('updating');
+            // 只有当仍然是当前活动的请求时才清理状态
+            if (currentRequestId === activeRequestId) {
+                const lastMessage = chatContainer.querySelector('.ai-message:last-child');
+                if (lastMessage) {
+                    lastMessage.classList.remove('updating');
+                }
             }
         }
     }
 
     async function sendMessage() {
+        // 生成新的请求ID
+        const currentRequestId = Date.now().toString();
+        activeRequestId = currentRequestId;
+
         // 如果有正在更新的AI消息，停止它
         const updatingMessage = chatContainer.querySelector('.ai-message.updating');
         if (updatingMessage && currentController) {
@@ -369,8 +389,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // 调用带重试逻辑的 API
             await callAPIWithRetry(apiParams, chatManager, currentChat.id, (chatId, message) => {
-                // updateAIMessage 现在会处理等待消息的移除
-                chatContainerManager.syncMessage(chatId, message);
+                // 只有当仍然是当前活动的请求时才更新界面
+                if (currentRequestId === activeRequestId) {
+                    // updateAIMessage 现在会处理等待消息的移除
+                    chatContainerManager.syncMessage(chatId, message);
+                }
             });
 
         } catch (error) {
@@ -379,27 +402,34 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
             console.error('发送消息失败:', error);
-            appendMessage({
-                text: '发送失败: ' + error.message,
-                sender: 'ai',
-                chatContainer,
-                skipHistory: true,
-            });
-            // 从 chatHistory 中移除最后一条记录（用户的问题）
-            const currentChat = chatManager.getCurrentChat();
-            const messages = currentChat ? [...currentChat.messages] : [];
-            if (messages.length > 0) {
-                if (messages[messages.length - 1].role === 'assistant') {
-                    chatManager.popMessage();
-                    chatManager.popMessage();
-                } else {
-                    chatManager.popMessage();
+
+            // 只有当仍然是当前活动的请求时才处理错误
+            if (currentRequestId === activeRequestId) {
+                appendMessage({
+                    text: '发送失败: ' + error.message,
+                    sender: 'ai',
+                    chatContainer,
+                    skipHistory: true,
+                });
+                // 从 chatHistory 中移除最后一条记录（用户的问题）
+                const currentChat = chatManager.getCurrentChat();
+                const messages = currentChat ? [...currentChat.messages] : [];
+                if (messages.length > 0) {
+                    if (messages[messages.length - 1].role === 'assistant') {
+                        chatManager.popMessage();
+                        chatManager.popMessage();
+                    } else {
+                        chatManager.popMessage();
+                    }
                 }
             }
         } finally {
-            const lastMessage = chatContainer.querySelector('.ai-message:last-child');
-            if (lastMessage) {
-                lastMessage.classList.remove('updating');
+            // 只有当仍然是当前活动的请求时才清理状态
+            if (currentRequestId === activeRequestId) {
+                const lastMessage = chatContainer.querySelector('.ai-message:last-child');
+                if (lastMessage) {
+                    lastMessage.classList.remove('updating');
+                }
             }
         }
     }
