@@ -24,7 +24,7 @@
  * @param {number} params.selectedIndex - 当前选中的卡片索引
  */
 
-export const DEFAULT_SYSTEM_PROMPT = `1.當你引用網頁內容時，請使用 Markdown 鏈接格式 \`[編號](cite:引用文本)\`。例如，如果你想引用"機器學習是一種人工智能"，請寫成 \`[1](cite:機器學習是一種人工智能)\`。2.為了防止語法錯誤，如果引用的文本中包含雙引號（"）、括號或特殊符號，請務必將其轉換為 URL 編碼（例如將 " 轉為 %22），確保鏈接語法完整。請確保引用的文本內容本身（解碼後）與網頁內容一致，不要修改或縮略。3.文章內的所有URL將以映射表形式\`(URLREF<N>)\`給你，例如：\`(URLREF1)\`。`;
+export const DEFAULT_SYSTEM_PROMPT = `1.當你引用網頁內容時，請使用 Markdown 鏈接格式 \`[編號](cite:引用文本)\`。例如，如果你想引用"機器學習是一種人工智能"，請寫成 \`[1](cite:機器學習是一種人工智能)\`。\n2.為了防止語法錯誤，如果引用的文本中包含雙引號（"）、括號或特殊符號，請務必將其轉換為 URL 編碼（例如將 " 轉為 %22），確保鏈接語法完整。請確保引用的文本內容本身（解碼後）與網頁內容一致，不要修改或縮略。\n3.文章內的所有URL將以映射表形式\`(URLREF<N>)\`給你，例如：\`(URLREF1)\`。`;
 
 export function renderAPICards({
     apiConfigs,
@@ -118,6 +118,7 @@ function createAPICard({
     const modelListDropdown = template.querySelector('.model-list-dropdown');
     const testConnectionBtn = template.querySelector('.test-connection-btn');
     const systemPromptInput = template.querySelector('.system-prompt');
+    const resetPromptBtn = template.querySelector('.reset-prompt-btn');
     const advancedSettingsHeader = template.querySelector('.advanced-settings-header');
     const advancedSettingsContent = template.querySelector('.advanced-settings-content');
     const toggleIcon = template.querySelector('.toggle-icon');
@@ -192,6 +193,18 @@ function createAPICard({
             }
         });
     });
+
+    // 监听还原系统提示按钮点击
+    if (resetPromptBtn) {
+        resetPromptBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (confirm('确定要还原系统提示为默认值吗？此操作无法撤销。')) {
+                systemPromptInput.value = DEFAULT_SYSTEM_PROMPT;
+                // 触发 change 事件以保存更改
+                systemPromptInput.dispatchEvent(new Event('change'));
+            }
+        });
+    }
 
     // 阻止输入框和按钮点击事件冒泡
     const stopPropagation = (e) => {

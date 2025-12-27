@@ -301,11 +301,37 @@
     margin-top: 8px;
 }
 
+.setting-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
 .setting-item label {
     display: block;
     font-size: 12px;
     opacity: 0.8;
-    margin-bottom: 6px;
+    margin: 0;
+}
+
+.reset-prompt-btn {
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    color: var(--cerebr-text-color);
+    opacity: 0.6;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.reset-prompt-btn:hover {
+    opacity: 1;
+    background-color: var(--cerebr-button-hover-bg);
 }
 
 .system-prompt {
