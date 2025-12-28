@@ -3,8 +3,10 @@
  * 处理用户输入、粘贴、拖放图片等交互
  */
 
-import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePreview } from '../utils/ui.js';
-import { handleImageDrop } from '../utils/image.js';
+import { adjustTextareaHeight, createImageTag, showToast } from '../utils/ui.js';
+import { handleImageDrop, readImageFileAsDataUrl } from '../utils/image.js';
+import { syncChatBottomExtraPadding } from '../utils/scroll.js';
+import { t } from '../utils/i18n.js';
 
 // 跟踪输入法状态
 let isComposing = false;
@@ -189,6 +191,92 @@ function initAnimatedFakeCaret(messageInput) {
     scheduleUpdate();
 }
 
+function isInputEffectivelyEmpty(messageInput) {
+    const hasImages = !!messageInput.querySelector?.('.image-tag');
+    const text = (messageInput.textContent || '').trim();
+    return !hasImages && !text;
+}
+
+function insertPlainTextAtSelection(messageInput, text) {
+    if (!messageInput) return;
+    if (!text) return;
+
+    messageInput.focus();
+
+    const selection = window.getSelection();
+    let range;
+    if (selection.rangeCount > 0) {
+        range = selection.getRangeAt(0);
+    } else {
+        range = document.createRange();
+        range.selectNodeContents(messageInput);
+        range.collapse(false);
+    }
+
+    if (!messageInput.contains(range.startContainer)) {
+        range.selectNodeContents(messageInput);
+        range.collapse(false);
+    }
+
+    range.deleteContents();
+
+    const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
+    const fragment = document.createDocumentFragment();
+    let lastNode = null;
+
+    lines.forEach((line, index) => {
+        if (line) {
+            lastNode = document.createTextNode(line);
+            fragment.appendChild(lastNode);
+        }
+        if (index < lines.length - 1) {
+            lastNode = document.createElement('br');
+            fragment.appendChild(lastNode);
+        }
+    });
+
+    range.insertNode(fragment);
+
+    if (lastNode) {
+        const newRange = document.createRange();
+        newRange.setStartAfter(lastNode);
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+    }
+}
+
+function ensureSelectionInInput(messageInput) {
+    if (!messageInput) return;
+    messageInput.focus();
+
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        if (messageInput.contains(range.startContainer)) {
+            return;
+        }
+    }
+
+    const range = document.createRange();
+    range.selectNodeContents(messageInput);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+}
+
+function execCommandInsertText(messageInput, text) {
+    try {
+        ensureSelectionInInput(messageInput);
+        // `execCommand` 已废弃，但在 contenteditable 中仍然是最稳的“进入原生撤销栈”的方式之一。
+        return document.execCommand('insertText', false, text);
+    } catch {
+        return false;
+    }
+}
+
 /**
  * 初始化消息输入组件
  * @param {Object} config - 配置对象
@@ -213,35 +301,238 @@ export function initMessageInput(config) {
         webpageContentMenu // 接收二级菜单
     } = config;
 
-    // 添加点击事件监听
+    const isFinePointer = () => {
+        try {
+            return window.matchMedia('(any-pointer: fine)').matches || window.matchMedia('(pointer: fine)').matches;
+        } catch {
+            return false;
+        }
+    };
+
+    let sendQueued = false;
+    let suppressNextInput = false;
+    let lastEnterKeydownAt = 0;
+    let lastEnterKeydownWasShift = false;
+    const ENTER_SHIFT_WINDOW_MS = 400;
+    const LARGE_TEXT_PASTE_THRESHOLD = 10000;
+    let largePasteModeUntil = 0;
+    let ignoreEnterSendUntil = 0;
+
+    const ignoreEnterSendFor = (ms) => {
+        ignoreEnterSendUntil = Math.max(ignoreEnterSendUntil, performance.now() + ms);
+    };
+
+    const shouldIgnoreEnterSend = () => performance.now() < ignoreEnterSendUntil;
+
+    let layoutUpdateRaf = 0;
+    let postLargePasteLayoutTimer = 0;
+    const clearEditableContent = (element) => {
+        if (!element) return;
+        try {
+            element.replaceChildren();
+        } catch {
+            element.innerHTML = '';
+        }
+    };
+
+    const fastClearMessageInput = () => {
+        clearEditableContent(messageInput);
+        scheduleLayoutUpdate();
+        try {
+            messageInput.focus?.();
+        } catch {
+            // ignore
+        }
+    };
+
+    const schedulePostLargePasteLayoutUpdate = () => {
+        if (postLargePasteLayoutTimer) return;
+        const now = performance.now();
+        const delayMs = Math.max(0, Math.ceil(largePasteModeUntil - now) + 50);
+        postLargePasteLayoutTimer = setTimeout(() => {
+            postLargePasteLayoutTimer = 0;
+            scheduleLayoutUpdate();
+        }, delayMs);
+    };
+    const scheduleLayoutUpdate = () => {
+        if (layoutUpdateRaf) return;
+        layoutUpdateRaf = requestAnimationFrame(() => {
+            layoutUpdateRaf = 0;
+            if (!messageInput?.isConnected) return;
+            const inLargePasteMode = performance.now() < largePasteModeUntil;
+            if (inLargePasteMode) {
+                const maxHeight = uiConfig?.textarea?.maxHeight ?? 200;
+                messageInput.style.height = `${maxHeight}px`;
+                messageInput.style.overflowY = 'auto';
+                schedulePostLargePasteLayoutUpdate();
+                return;
+            }
+
+            adjustTextareaHeight({ textarea: messageInput, config: uiConfig.textarea });
+            syncChatBottomExtraPadding();
+        });
+    };
+
+    const isEnterLikeInputEvent = (event) => {
+        const inputType = event?.inputType;
+        if (inputType === 'insertParagraph' || inputType === 'insertLineBreak') return true;
+        if (inputType === 'insertText' && event?.data === '\n') return true;
+        return false;
+    };
+
+    const isShiftEnter = () => {
+        if (!lastEnterKeydownWasShift) return false;
+        return Date.now() - lastEnterKeydownAt < ENTER_SHIFT_WINDOW_MS;
+    };
+
+    const execCommandUndo = () => {
+        try {
+            ensureSelectionInInput(messageInput);
+            return document.execCommand('undo');
+        } catch {
+            return false;
+        }
+    };
+
+    const removeTrailingLineBreakArtifacts = () => {
+        let removed = false;
+        while (messageInput.lastChild) {
+            const node = messageInput.lastChild;
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                const tag = node.tagName;
+                if (tag === 'BR') {
+                    node.remove();
+                    removed = true;
+                    continue;
+                }
+                if (tag === 'DIV') {
+                    const html = (node.innerHTML || '').replace(/\s+/g, '').toLowerCase();
+                    const isEmptyDiv = html === '' || html === '<br>' || html === '<br/>';
+                    if (isEmptyDiv) {
+                        node.remove();
+                        removed = true;
+                        continue;
+                    }
+                }
+            }
+            break;
+        }
+        return removed;
+    };
+
+    const requestSendMessage = () => {
+        if (sendQueued) return true;
+
+        historyCursor = null;
+
+        const text = messageInput.textContent.trim();
+        if (!text && !messageInput.querySelector('.image-tag')) return false;
+
+        setTimeout(() => {
+            sendQueued = false;
+            void sendMessage();
+        }, 0);
+
+        sendQueued = true;
+        return true;
+    };
+
+    // 点击输入框时不触发全局点击逻辑（比如关闭菜单、失焦）
+    messageInput.addEventListener('click', (e) => e.stopPropagation());
+
+    // 全局点击：在合适场景下收起输入法（移动端更友好）
     document.body.addEventListener('click', (e) => {
-        // 如果有文本被选中，不要触发输入框聚焦
-        if (window.getSelection().toString()) {
+        // 如果有文本被选中，不处理
+        if (window.getSelection().toString()) return;
+
+        // 桌面端：点击聊天区域时允许“聚焦输入框”的逻辑生效，不要在这里把焦点又 blur 掉
+        if (isFinePointer() && e.target.closest('#chat-container')) {
             return;
         }
 
-        // 排除点击设置按钮、设置菜单、上下文菜单、历史页面的情况
-        if (!e.target.closest('#settings-button') &&
-            !e.target.closest('#settings-menu') &&
-            !e.target.closest('#context-menu') &&
-            !e.target.closest('#chat-list-page') &&
-            !e.target.closest('#quick-chat-settings-page')) {
+        // 排除点击设置按钮、设置菜单、上下文菜单、对话列表页面的情况
+        if (e.target.closest('#settings-button') ||
+            e.target.closest('#settings-menu') ||
+            e.target.closest('#context-menu') ||
+            e.target.closest('#chat-list-page')) {
+            return;
+        }
 
-            // 切换输入框焦点状态
-            if (document.activeElement === messageInput) {
-                messageInput.blur();
-            } else {
-                messageInput.focus();
-            }
+        // 点击输入区域之外时，如果当前在输入则收起键盘
+        if (!e.target.closest('#input-container') && document.activeElement === messageInput) {
+            messageInput.blur();
         }
     });
 
     // 监听输入框变化
-    messageInput.addEventListener('input', function() {
-        adjustTextareaHeight({
-            textarea: this,
-            config: uiConfig.textarea
-        });
+    let historyCursor = null;
+    let isHistoryNavigation = false;
+
+    messageInput.addEventListener('input', function(e) {
+        const normalizeHtml = (html) => String(html || '').replace(/\s+/g, '').toLowerCase();
+
+        if (suppressNextInput) {
+            suppressNextInput = false;
+            return;
+        }
+
+        const inLargePasteMode = performance.now() < largePasteModeUntil;
+
+        if (inLargePasteMode) {
+            scheduleLayoutUpdate();
+            if (!isHistoryNavigation) {
+                historyCursor = null;
+            }
+            return;
+        }
+
+        const currHtml = this.innerHTML;
+        const normalizedTail = normalizeHtml(currHtml.slice(-80));
+        const inputType = e?.inputType || '';
+        const isDeleteInput = typeof inputType === 'string' && inputType.startsWith('delete');
+        const isPasteLikeInput =
+            inputType === 'insertFromPaste' ||
+            inputType === 'insertFromDrop' ||
+            inputType === 'insertReplacementText';
+        const hasTrailingBreakArtifact =
+            normalizedTail.endsWith('<div><br></div>') ||
+            normalizedTail.endsWith('<br>') ||
+            normalizedTail.endsWith('<br/>');
+        const recentEnterKeydown =
+            !!lastEnterKeydownAt &&
+            !lastEnterKeydownWasShift &&
+            Date.now() - lastEnterKeydownAt < 600;
+        const looksLikeEnterInsert =
+            isEnterLikeInputEvent(e) ||
+            (!isDeleteInput && !isPasteLikeInput && recentEnterKeydown && hasTrailingBreakArtifact);
+
+        if (!isComposing && looksLikeEnterInsert && !isShiftEnter() && !shouldIgnoreEnterSend()) {
+            const removed = removeTrailingLineBreakArtifacts();
+            const hadUndo = removed ? false : execCommandUndo();
+            if (hadUndo) suppressNextInput = true;
+
+            requestSendMessage();
+
+            scheduleLayoutUpdate();
+
+            // 用户主动输入会退出历史回溯模式
+            if (!isHistoryNavigation) {
+                historyCursor = null;
+            }
+
+            // 处理 placeholder 的显示
+            if (this.textContent.trim() === '' && !this.querySelector('.image-tag')) {
+                clearEditableContent(this);
+            }
+            return;
+        }
+
+        scheduleLayoutUpdate();
+
+        // 用户主动输入会退出历史回溯模式
+        if (!isHistoryNavigation) {
+            historyCursor = null;
+        }
 
         // 如果正在使用输入法，则不处理 placeholder
         if (isComposing) {
@@ -251,10 +542,9 @@ export function initMessageInput(config) {
         // 处理 placeholder 的显示
         if (this.textContent.trim() === '' && !this.querySelector('.image-tag')) {
             // 如果内容空且没有图片标签，清空内容以显示 placeholder
-            while (this.firstChild) {
-                this.removeChild(this.firstChild);
-            }
+            clearEditableContent(this);
         }
+
     });
 
     // 监听输入框的焦点状态
@@ -277,13 +567,6 @@ export function initMessageInput(config) {
             webpageContentMenu.classList.remove('visible');
         }
 
-        // 输入框获得焦点，阻止事件冒泡
-        messageInput.addEventListener('click', (e) => e.stopPropagation());
-    });
-
-    messageInput.addEventListener('blur', () => {
-        // 输入框失去焦点时，移除点击事件监听
-        messageInput.removeEventListener('click', (e) => e.stopPropagation());
     });
 
     // 处理换行和输入
@@ -295,33 +578,112 @@ export function initMessageInput(config) {
         isComposing = false;
     });
 
+    messageInput.addEventListener('beforeinput', (e) => {
+        if (isComposing) return;
+
+        if (e?.inputType && e.inputType.startsWith('delete')) {
+            try {
+                const selection = window.getSelection();
+                if (selection?.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    const hasSelection = range && !range.collapsed;
+                    if (hasSelection && messageInput.contains(range.commonAncestorContainer)) {
+                        const fullRange = document.createRange();
+                        fullRange.selectNodeContents(messageInput);
+                        const isFullSelection =
+                            range.compareBoundaryPoints(Range.START_TO_START, fullRange) === 0 &&
+                            range.compareBoundaryPoints(Range.END_TO_END, fullRange) === 0;
+                        if (isFullSelection && (messageInput.textContent || '').length >= LARGE_TEXT_PASTE_THRESHOLD) {
+                            if (e.cancelable) e.preventDefault();
+                            fastClearMessageInput();
+                            messageInput.dispatchEvent(new Event('input'));
+                            return;
+                        }
+                    }
+                }
+            } catch {
+                // ignore
+            }
+        }
+
+        if (!isEnterLikeInputEvent(e)) return;
+        if (isShiftEnter()) return;
+
+        const htmlBefore = messageInput.innerHTML;
+
+        if (e.cancelable) {
+            e.preventDefault();
+        }
+
+        const queued = requestSendMessage();
+
+        setTimeout(() => {
+            if (!queued && messageInput.innerHTML !== htmlBefore) {
+                messageInput.innerHTML = htmlBefore;
+                if (isInputEffectivelyEmpty(messageInput)) {
+                    messageInput.dispatchEvent(new Event('input'));
+                }
+            }
+        }, 0);
+    });
+
     messageInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        const isEnter =
+            e.key === 'Enter' ||
+            e.code === 'Enter' ||
+            e.keyCode === 13 ||
+            e.which === 13;
+
+        if (isEnter) {
+            lastEnterKeydownAt = Date.now();
+            lastEnterKeydownWasShift = !!e.shiftKey;
+        }
+
+        if (isEnter && !e.shiftKey) {
             if (isComposing) {
                 // 如果正在使用输入法，不发送消息
                 return;
             }
             e.preventDefault();
-            const text = this.textContent.trim();
-            if (text || this.querySelector('.image-tag')) {  // 检查是否有文本或图片
-                sendMessage();
-            }
+            requestSendMessage();
         } else if (e.key === 'Escape') {
             // 按 ESC 键时让输入框失去焦点
             messageInput.blur();
-        } else if (e.key === 'ArrowUp' && e.target.textContent.trim() === '') {
-            // 处理输入框特定的键盘事件
-            // 当按下向上键且输入框为空时
-            e.preventDefault(); // 阻止默认行为
+        } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+            // 空输入框：上下方向键循环历史问题；进入历史模式后继续可上下切换；向下到末尾回到空输入框
+            const empty = isInputEffectivelyEmpty(e.target);
 
-            // 如果有历史记录
-            if (userQuestions.length > 0) {
-                // 获取最后一个问题
-                e.target.textContent = userQuestions[userQuestions.length - 1];
-                // 触发入事件以调整高度
+            // ArrowUp：仅在“空输入框”或“已在历史模式”时接管，避免影响多行编辑/光标移动
+            if (e.key === 'ArrowUp' && userQuestions.length > 0 && (empty || historyCursor !== null)) {
+                e.preventDefault();
+                isHistoryNavigation = true;
+                if (historyCursor === null) {
+                    historyCursor = userQuestions.length - 1;
+                } else {
+                    historyCursor = Math.max(0, historyCursor - 1);
+                }
+                e.target.textContent = userQuestions[historyCursor] || '';
                 e.target.dispatchEvent(new Event('input', { bubbles: true }));
-                // 移动光标到末尾
                 moveCaretToEnd(e.target);
+                isHistoryNavigation = false;
+                return;
+            }
+
+            // ArrowDown：仅在历史模式下接管
+            if (e.key === 'ArrowDown' && historyCursor !== null) {
+                e.preventDefault();
+                isHistoryNavigation = true;
+                if (historyCursor < userQuestions.length - 1) {
+                    historyCursor += 1;
+                    e.target.textContent = userQuestions[historyCursor] || '';
+                } else {
+                    historyCursor = null;
+                    e.target.textContent = '';
+                }
+                e.target.dispatchEvent(new Event('input', { bubbles: true }));
+                moveCaretToEnd(e.target);
+                isHistoryNavigation = false;
+                return;
             }
         } else if ((e.key === 'Backspace' || e.key === 'Delete')) {
             // 处理图片标签的删除
@@ -355,18 +717,18 @@ export function initMessageInput(config) {
 
     // 粘贴事件处理
     messageInput.addEventListener('paste', async (e) => {
-        e.preventDefault(); // 阻止默认粘贴行为
+        // 粘贴文本可能以换行结尾，这不应触发“回车发送”的逻辑
+        ignoreEnterSendFor(200);
 
         const items = Array.from(e.clipboardData.items);
         const imageItem = items.find(item => item.type.startsWith('image/'));
 
         if (imageItem) {
+            e.preventDefault(); // 阻止默认粘贴行为
             // 处理图片粘贴
             const file = imageItem.getAsFile();
-            const reader = new FileReader();
-
-            reader.onload = async () => {
-                const base64Data = reader.result;
+            try {
+                const base64Data = await readImageFileAsDataUrl(file);
                 const imageTag = createImageTag({
                     base64Data,
                     fileName: file.name,
@@ -375,7 +737,11 @@ export function initMessageInput(config) {
 
                 // 在光标位置插入图片标签
                 const selection = window.getSelection();
-                const range = selection.getRangeAt(0);
+                const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : document.createRange();
+                if (selection.rangeCount === 0) {
+                    range.selectNodeContents(messageInput);
+                    range.collapse(false);
+                }
                 range.deleteContents();
                 range.insertNode(imageTag);
 
@@ -389,20 +755,39 @@ export function initMessageInput(config) {
                 // 移除可能存在的多余行
                 const brElements = messageInput.getElementsByTagName('br');
                 Array.from(brElements).forEach(br => {
-                    if (br.previousSibling && br.previousSibling.classList && br.previousSibling.classList.contains('image-tag')) {
+                    if (br.previousSibling?.classList?.contains('image-tag')) {
                         br.remove();
                     }
                 });
 
                 // 触发输入事件以调整高度
                 messageInput.dispatchEvent(new Event('input'));
-            };
-
-            reader.readAsDataURL(file);
+            } catch (error) {
+                console.error('处理粘贴图片失败:', error);
+                showToast(error?.message || t('toast_handle_image_failed'), { type: 'error' });
+            }
         } else {
             // 处理文本粘贴
             const text = e.clipboardData.getData('text/plain');
-            document.execCommand('insertText', false, text);
+            if (text) {
+                if (text.length >= LARGE_TEXT_PASTE_THRESHOLD) {
+                    e.preventDefault();
+                    largePasteModeUntil = performance.now() + 2000;
+                    setTimeout(() => {
+                        insertPlainTextAtSelection(messageInput, text);
+                        messageInput.dispatchEvent(new Event('input'));
+                    }, 0);
+                    return;
+                }
+
+                e.preventDefault();
+                // 优先使用 execCommand 以确保进入原生撤销栈（Cmd/Ctrl+Z 能先撤销粘贴内容）
+                const ok = execCommandInsertText(messageInput, text);
+                if (!ok) {
+                    insertPlainTextAtSelection(messageInput, text);
+                }
+                messageInput.dispatchEvent(new Event('input'));
+            }
         }
     });
 
@@ -426,12 +811,14 @@ export function initMessageInput(config) {
             },
             onError: (error) => {
                 console.error('处理拖放事件失败:', error);
+                showToast(error?.message || t('toast_handle_image_failed'), { type: 'error' });
             }
         });
     });
 
     // 初始化时同步一次，避免输入栏高度变化导致底部消息被遮挡
     initAnimatedFakeCaret(messageInput);
+    syncChatBottomExtraPadding();
 }
 
 /**
@@ -443,26 +830,12 @@ export function initMessageInput(config) {
  */
 export function setPlaceholder({ messageInput, placeholder, timeout }) {
     if (messageInput) {
-        const originalPlaceholder = messageInput.getAttribute('data-original-placeholder') || '输入消息...';
         messageInput.setAttribute('placeholder', placeholder);
         if (timeout) {
             setTimeout(() => {
-                messageInput.setAttribute('placeholder', originalPlaceholder);
+                messageInput.setAttribute('placeholder', t('message_input_placeholder'));
             }, timeout);
         }
-    }
-}
-
-/**
- * 更新输入框的永久 placeholder
- * @param {HTMLElement} messageInput - 消息输入框元素
- * @param {string} modelName - 当前模型的名称
- */
-export function updatePermanentPlaceholder(messageInput, modelName) {
-    if (messageInput) {
-        const placeholder = `向 ${modelName} 发送消息`;
-        messageInput.setAttribute('placeholder', placeholder);
-        messageInput.setAttribute('data-original-placeholder', placeholder);
     }
 }
 
@@ -534,13 +907,14 @@ export function clearMessageInput(messageInput, config) {
         textarea: messageInput,
         config: config.textarea
     });
+    syncChatBottomExtraPadding();
 }
 
 /**
  * 将光标移动到元素末尾
  * @param {HTMLElement} element - 要操作的元素
  */
-function moveCaretToEnd(element) {
+export function moveCaretToEnd(element) {
     const range = document.createRange();
     range.selectNodeContents(element);
     range.collapse(false);
@@ -604,12 +978,7 @@ export function handleWindowMessage(event, config) {
         }
     } else if (event.data.type === 'FOCUS_INPUT') {
         messageInput.focus();
-        const range = document.createRange();
-        range.selectNodeContents(messageInput);
-        range.collapse(false);
-        const selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
+        moveCaretToEnd(messageInput);
     } else if (event.data.type === 'UPDATE_PLACEHOLDER') {
         setPlaceholder({
             messageInput,

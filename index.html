@@ -140,7 +140,10 @@
                 </svg>
             </div>
         </div>
-        <div id="message-input" contenteditable="true" placeholder="输入消息..." role="textbox"></div>
+        <div id="message-input-shell" class="message-input-shell">
+            <div id="message-input" contenteditable="true" placeholder="输入消息..." enterkeyhint="send" role="textbox" aria-label="消息输入框" aria-multiline="true" spellcheck="true"></div>
+            <div class="fake-caret" aria-hidden="true"></div>
+        </div>
     </div>
     <div id="chat-list-page">
         <div class="settings-header">
