@@ -15,11 +15,15 @@
     "storage",
     "commands",
     "scripting",
+    "sidePanel",
     "activeTab",
     "tabs",
     "webRequest",
     "unlimitedStorage"
   ],
+  "side_panel": {
+    "default_path": "index.html"
+  },
   "host_permissions": ["<all_urls>", "file:///*"],
   "action": {
     "default_title": "打开 Cerebr 侧边栏",

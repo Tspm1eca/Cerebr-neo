@@ -506,6 +506,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     const themeSwitch = document.getElementById('theme-switch');
     const sendWebpageSwitch = document.getElementById('send-webpage-switch');
 
+    const sidePanelToggle = document.getElementById('side-panel-toggle');
+
+    // 检查是否在 Side Panel 中运行
+    const isSidePanel = window.location.protocol === 'chrome-extension:' && window.self === window.top;
+
+    if (sidePanelToggle) {
+        // 更新按钮状态或文本
+        if (isSidePanel) {
+            sidePanelToggle.querySelector('span').textContent = '悬浮窗模式';
+        } else {
+            sidePanelToggle.querySelector('span').textContent = '侧边栏模式';
+        }
+
+        sidePanelToggle.addEventListener('click', async () => {
+            try {
+                if (!isSidePanel) {
+                    // 如果在 iframe 中，先尝试本地打开 Side Panel (利用当前的用户点击手势)
+                    try {
+                        const window = await chrome.windows.getCurrent();
+                        // 只有当 API 可用时才调用
+                        if (chrome.sidePanel && chrome.sidePanel.open) {
+                            await chrome.sidePanel.open({ windowId: window.id });
+                        }
+                    } catch (e) {
+                        console.log('本地打开 Side Panel 失败 (将由 background 尝试或等待用户点击):', e);
+                    }
+                }
+
+                const targetMode = isSidePanel ? 'iframe' : 'side_panel';
+                await chrome.runtime.sendMessage({
+                    type: 'SWITCH_MODE',
+                    mode: targetMode
+                });
+
+                // 如果当前是 Side Panel，尝试关闭自己
+                if (isSidePanel) {
+                    window.close();
+                }
+            } catch (error) {
+                console.error('切换模式失败:', error);
+            }
+        });
+    }
+
     // 创建主题配置对象
     const themeConfig = {
         root: document.documentElement,

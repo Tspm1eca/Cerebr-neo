@@ -285,6 +285,12 @@ class CerebrSidebar {
     }
   }
 
+  setVisible(visible) {
+    if (!this.initialized) return;
+    if (this.isVisible === visible) return;
+    this.toggle();
+  }
+
   setupDragAndDrop() {
     // console.log('初始化拖放功能');
 
@@ -420,6 +426,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         } catch (error) {
             console.error('处理切换命令失败:', error);
             sendResponse({ success: false, error: error.message });
+        }
+        return true;
+    }
+
+    if (message.type === 'SET_SIDEBAR_VISIBLE') {
+        if (sidebar) {
+            sidebar.setVisible(message.visible);
+            sendResponse({ success: true, status: sidebar.isVisible });
         }
         return true;
     }

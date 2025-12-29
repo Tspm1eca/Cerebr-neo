@@ -268,6 +268,67 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // 处理模式切换
+  if (message.type === 'SWITCH_MODE') {
+      (async () => {
+          try {
+              // 获取当前窗口ID，优先使用 sender.tab 的 windowId，否则获取当前窗口
+              let windowId;
+              if (sender.tab) {
+                  windowId = sender.tab.windowId;
+              } else {
+                  const currentWindow = await chrome.windows.getCurrent();
+                  windowId = currentWindow.id;
+              }
+
+              if (message.mode === 'side_panel') {
+                  // 切换到 Side Panel 模式
+                  // 设置点击图标打开 Side Panel
+                  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+
+                  // 关闭当前页面可能存在的 iframe 侧边栏
+                  if (sender.tab) {
+                      await chrome.tabs.sendMessage(sender.tab.id, { type: 'SET_SIDEBAR_VISIBLE', visible: false });
+                  } else {
+                      const [tab] = await chrome.tabs.query({ active: true, windowId });
+                      if (tab) {
+                          await chrome.tabs.sendMessage(tab.id, { type: 'SET_SIDEBAR_VISIBLE', visible: false });
+                      }
+                  }
+
+                  // 尝试打开 Side Panel (需要用户交互，如果是在点击事件中触发可能成功)
+                  try {
+                       await chrome.sidePanel.open({ windowId });
+                  } catch (e) {
+                      console.log('无法自动打开 Side Panel (可能需要用户点击扩展图标):', e);
+                  }
+
+              } else {
+                  // 切换到悬浮窗 (Iframe) 模式
+                  // 设置点击图标不再打开 Side Panel (恢复默认行为: 触发 action onClicked)
+                  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
+
+                  // 打开 iframe 侧边栏
+                  const [tab] = await chrome.tabs.query({ active: true, windowId });
+                  if (tab) {
+                      // 首先确保 content script 已注入
+                      const isConnected = await isTabConnected(tab.id);
+                      if (!isConnected) {
+                          await reinjectContentScript(tab.id);
+                      }
+                      await chrome.tabs.sendMessage(tab.id, { type: 'SET_SIDEBAR_VISIBLE', visible: true });
+                  }
+              }
+
+              sendResponse({ success: true });
+          } catch (error) {
+              console.error('切换模式失败:', error);
+              sendResponse({ success: false, error: error.message });
+          }
+      })();
+      return true;
+  }
+
   return false;
 });
 
