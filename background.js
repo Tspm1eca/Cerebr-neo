@@ -104,9 +104,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 chrome.commands.onCommand.addListener(async (command) => {
   console.log('onCommand:', command);
 
-  if (command === 'toggle_sidebar') {
-    await handleTabCommand('TOGGLE_SIDEBAR_toggle_sidebar');
-  } else if (command === 'new_chat') {
+  if (command === 'new_chat') {
     await handleTabCommand('NEW_CHAT');
   }
 });

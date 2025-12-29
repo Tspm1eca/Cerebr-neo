@@ -34,13 +34,12 @@
     }
   },
   "commands": {
-    "toggle_sidebar": {
+    "_execute_action": {
       "suggested_key": {
         "default": "Alt+Z",
         "windows": "Alt+Z",
         "mac": "MacCtrl+Z"
-      },
-      "description": "打开/关闭 Cerebr 侧边栏"
+      }
     },
     "new_chat": {
       "suggested_key": {

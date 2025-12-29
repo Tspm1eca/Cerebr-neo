@@ -414,7 +414,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     // 处理侧边栏切换命令
-    if (message.type === 'TOGGLE_SIDEBAR_onClicked' || message.type === 'TOGGLE_SIDEBAR_toggle_sidebar') {
+    if (message.type === 'TOGGLE_SIDEBAR_onClicked') {
         try {
             if (sidebar) {
                 sidebar.toggle();
