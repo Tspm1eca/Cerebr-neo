@@ -28,28 +28,12 @@ jobs:
             -x "README*" \
             -x "manifest.firefox.json"
 
-      - name: Create Firefox ZIP file
-        run: |
-          mv manifest.json manifest.json.bak
-          cp manifest.firefox.json manifest.json
-          zip -r cerebr-firefox.zip . \
-            -x "*.git*" \
-            -x "*.github*" \
-            -x "*.DS_Store" \
-            -x "README*" \
-            -x "manifest.firefox.json" \
-            -x "manifest.json.bak" \
-            -x "cerebr.zip"
-          # Restore original manifest
-          mv manifest.json.bak manifest.json
-
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             cerebr.zip
-            cerebr-firefox.zip
           draft: false
           prerelease: false
           generate_release_notes: true
