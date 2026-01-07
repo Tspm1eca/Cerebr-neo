@@ -10,6 +10,8 @@
     width: var(--sidebar-width);
     height: calc(100vh - 40px);
     background: var(--cerebr-bg-color);
+    /* Ensure solid/semi-transparent background without blur for performance */
+    background-color: rgba(255, 255, 255, 0.95);
     color: var(--cerebr-text-color);
     z-index: 2147483647;
     border-radius: 12px;
@@ -22,6 +24,15 @@
     contain: style layout size;
     isolation: isolate;
     opacity: 0;
+    /* Force GPU acceleration */
+    will-change: transform;
+    transform: translateZ(0);
+}
+
+@media (prefers-color-scheme: dark) {
+    .cerebr-sidebar {
+        background-color: rgba(38, 43, 51, 0.95);
+    }
 }
 
 .cerebr-sidebar.initialized {
