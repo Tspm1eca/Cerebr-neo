@@ -25,12 +25,6 @@ const DEFAULT_QUICK_CHAT_OPTIONS = [
         title: '列出新聞',
         prompt: '```\n**核心指令**\n你會收到網頁內容和對應的網址參考 `(URLREF1)`、`(URLREF2)` 等。在你的回覆中，請嚴格遵守以下兩種連結格式：\n1.  **引用鏈接 (`cite`)**:\n    *   當你從文章中**引用一個完整的句子**時，使用格式 `[編號](cite:引用的原文句子)`。\n    *   `編號` 應從 `1` 開始，並依序遞增。\n    *   `引用的原文句子` 必須與來源內容完全一致，不可修改。\n\n2.  **原文標題鏈接 (`URLREF`)**:\n    *   當你需要連結到新聞的原始網頁時，使用格式 `[原文標題](URLREF編號)`。\n    *   直接使用提供的 `URLREF` 編號。\n\n**你的任務**\n以表格方式列出不少於20條最重要的新聞。\n*   表格標題必須是：「中文標題+引用鏈接」、「原文標題」。\n*   在「中文標題+引用鏈接」欄中，附上至少一個從該新聞摘要或內文中提取的引用鏈接。\n*   在「原文標題」欄中，使用 `URLREF` 格式創建指向原文的連結。\n\n**表格範例格式**\n| 中文標題+引用鏈接 | 原文標題 |\n| :--- | :--- |\n| 這是第一則新聞的中文標題 [1](cite:This is a direct quote from the first news article.) | [Original Title of First News](URLREF1) |\n| 這是第二則新聞的中文標題 [2](cite:This is a quote from the second article.) [3](cite:This is another quote from the second article.) | [Original Title of Second News](URLREF2) |\n```',
         icon: '📰'
-    },
-    {
-        id: 'option-4',
-        title: '代码解释',
-        prompt: '请解释这段代码的功能',
-        icon: '💻'
     }
 ];
 
@@ -190,10 +184,12 @@ export async function initQuickChat({
 
         confirmReset1.addEventListener('click', () => {
             modal1.style.display = 'none';
-            quickChatOptions = [...DEFAULT_QUICK_CHAT_OPTIONS];
+            // 使用深拷貝確保完全重置，避免引用問題
+            quickChatOptions = JSON.parse(JSON.stringify(DEFAULT_QUICK_CHAT_OPTIONS));
             saveQuickChatOptions();
             renderQuickChatOptions();
             renderSettingsOptions();
+            updateAddButtonState(); // 更新添加按钮状态
         });
 
         // 渲染設置選項
