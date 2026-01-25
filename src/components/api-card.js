@@ -323,7 +323,7 @@ function createAPICard({
        const baseUrl = baseUrlInput.value;
 
        if (!apiKey || !baseUrl || !modelName) {
-           alert('请输入 API Key, Base URL, 和模型名称');
+           showToast('请输入 API Key, Base URL, 和模型名称', 'error');
            return;
        }
 
@@ -345,7 +345,7 @@ function createAPICard({
                 body: JSON.stringify({
                     model: modelName,
                     messages: [{ role: 'user', content: 'ok，你好' }],
-                    max_tokens: 10,
+                    max_tokens: 50,
                     stream: false
                 })
             });
@@ -369,7 +369,7 @@ function createAPICard({
 
         } catch (error) {
             console.error('Test connection error:', error);
-            alert(`连接失败: ${error.message}`);
+            showToast(`连接失败: ${error.message}`, 'error');
             button.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -382,6 +382,23 @@ function createAPICard({
                button.innerHTML = originalBtnContent;
             }, 3000);
         }
+    }
+
+    // 显示 Toast 提示
+    function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = type === 'success' ? 'success-toast' : 'error-toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        // 2.7秒后开始淡出动画，3秒后移除提示
+        setTimeout(() => {
+            toast.classList.add('fade-out');
+        }, 2700);
+
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
     }
 
     document.addEventListener('click', (e) => {

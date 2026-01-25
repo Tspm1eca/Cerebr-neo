@@ -228,6 +228,13 @@
     font-size: 14px;
     z-index: 2000;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: toast-fade-in 0.3s ease-out;
+    transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+}
+
+.success-toast.fade-out, .error-toast.fade-out {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
 }
 
 .success-toast {
@@ -236,4 +243,15 @@
 
 .error-toast {
     background-color: #f44336;
+}
+
+@keyframes toast-fade-in {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
 }

@@ -276,7 +276,11 @@ export function initializeChatList({
                 successMessage.textContent = '所有对话已清除';
                 document.body.appendChild(successMessage);
 
-                // 3秒後移除提示
+                // 2.7秒後開始淡出動畫，3秒後移除提示
+                setTimeout(() => {
+                    successMessage.classList.add('fade-out');
+                }, 2700);
+
                 setTimeout(() => {
                     successMessage.remove();
                 }, 3000);
@@ -290,7 +294,11 @@ export function initializeChatList({
                 errorMessage.textContent = '清除对话失败: ' + error.message;
                 document.body.appendChild(errorMessage);
 
-                // 3秒後移除提示
+                // 2.7秒後開始淡出動畫，3秒後移除提示
+                setTimeout(() => {
+                    errorMessage.classList.add('fade-out');
+                }, 2700);
+
                 setTimeout(() => {
                     errorMessage.remove();
                 }, 3000);
