@@ -251,27 +251,71 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (!currentChat) return;
 
             const domMessages = Array.from(chatContainer.querySelectorAll('.user-message, .ai-message'));
+            const userMessageDomIndex = domMessages.indexOf(userMessageElement);
             const aiMessageDomIndex = domMessages.indexOf(aiMessageElement);
 
             // 通过比较DOM和历史记录中的消息数量，判断是否在从一个临时错误消息中重新生成
             const historyMessages = currentChat.messages.filter(m => ['user', 'assistant'].includes(m.role));
+
             if (domMessages.length === historyMessages.length && aiMessageDomIndex !== -1) {
                 // 正常情况：重新生成一个已保存的响应。
                 // 我们需要从历史记录中删除旧的响应。
                 currentChat.messages.splice(aiMessageDomIndex);
-            } else if (domMessages.length === historyMessages.length + 2) {
-                currentChat.messages.push({
-                    role: 'user',
-                    content: userMessageElement.textContent
-                });
+            } else if (domMessages.length > historyMessages.length) {
+                // 错误情况：DOM中有比历史记录更多的消息
+                // 这意味着用户消息可能已经从历史记录中被移除（发送失败时）
+                // 我们需要重新添加用户消息到历史记录
+
+                // 获取用户消息的原始内容（包括图片）
+                const userMessageContent = userMessageElement.getAttribute('data-original-text');
+                const imageTags = userMessageElement.querySelectorAll('.image-tag');
+
+                let content;
+                if (imageTags.length > 0) {
+                    content = [];
+                    if (userMessageContent && userMessageContent.trim()) {
+                        content.push({
+                            type: "text",
+                            text: userMessageContent
+                        });
+                    }
+                    imageTags.forEach(tag => {
+                        const base64Data = tag.getAttribute('data-image');
+                        if (base64Data) {
+                            content.push({
+                                type: "image_url",
+                                image_url: {
+                                    url: base64Data
+                                }
+                            });
+                        }
+                    });
+                } else {
+                    content = userMessageContent || userMessageElement.textContent;
+                }
+
+                // 检查历史记录中是否已经有这条用户消息
+                // 通过比较索引位置来判断
+                if (userMessageDomIndex >= historyMessages.length ||
+                    historyMessages[userMessageDomIndex]?.role !== 'user') {
+                    currentChat.messages.push({
+                        role: 'user',
+                        content: content
+                    });
+                }
             }
-            // 错误情况：如果 domMessages.length > historyMessages.length，
-            // 意味着最后一个消息是未保存的错误消息。
-            // 在这种情况下，我们不修改历史记录，因为它已经是正确的了。
             chatManager.saveChats();
 
-            // 从DOM中移除AI消息（无论是错误消息还是旧的成功消息）及其之后的所有消息
-            domMessages.slice(currentChat.messages.length).forEach(el => el.remove());
+            // 只移除AI消息（错误消息或旧的成功消息），保留用户消息
+            if (aiMessageElement) {
+                aiMessageElement.remove();
+            }
+            // 移除AI消息之后的所有消息（如果有的话）
+            const remainingDomMessages = Array.from(chatContainer.querySelectorAll('.user-message, .ai-message'));
+            const newUserMessageIndex = remainingDomMessages.indexOf(userMessageElement);
+            if (newUserMessageIndex !== -1) {
+                remainingDomMessages.slice(newUserMessageIndex + 1).forEach(el => el.remove());
+            }
 
             const messagesToResend = currentChat.messages;
 
