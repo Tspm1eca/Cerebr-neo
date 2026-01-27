@@ -108,10 +108,19 @@
             </div>
             <div class="menu-item" id="web-search-toggle">
                 <span>网络搜索</span>
-                <label class="switch">
-                    <input type="checkbox" id="web-search-switch">
-                    <span class="slider"></span>
-                </label>
+                <button class="tri-state-button" id="web-search-switch" data-value="off" title="点击切换：关闭 → 自动 → 开启">
+                    <svg class="icon-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                    <svg class="icon-auto" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+                    </svg>
+                    <svg class="icon-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                </button>
             </div>
             <div class="menu-item" id="side-panel-toggle">
                 <span>侧边栏模式</span>

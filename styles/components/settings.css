@@ -142,6 +142,63 @@ input:checked + .slider:before {
     transform: translateX(16px);
 }
 
+/* 三态按钮样式 */
+.tri-state-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 22px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background-color: var(--cerebr-toggle-bg-off);
+    color: var(--cerebr-text-color);
+}
+
+.tri-state-button:hover {
+    opacity: 0.8;
+}
+
+.tri-state-button:active {
+    transform: scale(0.95);
+}
+
+.tri-state-button svg {
+    width: 16px;
+    height: 16px;
+    display: none;
+}
+
+/* 根据 data-value 显示对应图标和颜色 */
+.tri-state-button[data-value="off"] {
+    background-color: var(--cerebr-toggle-bg-off);
+    color: var(--cerebr-text-color);
+}
+
+.tri-state-button[data-value="off"] .icon-off {
+    display: block;
+}
+
+.tri-state-button[data-value="auto"] {
+    background-color: #f59e0b;
+    color: #fff;
+}
+
+.tri-state-button[data-value="auto"] .icon-auto {
+    display: block;
+}
+
+.tri-state-button[data-value="on"] {
+    background-color: var(--cerebr-toggle-bg-on);
+    color: #fff;
+}
+
+.tri-state-button[data-value="on"] .icon-on {
+    display: block;
+}
+
 /* 高级设置区域样式 */
 .advanced-settings {
     margin-top: 0;

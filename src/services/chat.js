@@ -8,7 +8,28 @@
  */
 
 import { DEFAULT_SYSTEM_PROMPT } from '../components/api-card.js';
-import { tavilySearch, formatSearchResultsForPrompt } from './tavily.js';
+import { tavilySearch, formatSearchResultsForPrompt, extractSearchQuery } from './tavily.js';
+
+/**
+ * 网络搜索工具定义（用于 Function Calling）
+ */
+const WEB_SEARCH_TOOL = {
+    type: "function",
+    function: {
+        name: "web_search",
+        description: "搜索网络获取最新信息。当用户询问时事新闻、最新数据、实时信息、天气、股价、或你不确定的事实时使用此工具。不要用于一般性知识问题。",
+        parameters: {
+            type: "object",
+            properties: {
+                query: {
+                    type: "string",
+                    description: "搜索查询关键词，应该简洁明确"
+                }
+            },
+            required: ["query"]
+        }
+    }
+};
 
 /**
  * 网页信息接口
@@ -112,6 +133,11 @@ function restoreUrls(text, idToUrlMap) {
 }
 
 /**
+ * 网络搜索模式
+ * @typedef {'off' | 'auto' | 'on'} WebSearchMode
+ */
+
+/**
  * 调用API发送消息并处理响应
  * @param {APIParams} params - API调用参数
  * @param {Object} chatManager - 聊天管理器实例
@@ -124,7 +150,7 @@ export async function callAPI({
     apiConfig,
     userLanguage,
     webpageInfo = null,
-    enableWebSearch = false,
+    webSearchMode = 'off',
     searchQuery = null,
     tavilyApiKey = null
 }, chatManager, chatId, onMessageUpdate) {
@@ -155,17 +181,21 @@ export async function callAPI({
         systemMessageContent = `${systemPrompt}${pagesContent}`;
     }
 
-    // 处理网络搜索
-    if (enableWebSearch && tavilyApiKey) {
+    // 处理网络搜索 - 根据模式决定行为
+    // 'on' 模式：直接执行搜索
+    // 'auto' 模式：使用 Function Calling 让 AI 决定
+    // 'off' 模式：不搜索
+    if (webSearchMode === 'on' && tavilyApiKey) {
         try {
             // 获取搜索查询：使用自定义查询或最后一条用户消息
             let query = searchQuery;
             if (!query) {
                 const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
                 if (lastUserMessage) {
-                    query = typeof lastUserMessage.content === 'string'
+                    const rawQuery = typeof lastUserMessage.content === 'string'
                         ? lastUserMessage.content
                         : lastUserMessage.content.find(c => c.type === 'text')?.text || '';
+                    query = extractSearchQuery(rawQuery);
                 }
             }
 
@@ -194,9 +224,12 @@ export async function callAPI({
             console.error('Tavily 搜索失败:', error);
             // 搜索失败不应阻止 API 调用，继续执行
         }
-    } else if (enableWebSearch && !tavilyApiKey) {
+    } else if (webSearchMode === 'on' && !tavilyApiKey) {
         console.warn('网络搜索已启用，但未设置 Tavily API Key');
     }
+
+    // 判断是否使用 Function Calling（自动模式）
+    const useToolCalling = webSearchMode === 'auto' && tavilyApiKey;
 
     const systemMessage = {
         role: "system",
@@ -231,17 +264,26 @@ export async function callAPI({
     const controller = new AbortController();
     const signal = controller.signal;
 
+    // 构建请求体
+    const requestBody = {
+        model: apiConfig.modelName || "gpt-4o",
+        messages: processedMessages,
+        stream: true,
+    };
+
+    // 如果是自动模式，添加工具定义
+    if (useToolCalling) {
+        requestBody.tools = [WEB_SEARCH_TOOL];
+        requestBody.tool_choice = "auto";
+    }
+
     const response = await fetch(apiConfig.baseUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiConfig.apiKey}`
         },
-        body: JSON.stringify({
-            model: apiConfig.modelName || "gpt-4o",
-            messages: processedMessages,
-            stream: true,
-        }),
+        body: JSON.stringify(requestBody),
         signal
     });
 
@@ -264,6 +306,10 @@ export async function callAPI({
             let updateTimeout = null;
             const UPDATE_INTERVAL = 100; // 每100ms更新一次
             let isThinking = false; // 新增状态：用于跟踪是否在<think>标签内
+
+            // Function Calling 相关状态
+            let toolCalls = [];
+            let currentToolCall = null;
 
             const dispatchUpdate = () => {
                 if (chatManager && chatId) {
@@ -324,8 +370,33 @@ export async function callAPI({
                         }
 
                         try {
-                            const delta = JSON.parse(data).choices[0]?.delta;
+                            const parsed = JSON.parse(data);
+                            const delta = parsed.choices[0]?.delta;
+                            const finishReason = parsed.choices[0]?.finish_reason;
                             let hasUpdate = false;
+
+                            // 处理 tool_calls
+                            if (delta?.tool_calls) {
+                                for (const toolCallDelta of delta.tool_calls) {
+                                    const index = toolCallDelta.index;
+
+                                    // 初始化新的 tool call
+                                    if (toolCallDelta.id) {
+                                        toolCalls[index] = {
+                                            id: toolCallDelta.id,
+                                            type: toolCallDelta.type,
+                                            function: {
+                                                name: toolCallDelta.function?.name || '',
+                                                arguments: toolCallDelta.function?.arguments || ''
+                                            }
+                                        };
+                                        currentToolCall = toolCalls[index];
+                                    } else if (currentToolCall && toolCallDelta.function?.arguments) {
+                                        // 累积 arguments
+                                        toolCalls[index].function.arguments += toolCallDelta.function.arguments;
+                                    }
+                                }
+                            }
 
                             // 优先处理原生reasoning_content
                             if (delta?.reasoning_content) {
@@ -385,6 +456,142 @@ export async function callAPI({
                             }
                         } catch (e) {
                             console.error('解析数据时出错:', e);
+                        }
+                    }
+                }
+            }
+
+            // 检查是否有 tool calls 需要处理
+            if (toolCalls.length > 0 && useToolCalling) {
+                console.log('AI 决定调用工具:', toolCalls);
+
+                // 处理每个 tool call
+                for (const toolCall of toolCalls) {
+                    if (toolCall.function.name === 'web_search') {
+                        try {
+                            const args = JSON.parse(toolCall.function.arguments);
+                            const searchQuery = args.query;
+
+                            console.log('执行 AI 请求的网络搜索:', searchQuery);
+
+                            // 显示搜索状态
+                            currentMessage.content = `🔍 正在搜索: "${searchQuery}"...\n\n`;
+                            if (chatManager && chatId) {
+                                const messageCopy = { ...currentMessage };
+                                if (messageCopy.content) {
+                                    messageCopy.content = restoreUrls(messageCopy.content, idToUrlMap);
+                                }
+                                chatManager.updateLastMessage(chatId, messageCopy, false);
+                                onMessageUpdate(chatId, messageCopy);
+                            }
+
+                            // 执行 Tavily 搜索
+                            const searchResults = await tavilySearch({
+                                apiKey: tavilyApiKey,
+                                query: searchQuery,
+                                searchDepth: 'basic',
+                                maxResults: 5,
+                                includeAnswer: true
+                            });
+
+                            // 格式化搜索结果
+                            const formattedResults = formatSearchResultsForPrompt(searchResults, userLanguage);
+
+                            // 构建包含工具结果的新消息列表
+                            const messagesWithToolResult = [
+                                ...processedMessages,
+                                {
+                                    role: 'assistant',
+                                    content: null,
+                                    tool_calls: toolCalls.map(tc => ({
+                                        id: tc.id,
+                                        type: tc.type,
+                                        function: {
+                                            name: tc.function.name,
+                                            arguments: tc.function.arguments
+                                        }
+                                    }))
+                                },
+                                {
+                                    role: 'tool',
+                                    tool_call_id: toolCall.id,
+                                    content: formattedResults || '搜索未返回结果'
+                                }
+                            ];
+
+                            // 发起第二次 API 调用获取最终回答
+                            const secondResponse = await fetch(apiConfig.baseUrl, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${apiConfig.apiKey}`
+                                },
+                                body: JSON.stringify({
+                                    model: apiConfig.modelName || "gpt-4o",
+                                    messages: messagesWithToolResult,
+                                    stream: true,
+                                }),
+                                signal
+                            });
+
+                            if (!secondResponse.ok) {
+                                const error = await secondResponse.text();
+                                throw new Error(error);
+                            }
+
+                            // 处理第二次响应的流
+                            const secondReader = secondResponse.body.getReader();
+                            let secondBuffer = '';
+                            currentMessage.content = ''; // 清空搜索状态消息
+
+                            while (true) {
+                                const { done: secondDone, value: secondValue } = await secondReader.read();
+                                if (secondDone) break;
+
+                                const secondChunk = new TextDecoder().decode(secondValue);
+                                secondBuffer += secondChunk;
+
+                                let secondNewlineIndex;
+                                while ((secondNewlineIndex = secondBuffer.indexOf('\n')) !== -1) {
+                                    const secondLine = secondBuffer.slice(0, secondNewlineIndex);
+                                    secondBuffer = secondBuffer.slice(secondNewlineIndex + 1);
+
+                                    if (secondLine.startsWith('data: ')) {
+                                        const secondData = secondLine.slice(6);
+                                        if (secondData === '[DONE]') continue;
+
+                                        try {
+                                            const secondDelta = JSON.parse(secondData).choices[0]?.delta;
+
+                                            if (secondDelta?.reasoning_content) {
+                                                currentMessage.reasoning_content += secondDelta.reasoning_content;
+                                            }
+
+                                            if (secondDelta?.content) {
+                                                currentMessage.content += secondDelta.content;
+                                            }
+
+                                            // 更新 UI
+                                            if (chatManager && chatId) {
+                                                const messageCopy = { ...currentMessage };
+                                                if (messageCopy.content) {
+                                                    messageCopy.content = restoreUrls(messageCopy.content, idToUrlMap);
+                                                }
+                                                if (messageCopy.reasoning_content) {
+                                                    messageCopy.reasoning_content = restoreUrls(messageCopy.reasoning_content, idToUrlMap);
+                                                }
+                                                chatManager.updateLastMessage(chatId, messageCopy, false);
+                                                onMessageUpdate(chatId, messageCopy);
+                                            }
+                                        } catch (e) {
+                                            console.error('解析第二次响应数据时出错:', e);
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.error('处理 web_search tool call 失败:', error);
+                            currentMessage.content += `\n\n⚠️ 网络搜索失败: ${error.message}`;
                         }
                     }
                 }

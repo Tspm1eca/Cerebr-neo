@@ -321,12 +321,17 @@ let tavilyApiKey = '';
             const messagesToResend = currentChat.messages;
 
             // 准备API调用参数
+            // 当传送网页开启时，强制关闭 auto 模式（避免 tool_choice 冲突）
+            const effectiveWebSearchMode = (isExtensionEnvironment && sendWebpageSwitch.checked && webSearchMode === 'auto')
+                ? 'off'
+                : webSearchMode;
+
             const apiParams = {
                 messages: messagesToResend,
                 apiConfig: apiConfigs[selectedConfigIndex],
                 userLanguage: navigator.language,
                 webpageInfo: isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null,
-                enableWebSearch: webSearchSwitch.checked,
+                webSearchMode: effectiveWebSearchMode,
                 tavilyApiKey: tavilyApiKey
             };
 
@@ -427,12 +432,17 @@ let tavilyApiKey = '';
             const waitingMessage = createWaitingMessage(chatContainer);
 
             // 准备API调用参数
+            // 当传送网页开启时，强制关闭 auto 模式（避免 tool_choice 冲突）
+            const effectiveWebSearchMode = (webpageInfo && webSearchMode === 'auto')
+                ? 'off'
+                : webSearchMode;
+
             const apiParams = {
                 messages,
                 apiConfig: apiConfigs[selectedConfigIndex],
                 userLanguage: navigator.language,
                 webpageInfo: webpageInfo,
-                enableWebSearch: webSearchSwitch.checked,
+                webSearchMode: effectiveWebSearchMode,
                 tavilyApiKey: tavilyApiKey
             };
 
@@ -556,6 +566,9 @@ let tavilyApiKey = '';
     const sendWebpageSwitch = document.getElementById('send-webpage-switch');
     const webSearchSwitch = document.getElementById('web-search-switch');
 
+    // 网络搜索模式状态
+    let webSearchMode = 'off'; // 'off' | 'auto' | 'on'
+
     const sidePanelToggle = document.getElementById('side-panel-toggle');
 
     // 检查是否在 Side Panel 中运行
@@ -661,23 +674,58 @@ let tavilyApiKey = '';
 
     await initSendWebpageSwitch();
 
-    // 初始化"网络搜索"开关
+    // 初始化"网络搜索"三态开关
     async function initWebSearchSwitch() {
         try {
-            const result = await syncStorageAdapter.get('enableWebSearch');
-            // 默认关闭
-            const shouldEnable = result.enableWebSearch === undefined ? false : result.enableWebSearch;
-            webSearchSwitch.checked = shouldEnable;
+            const result = await syncStorageAdapter.get('webSearchMode');
+            // 默认为 'off'，兼容旧版本的 enableWebSearch
+            if (result.webSearchMode) {
+                webSearchMode = result.webSearchMode;
+            } else {
+                // 兼容旧版本：如果有 enableWebSearch 设置，转换为新格式
+                const oldResult = await syncStorageAdapter.get('enableWebSearch');
+                if (oldResult.enableWebSearch === true) {
+                    webSearchMode = 'on';
+                } else {
+                    webSearchMode = 'off';
+                }
+            }
+            updateWebSearchSwitchUI();
         } catch (error) {
             console.error('初始化"网络搜索"开关失败:', error);
-            webSearchSwitch.checked = false; // 出错时默认关闭
+            webSearchMode = 'off';
+            updateWebSearchSwitchUI();
         }
     }
 
-    // 监听"网络搜索"开关变化
-    webSearchSwitch.addEventListener('change', async () => {
+    // 更新三态按钮 UI
+    function updateWebSearchSwitchUI() {
+        webSearchSwitch.dataset.value = webSearchMode;
+        // 更新 title 提示
+        const titles = {
+            'off': '关闭 - 点击切换到自动',
+            'auto': '自动（AI决定）- 点击切换到开启',
+            'on': '开启 - 点击切换到关闭'
+        };
+        webSearchSwitch.title = titles[webSearchMode] || '点击切换';
+    }
+
+    // 循环切换模式：off -> auto -> on -> off
+    function cycleWebSearchMode() {
+        const modes = ['off', 'auto', 'on'];
+        const currentIndex = modes.indexOf(webSearchMode);
+        const nextIndex = (currentIndex + 1) % modes.length;
+        webSearchMode = modes[nextIndex];
+        return webSearchMode;
+    }
+
+    // 监听三态按钮点击
+    webSearchSwitch.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        cycleWebSearchMode();
+        updateWebSearchSwitchUI();
         try {
-            await syncStorageAdapter.set({ enableWebSearch: webSearchSwitch.checked });
+            await syncStorageAdapter.set({ webSearchMode });
         } catch (error) {
             console.error('保存"网络搜索"设置失败:', error);
         }
