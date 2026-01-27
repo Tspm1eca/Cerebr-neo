@@ -4,9 +4,11 @@
  * @property {string} baseUrl - API的基础URL
  * @property {string} apiKey - API密钥
  * @property {string} [modelName] - 模型名称，默认为 "gpt-4o"
+ * @property {string} [tavilyApiKey] - Tavily API 密钥（用于网络搜索）
  */
 
 import { DEFAULT_SYSTEM_PROMPT } from '../components/api-card.js';
+import { tavilySearch, formatSearchResultsForPrompt } from './tavily.js';
 
 /**
  * 网页信息接口
@@ -30,6 +32,8 @@ import { DEFAULT_SYSTEM_PROMPT } from '../components/api-card.js';
  * @property {APIConfig} apiConfig - API配置
  * @property {string} userLanguage - 用户语言
  * @property {WebpageInfo} [webpageInfo] - 网页信息（可选）
+ * @property {boolean} [enableWebSearch] - 是否启用网络搜索
+ * @property {string} [searchQuery] - 自定义搜索查询（可选，默认使用最后一条用户消息）
  */
 
 /**
@@ -120,6 +124,9 @@ export async function callAPI({
     apiConfig,
     userLanguage,
     webpageInfo = null,
+    enableWebSearch = false,
+    searchQuery = null,
+    tavilyApiKey = null
 }, chatManager, chatId, onMessageUpdate) {
     if (!apiConfig?.baseUrl || !apiConfig?.apiKey) {
         throw new Error('API 配置不完整');
@@ -146,6 +153,49 @@ export async function callAPI({
         }).join('\n\n---\n');
 
         systemMessageContent = `${systemPrompt}${pagesContent}`;
+    }
+
+    // 处理网络搜索
+    if (enableWebSearch && tavilyApiKey) {
+        try {
+            // 获取搜索查询：使用自定义查询或最后一条用户消息
+            let query = searchQuery;
+            if (!query) {
+                const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+                if (lastUserMessage) {
+                    query = typeof lastUserMessage.content === 'string'
+                        ? lastUserMessage.content
+                        : lastUserMessage.content.find(c => c.type === 'text')?.text || '';
+                }
+            }
+
+            if (query) {
+                console.log('执行 Tavily 网络搜索:', query);
+                const searchResults = await tavilySearch({
+                    apiKey: tavilyApiKey,
+                    query: query,
+                    searchDepth: 'basic',
+                    maxResults: 5,
+                    includeAnswer: true
+                });
+
+                // 将搜索结果添加到系统消息
+                const formattedResults = formatSearchResultsForPrompt(searchResults, userLanguage);
+                if (formattedResults) {
+                    // 如果之前没有系统消息内容，添加基础提示
+                    if (!systemMessageContent) {
+                        systemMessageContent = `你是一个有帮助的AI助手。请使用用户的语言（${userLanguage}）回答问题。以下是从网络搜索获取的最新信息，请基于这些信息回答用户的问题：`;
+                    }
+                    systemMessageContent += formattedResults;
+                    console.log('已添加网络搜索结果到系统提示');
+                }
+            }
+        } catch (error) {
+            console.error('Tavily 搜索失败:', error);
+            // 搜索失败不应阻止 API 调用，继续执行
+        }
+    } else if (enableWebSearch && !tavilyApiKey) {
+        console.warn('网络搜索已启用，但未设置 Tavily API Key');
     }
 
     const systemMessage = {

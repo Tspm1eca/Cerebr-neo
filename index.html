@@ -106,6 +106,13 @@
                     <span class="slider"></span>
                 </label>
             </div>
+            <div class="menu-item" id="web-search-toggle">
+                <span>网络搜索</span>
+                <label class="switch">
+                    <input type="checkbox" id="web-search-switch">
+                    <span class="slider"></span>
+                </label>
+            </div>
             <div class="menu-item" id="side-panel-toggle">
                 <span>侧边栏模式</span>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -228,6 +235,24 @@
             </div>
             <div id="api-settings-tab" class="tab-content">
                 <div class="api-cards">
+                    <div class="api-card tavily-api-card">
+                        <div class="card-content">
+                            <div class="api-form">
+                                <div class="form-group">
+                                    <label>Tavily API Key <span class="optional-label">(网络搜索)</span></label>
+                                    <div class="tavily-key-container">
+                                        <input type="text" id="tavily-api-key" class="tavily-api-key" placeholder="输入 Tavily API Key（可选）">
+                                        <button id="test-tavily-btn" class="test-tavily-btn" title="测试 Tavily 连接">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <circle cx="11" cy="11" r="8"></circle>
+                                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <!-- API card template -->
                     <div class="api-card template" style="display: none;">
                         <div class="card-content">

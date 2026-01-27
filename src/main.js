@@ -26,9 +26,10 @@ let userQuestions = [];
 // 加载保存的 API 配置
 let apiConfigs = [];
 let selectedConfigIndex = 0;
+let tavilyApiKey = '';
 
-document.addEventListener('DOMContentLoaded', async () => {
-    const chatContainer = document.getElementById('chat-container');
+ document.addEventListener('DOMContentLoaded', async () => {
+     const chatContainer = document.getElementById('chat-container');
     const messageInput = document.getElementById('message-input');
     const contextMenu = document.getElementById('context-menu');
     const copyMessageButton = document.getElementById('copy-message');
@@ -324,7 +325,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 messages: messagesToResend,
                 apiConfig: apiConfigs[selectedConfigIndex],
                 userLanguage: navigator.language,
-                webpageInfo: isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null
+                webpageInfo: isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null,
+                enableWebSearch: webSearchSwitch.checked,
+                tavilyApiKey: tavilyApiKey
             };
 
             // 显示等待动画
@@ -428,7 +431,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 messages,
                 apiConfig: apiConfigs[selectedConfigIndex],
                 userLanguage: navigator.language,
-                webpageInfo: webpageInfo
+                webpageInfo: webpageInfo,
+                enableWebSearch: webSearchSwitch.checked,
+                tavilyApiKey: tavilyApiKey
             };
 
             // 调用带重试逻辑的 API
@@ -549,6 +554,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 主题切换
     const themeSwitch = document.getElementById('theme-switch');
     const sendWebpageSwitch = document.getElementById('send-webpage-switch');
+    const webSearchSwitch = document.getElementById('web-search-switch');
 
     const sidePanelToggle = document.getElementById('side-panel-toggle');
 
@@ -654,6 +660,146 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     await initSendWebpageSwitch();
+
+    // 初始化"网络搜索"开关
+    async function initWebSearchSwitch() {
+        try {
+            const result = await syncStorageAdapter.get('enableWebSearch');
+            // 默认关闭
+            const shouldEnable = result.enableWebSearch === undefined ? false : result.enableWebSearch;
+            webSearchSwitch.checked = shouldEnable;
+        } catch (error) {
+            console.error('初始化"网络搜索"开关失败:', error);
+            webSearchSwitch.checked = false; // 出错时默认关闭
+        }
+    }
+
+    // 监听"网络搜索"开关变化
+    webSearchSwitch.addEventListener('change', async () => {
+        try {
+            await syncStorageAdapter.set({ enableWebSearch: webSearchSwitch.checked });
+        } catch (error) {
+            console.error('保存"网络搜索"设置失败:', error);
+        }
+    });
+
+    await initWebSearchSwitch();
+
+   // Tavily API Key aettings
+  const tavilyApiKeyInput = document.getElementById('tavily-api-key');
+  const testTavilyBtn = document.getElementById('test-tavily-btn');
+
+  async function loadTavilyApiKey() {
+      try {
+          const result = await syncStorageAdapter.get('tavilyApiKey');
+          tavilyApiKey = result.tavilyApiKey || '';
+          tavilyApiKeyInput.value = tavilyApiKey;
+      } catch (error) {
+          console.error('加载 Tavily API Key 失败:', error);
+      }
+  }
+
+  async function saveTavilyApiKey() {
+      try {
+          await syncStorageAdapter.set({ tavilyApiKey });
+      } catch (error) {
+          console.error('保存 Tavily API Key 失败:', error);
+      }
+  }
+
+  tavilyApiKeyInput.addEventListener('change', () => {
+      tavilyApiKey = tavilyApiKeyInput.value;
+      saveTavilyApiKey();
+  });
+
+   tavilyApiKeyInput.addEventListener('click', (e) => {
+       e.stopPropagation();
+   });
+
+  testTavilyBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await testTavilyConnection(testTavilyBtn);
+  });
+
+  async function testTavilyConnection(button) {
+      const key = tavilyApiKeyInput.value;
+
+      if (!key) {
+          showToast('请输入 Tavily API Key', 'error');
+          return;
+      }
+
+      const originalBtnContent = button.innerHTML;
+      button.disabled = true;
+      button.innerHTML = `
+          <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+          </svg>
+      `;
+
+      try {
+          const response = await fetch('https://api.tavily.com/search', {
+              method: 'POST',
+              headers: {
+                  'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                  api_key: key,
+                  query: 'test connection',
+                  search_depth: 'basic',
+                  max_results: 1
+              })
+          });
+
+          if (!response.ok) {
+              let errorMsg = `HTTP error! status: ${response.status}`;
+              try {
+                  const errorData = await response.json();
+                  errorMsg += ` - ${errorData.detail || errorData.message || JSON.stringify(errorData)}`;
+              } catch (e) {
+                  // ignore if response is not json
+              }
+              throw new Error(errorMsg);
+          }
+
+          button.innerHTML = `
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 6L9 17l-5-5"/>
+              </svg>
+          `;
+
+      } catch (error) {
+          console.error('Tavily test connection error:', error);
+          showToast(`Tavily 连接失败: ${error.message}`, 'error');
+          button.innerHTML = `
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+          `;
+      } finally {
+          setTimeout(() => {
+              button.disabled = false;
+              button.innerHTML = originalBtnContent;
+          }, 3000);
+      }
+  }
+
+   function showToast(message, type = 'success') {
+       const toast = document.createElement('div');
+       toast.className = type === 'success' ? 'success-toast' : 'error-toast';
+       toast.textContent = message;
+       document.body.appendChild(toast);
+
+       // 2.7秒后开始淡出动画，3秒后移除提示
+       setTimeout(() => {
+           toast.classList.add('fade-out');
+       }, 2700);
+
+       setTimeout(() => {
+           toast.remove();
+       }, 3000);
+   }
 
     // Unified Settings Page Logic
    const unifiedSettingsToggle = document.getElementById('unified-settings-toggle');
@@ -782,6 +928,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // await loadWebpageSwitch();
         // 同步API配置
         await loadAPIConfigs();
+        await loadTavilyApiKey();
         renderAPICardsWithCallbacks();
 
         // 同步历史
@@ -815,6 +962,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 等待 DOM 加载完成后再初始化
     await loadAPIConfigs();
+    await loadTavilyApiKey();
 
     // 监听标题更新事件
     document.addEventListener('chat-title-updated', (e) => {

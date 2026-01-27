@@ -50,7 +50,7 @@ export function renderAPICards({
     const templateClone = templateCard.cloneNode(true);
 
     // 清空现有卡片
-    apiCardsContainer.innerHTML = '';
+   apiCardsContainer.querySelectorAll('.api-card:not(.tavily-api-card):not(.template)').forEach(card => card.remove());
 
     // 先重新添加模板（保持隐藏状态）
     apiCardsContainer.appendChild(templateClone);
@@ -410,10 +410,10 @@ function createAPICard({
     // 添加输入法状态跟踪
     let isComposing = false;
 
-    // 监听输入法开始
-    [apiKeyInput, baseUrlInput, modelNameInput, titleModelNameInput, systemPromptInput].forEach(input => {
-        input.addEventListener('compositionstart', () => {
-            isComposing = true;
+   // 监听输入法开始
+   [apiKeyInput, baseUrlInput, modelNameInput, titleModelNameInput, systemPromptInput].forEach(input => {
+       input.addEventListener('compositionstart', () => {
+           isComposing = true;
         });
 
         // 监听输入法结束
