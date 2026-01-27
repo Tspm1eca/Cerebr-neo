@@ -27,7 +27,7 @@
 .reasoning-content {
     cursor: pointer;
     background-color: var(--cerebr-reasoning-bg);
-    border-radius: 6px;
+    border-radius: 12px;
     font-size: 0.95em;
     color: var(--cerebr-reasoning-text-color);
     line-height: 1.5;

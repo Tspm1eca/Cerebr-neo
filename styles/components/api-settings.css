@@ -26,7 +26,7 @@
 .api-card {
     outline: none;
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: 12px;
     position: relative;
     margin-bottom: 12px;
     background: var(--cerebr-message-ai-bg);
