@@ -55,11 +55,10 @@ export async function generateTitle(messages, apiConfig) {
                 'Authorization': `Bearer ${apiConfig.apiKey}`
             },
             body: JSON.stringify({
-                model: apiConfig.titleModelName || apiConfig.modelName || "gpt-4o",
+                model: apiConfig.titleModelName || apiConfig.modelName || "gpt-5-nano",
                 messages: messagesForAPI,
                 stream: false, // 非流式請求
-                temperature: 0.5,
-                max_tokens: 50
+                temperature: 0.6
             })
         });
 
