@@ -494,6 +494,14 @@ export async function callAPI({
                                 includeAnswer: true
                             });
 
+                            // 搜索完成，显示等待 AI 回复的动画（使用特殊标记）
+                            currentMessage.content = '{{WAITING_ANIMATION}}';
+                            if (chatManager && chatId) {
+                                const messageCopy = { ...currentMessage };
+                                chatManager.updateLastMessage(chatId, messageCopy, false);
+                                onMessageUpdate(chatId, messageCopy);
+                            }
+
                             // 格式化搜索结果
                             const formattedResults = formatSearchResultsForPrompt(searchResults, userLanguage);
 
@@ -542,7 +550,7 @@ export async function callAPI({
                             // 处理第二次响应的流
                             const secondReader = secondResponse.body.getReader();
                             let secondBuffer = '';
-                            currentMessage.content = ''; // 清空搜索状态消息
+                            currentMessage.content = ''; // 清空等待动画，准备接收 AI 回复
 
                             while (true) {
                                 const { done: secondDone, value: secondValue } = await secondReader.read();

@@ -119,15 +119,25 @@
 }
 
 /* 等待LLM回覆的動畫樣式 */
-.message.waiting .thinking-dots {
+.message .thinking-dots {
     display: flex;
     align-items: center;
-    justify-content: center;
     width: 40px;
     height: 20px;
 }
 
-.message.waiting .thinking-dots span {
+.message.waiting .thinking-dots {
+    justify-content: center;
+}
+
+/* 確保等待動畫時消息氣泡有最小尺寸 */
+.message.waiting {
+    min-width: 40px;
+    min-height: 20px;
+    box-sizing: border-box;
+}
+
+.message .thinking-dots span {
     display: inline-block;
     width: 8px;
     height: 8px;
@@ -137,10 +147,10 @@
     animation: thinking-dots 1.4s infinite ease-in-out both;
 }
 
-.message.waiting .thinking-dots span:nth-child(1) {
+.message .thinking-dots span:nth-child(1) {
     animation-delay: -0.32s;
 }
 
-.message.waiting .thinking-dots span:nth-child(2) {
+.message .thinking-dots span:nth-child(2) {
     animation-delay: -0.16s;
 }

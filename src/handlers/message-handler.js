@@ -265,28 +265,156 @@ export function createWaitingMessage(chatContainer) {
  * @param {HTMLElement} params.chatContainer - 聊天容器元素
  * @returns {Promise<boolean>} 返回是否成功更新了消息
  */
+// 等待动画的特殊标记
+const WAITING_ANIMATION_MARKER = '{{WAITING_ANIMATION}}';
+
 export async function updateAIMessage({
     text,
     chatContainer
 }) {
-    // 移除等待消息
+    // 处理文本内容
+    let textContent = typeof text === 'string' ? text : text.content;
+    const reasoningContent = typeof text === 'string' ? null : text.reasoning_content;
+
+    // 检查是否是等待动画标记
+    const isWaitingAnimation = textContent === WAITING_ANIMATION_MARKER;
+
+    // 如果是等待动画，不移除等待消息，而是更新它
     const waitingMessage = chatContainer.querySelector('.message.waiting');
+
+    if (isWaitingAnimation) {
+        // 如果已经有等待消息，保持它；否则创建一个新的
+        if (!waitingMessage) {
+            // 查找正在更新的消息（如果有的话，比如搜索状态消息）
+            let targetMessage = chatContainer.querySelector('.ai-message.updating');
+
+            if (!targetMessage) {
+                // 如果没有正在更新的消息，创建一个新的
+                targetMessage = document.createElement('div');
+                targetMessage.className = 'message ai-message updating';
+                chatContainer.appendChild(targetMessage);
+            }
+
+            // 动画处理：记录原始尺寸
+            const rect = targetMessage.getBoundingClientRect();
+            targetMessage.style.width = `${rect.width}px`;
+            targetMessage.style.height = `${rect.height}px`;
+            targetMessage.style.overflow = 'hidden';
+            targetMessage.style.transition = 'none'; // 确保设置初始尺寸时不触发过渡
+
+            // 强制重绘
+            targetMessage.offsetHeight;
+
+            // 转换为等待状态
+            targetMessage.classList.add('waiting');
+
+            // 清空除了 reasoning-wrapper 以外的内容
+            Array.from(targetMessage.children).forEach(child => {
+                if (!child.classList.contains('reasoning-wrapper')) {
+                    child.remove();
+                }
+            });
+
+            const thinkingDots = document.createElement('div');
+            thinkingDots.className = 'thinking-dots';
+            thinkingDots.innerHTML = '<span></span><span></span><span></span>';
+            targetMessage.appendChild(thinkingDots);
+
+            // 测量新尺寸
+            targetMessage.style.width = '';
+            targetMessage.style.height = '';
+            const newRect = targetMessage.getBoundingClientRect();
+
+            // 恢复到旧尺寸准备动画
+            targetMessage.style.width = `${rect.width}px`;
+            targetMessage.style.height = `${rect.height}px`;
+
+            // 强制重绘
+            targetMessage.offsetHeight;
+
+            // 执行动画
+            targetMessage.style.transition = 'width 0.3s ease, height 0.3s ease';
+            targetMessage.style.width = `${newRect.width}px`;
+            targetMessage.style.height = `${newRect.height}px`;
+
+            // 动画结束后清理
+            const cleanup = () => {
+                targetMessage.style.width = '';
+                targetMessage.style.height = '';
+                targetMessage.style.transition = '';
+                targetMessage.style.overflow = '';
+                targetMessage.removeEventListener('transitionend', cleanup);
+            };
+            targetMessage.addEventListener('transitionend', cleanup);
+
+            chatContainer.scrollTo({
+                top: chatContainer.scrollHeight,
+                behavior: 'smooth'
+            });
+        }
+        return true;
+    }
+
+    // 不是等待动画，如果有等待消息，将其转换为普通消息
     if (waitingMessage) {
-        waitingMessage.remove();
+        // 动画处理：记录原始尺寸（三点动画时的尺寸）
+        const rect = waitingMessage.getBoundingClientRect();
+
+        // 锁定起始尺寸，准备过渡
+        waitingMessage.style.width = `${rect.width}px`;
+        waitingMessage.style.height = `${rect.height}px`;
+        waitingMessage.style.overflow = 'hidden';
+        waitingMessage.style.transition = 'none'; // 暂时不开启过渡，等待内容更新后统一处理
+
+        // 强制重绘
+        waitingMessage.offsetHeight;
+
+        waitingMessage.classList.remove('waiting');
+
+        // 移除 thinking-dots
+        const dots = waitingMessage.querySelector('.thinking-dots');
+        if (dots) {
+            dots.remove();
+        }
+
+        // 此时 waitingMessage 应该已经有 updating 类
+        if (!waitingMessage.classList.contains('updating')) {
+            waitingMessage.classList.add('updating');
+        }
+
+        // 标记该消息正在进行过渡动画
+        waitingMessage._isTransitioning = true;
     }
 
     // 優先尋找正在更新中的 AI 消息
     let lastMessage = chatContainer.querySelector('.ai-message.updating');
     const currentText = lastMessage ? lastMessage.getAttribute('data-original-text') || '' : '';
 
-    // 处理文本内容
-    const textContent = typeof text === 'string' ? text : text.content;
-    const reasoningContent = typeof text === 'string' ? null : text.reasoning_content;
-
     if (lastMessage) {
         // 获取当前显示的文本
         // 只要内容发生变化就更新（包括重置/变短的情况，这对应于重试）
-        if (textContent !== currentText || reasoningContent) {
+        // 注意：如果是从 waiting 状态刚恢复过来，lastMessage 就是 waitingMessage，我们需要更新它的内容
+        if (textContent !== currentText || reasoningContent || lastMessage.innerHTML === '') {
+
+            // 如果正在过渡中，先锁定当前视觉尺寸，防止内容更新导致闪跳
+            if (lastMessage._isTransitioning) {
+                const computedStyle = window.getComputedStyle(lastMessage);
+                const currentWidth = computedStyle.width;
+                const currentHeight = computedStyle.height;
+
+                // 移除旧的 cleanup (如果存在)，手动接管
+                if (lastMessage._animCleanup) {
+                    lastMessage.removeEventListener('transitionend', lastMessage._animCleanup);
+                }
+
+                lastMessage.style.width = currentWidth;
+                lastMessage.style.height = currentHeight;
+                lastMessage.style.transition = 'none';
+
+                // 强制重绘以应用锁定
+                lastMessage.offsetHeight;
+            }
+
             // 更新原始文本属性
             lastMessage.setAttribute('data-original-text', textContent);
 
@@ -411,6 +539,46 @@ export async function updateAIMessage({
             // 为新渲染的代码块添加复制按钮
             if (window.addCopyButtonToCodeBlocks) {
                 window.addCopyButtonToCodeBlocks(mainContent);
+            }
+
+            // 内容更新完毕，处理尺寸过渡动画
+            if (lastMessage._isTransitioning) {
+                // 测量新内容尺寸
+                // 使用 cloneNode 确保样式上下文一致
+                const clone = lastMessage.cloneNode(true);
+                clone.style.width = 'fit-content';
+                clone.style.height = 'auto';
+                clone.style.position = 'absolute';
+                clone.style.visibility = 'hidden';
+                clone.style.maxHeight = 'none'; // 防止高度受限
+                clone.style.maxWidth = 'calc(100% - 32px)'; // 保持与CSS一致
+
+                // 插入到容器中测量
+                chatContainer.appendChild(clone);
+                const newRect = clone.getBoundingClientRect();
+                clone.remove();
+
+                // 强制重绘
+                lastMessage.offsetHeight;
+
+                // 设置新动画目标
+                lastMessage.style.transition = 'width 0.3s ease, height 0.3s ease';
+                lastMessage.style.width = `${newRect.width}px`;
+                lastMessage.style.height = `${newRect.height}px`;
+
+                // 绑定 cleanup
+                const cleanup = () => {
+                    lastMessage.style.width = '';
+                    lastMessage.style.height = '';
+                    lastMessage.style.transition = '';
+                    lastMessage.style.overflow = '';
+                    lastMessage.removeEventListener('transitionend', cleanup);
+                    delete lastMessage._isTransitioning;
+                    delete lastMessage._animCleanup;
+                };
+
+                lastMessage._animCleanup = cleanup;
+                lastMessage.addEventListener('transitionend', cleanup);
             }
 
             return true;
