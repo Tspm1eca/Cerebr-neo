@@ -435,7 +435,7 @@ export function setPlaceholder({ messageInput, placeholder, timeout }) {
  */
 export function updatePermanentPlaceholder(messageInput, modelName) {
     if (messageInput) {
-        const placeholder = `向 ${modelName} 发送消息`;
+        const placeholder = `${modelName}`;
         messageInput.setAttribute('placeholder', placeholder);
         messageInput.setAttribute('data-original-placeholder', placeholder);
     }
