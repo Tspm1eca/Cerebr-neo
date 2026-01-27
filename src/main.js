@@ -568,6 +568,7 @@ let tavilyApiKey = '';
 
     // 网络搜索模式状态
     let webSearchMode = 'off'; // 'off' | 'auto' | 'on'
+    let savedWebSearchMode = null; // 保存禁用前的网络搜索模式
 
     const sidePanelToggle = document.getElementById('side-panel-toggle');
 
@@ -663,16 +664,46 @@ let tavilyApiKey = '';
         }
     }
 
-    // 监听“传送网页”开关变化
+    // 更新网络搜索开关的禁用状态
+    function updateWebSearchDisabledState(sendWebpageEnabled) {
+        const webSearchToggle = document.getElementById('web-search-toggle');
+        if (sendWebpageEnabled) {
+            // 当传送网页启用时，保存当前状态，然后禁用网络搜索并设为 off
+            if (savedWebSearchMode === null) {
+                savedWebSearchMode = webSearchMode;
+            }
+            webSearchSwitch.disabled = true;
+            webSearchToggle.classList.add('disabled');
+            // 强制设为 off
+            webSearchMode = 'off';
+            updateWebSearchSwitchUI();
+        } else {
+            // 当传送网页关闭时，恢复网络搜索的可用状态和之前的模式
+            webSearchSwitch.disabled = false;
+            webSearchToggle.classList.remove('disabled');
+            // 恢复之前保存的模式
+            if (savedWebSearchMode !== null) {
+                webSearchMode = savedWebSearchMode;
+                savedWebSearchMode = null;
+                updateWebSearchSwitchUI();
+            }
+        }
+    }
+
+    // 监听"传送网页"开关变化
     sendWebpageSwitch.addEventListener('change', async () => {
         try {
             await syncStorageAdapter.set({ sendWebpageContent: sendWebpageSwitch.checked });
+            // 更新网络搜索开关的禁用状态
+            updateWebSearchDisabledState(sendWebpageSwitch.checked);
         } catch (error) {
-            console.error('保存“传送网页”设置失败:', error);
+            console.error('保存"传送网页"设置失败:', error);
         }
     });
 
     await initSendWebpageSwitch();
+    // 初始化时也要检查并更新网络搜索开关的禁用状态
+    updateWebSearchDisabledState(sendWebpageSwitch.checked);
 
     // 初始化"网络搜索"三态开关
     async function initWebSearchSwitch() {

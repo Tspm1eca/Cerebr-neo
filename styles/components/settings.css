@@ -199,6 +199,26 @@ input:checked + .slider:before {
     display: block;
 }
 
+/* 禁用状态样式 */
+.tri-state-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.menu-item.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.menu-item.disabled:hover {
+    background-color: transparent;
+}
+
+.menu-item.disabled .tri-state-button {
+    pointer-events: none;
+}
+
 /* 高级设置区域样式 */
 .advanced-settings {
     margin-top: 0;
