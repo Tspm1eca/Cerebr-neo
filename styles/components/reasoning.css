@@ -63,3 +63,38 @@
 .reasoning-content.collapsed .reasoning-text {
     display: none;
 }
+
+/* 思考中状态动画 */
+@keyframes reasoning-pulse {
+    0% { background-color: var(--cerebr-reasoning-bg); box-shadow: inset 0 0 0 1px transparent; }
+    50% { background-color: var(--cerebr-reasoning-hover-bg); box-shadow: inset 0 0 0 1px var(--cerebr-highlight-border-color); }
+    100% { background-color: var(--cerebr-reasoning-bg); box-shadow: inset 0 0 0 1px transparent; }
+}
+
+@keyframes ellipsis {
+    0% { content: ''; }
+    25% { content: '.'; }
+    50% { content: '..'; }
+    75% { content: '...'; }
+}
+
+/* 当消息正在更新且主要内容为空时（即正在输出思考内容），显示思考中状态 */
+.message.updating:has(.main-content:empty) .reasoning-content {
+    animation: reasoning-pulse 2s infinite ease-in-out;
+}
+
+.message.updating:has(.main-content:empty) .reasoning-placeholder::after {
+    content: '';
+    animation: ellipsis 1.5s infinite;
+    display: inline-block;
+    width: 12px;
+    text-align: left;
+}
+
+/* 当消息正在更新且主要内容为空时，显示占位符作为标题 */
+.message.updating:has(.main-content:empty) .reasoning-placeholder {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    opacity: 0.9;
+}
