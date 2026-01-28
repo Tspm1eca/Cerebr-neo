@@ -1,5 +1,5 @@
 import { setTheme } from './utils/theme.js';
-import { callAPI } from './services/chat.js';
+import { callAPI, TimeoutError } from './services/chat.js';
 import { chatManager } from './utils/chat-manager.js';
 import { appendMessage, createWaitingMessage } from './handlers/message-handler.js';
 import { hideContextMenu } from './components/context-menu.js';
@@ -354,8 +354,24 @@ let tavilyApiKey = '';
             console.error('重新生成消息失败:', error);
             // 只有当仍然是当前活动的请求时才显示错误
             if (currentRequestId === activeRequestId) {
+                // 移除等待動畫（如果存在）
+                const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+                if (waitingMsg) {
+                    waitingMsg.remove();
+                }
+
+                // 根據錯誤類型顯示不同的錯誤訊息
+                let errorMessage = '重新生成失败: ' + error.message;
+                if (error instanceof TimeoutError) {
+                    errorMessage = '⏱️ ' + error.message;
+                    console.warn('API 請求超時:', error.type, error.message);
+                }
+
                 appendMessage({
-                    text: '重新生成失败: ' + error.message,
+                    text: {
+                        content: errorMessage,
+                        isError: true
+                    },
                     sender: 'ai',
                     chatContainer,
                     skipHistory: true,
@@ -464,8 +480,24 @@ let tavilyApiKey = '';
 
             // 只有当仍然是当前活动的请求时才处理错误
             if (currentRequestId === activeRequestId) {
+                // 移除等待動畫（如果存在）
+                const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+                if (waitingMsg) {
+                    waitingMsg.remove();
+                }
+
+                // 根據錯誤類型顯示不同的錯誤訊息
+                let errorMessage = '发送失败: ' + error.message;
+                if (error instanceof TimeoutError) {
+                    errorMessage = '⏱️ ' + error.message;
+                    console.warn('API 請求超時:', error.type, error.message);
+                }
+
                 appendMessage({
-                    text: '发送失败: ' + error.message,
+                    text: {
+                        content: errorMessage,
+                        isError: true
+                    },
                     sender: 'ai',
                     chatContainer,
                     skipHistory: true,

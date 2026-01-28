@@ -10,6 +10,42 @@
 import { DEFAULT_SYSTEM_PROMPT } from '../components/api-card.js';
 import { tavilySearch, formatSearchResultsForPrompt, extractSearchQuery } from './tavily.js';
 
+// 超時配置（毫秒）
+const STREAM_TIMEOUT = 30000; // 流式響應超時：60秒無數據則超時
+const FIRST_CHUNK_TIMEOUT = 60000; // 首次數據超時：120秒內必須收到第一個數據塊
+
+/**
+ * 超時錯誤類
+ */
+export class TimeoutError extends Error {
+    constructor(message, type = 'stream') {
+        super(message);
+        this.name = 'TimeoutError';
+        this.type = type; // 'stream' | 'first_chunk'
+    }
+}
+
+/**
+ * 創建帶超時的 Promise
+ * @param {Promise} promise - 原始 Promise
+ * @param {number} timeout - 超時時間（毫秒）
+ * @param {string} errorMessage - 超時錯誤訊息
+ * @param {string} errorType - 錯誤類型
+ * @returns {Promise} 帶超時的 Promise
+ */
+function withTimeout(promise, timeout, errorMessage, errorType = 'stream') {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+            reject(new TimeoutError(errorMessage, errorType));
+        }, timeout);
+    });
+
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+        clearTimeout(timeoutId);
+    });
+}
+
 /**
  * 网络搜索工具定义（用于 Function Calling）
  */
@@ -326,6 +362,10 @@ export async function callAPI({
             let toolCalls = [];
             let currentToolCall = null;
 
+            // 超時控制
+            let isFirstChunk = true; // 是否等待第一個數據塊
+            let lastDataTime = Date.now(); // 上次收到數據的時間
+
             const dispatchUpdate = () => {
                 if (chatManager && chatId) {
                     // 创建一个副本以避免回调函数意外修改
@@ -355,7 +395,20 @@ export async function callAPI({
             };
 
             while (true) {
-                const { done, value } = await reader.read();
+                // 計算當前應使用的超時時間
+                const currentTimeout = isFirstChunk ? FIRST_CHUNK_TIMEOUT : STREAM_TIMEOUT;
+                const timeoutMessage = isFirstChunk
+                    ? `等待 AI 響應超時（${FIRST_CHUNK_TIMEOUT / 1000}秒內未收到任何數據）`
+                    : `流式響應超時（${STREAM_TIMEOUT / 1000}秒內未收到新數據）`;
+
+                // 使用帶超時的 read 操作
+                const { done, value } = await withTimeout(
+                    reader.read(),
+                    currentTimeout,
+                    timeoutMessage,
+                    isFirstChunk ? 'first_chunk' : 'stream'
+                );
+
                 if (done) {
                     // 确保最后的数据被发送
                    if (Date.now() - lastUpdateTime > 0) {
@@ -373,9 +426,13 @@ export async function callAPI({
 
                    chatManager.updateLastMessage(chatId, finalMessage, true);
                    break;
-               }
+                   }
 
-                const chunk = new TextDecoder().decode(value);
+                    // 收到數據，更新超時控制狀態
+                    isFirstChunk = false;
+                    lastDataTime = Date.now();
+
+                    const chunk = new TextDecoder().decode(value);
                 buffer += chunk;
 
                 let newlineIndex;
@@ -574,9 +631,28 @@ export async function callAPI({
                             let secondBuffer = '';
                             currentMessage.content = ''; // 清空等待动画，准备接收 AI 回复
 
+                            // 第二次流的超時控制
+                            let isSecondFirstChunk = true;
+
                             while (true) {
-                                const { done: secondDone, value: secondValue } = await secondReader.read();
+                                // 計算當前應使用的超時時間
+                                const secondCurrentTimeout = isSecondFirstChunk ? FIRST_CHUNK_TIMEOUT : STREAM_TIMEOUT;
+                                const secondTimeoutMessage = isSecondFirstChunk
+                                    ? `等待 AI 響應超時（${FIRST_CHUNK_TIMEOUT / 1000}秒內未收到任何數據）`
+                                    : `流式響應超時（${STREAM_TIMEOUT / 1000}秒內未收到新數據）`;
+
+                                // 使用帶超時的 read 操作
+                                const { done: secondDone, value: secondValue } = await withTimeout(
+                                    secondReader.read(),
+                                    secondCurrentTimeout,
+                                    secondTimeoutMessage,
+                                    isSecondFirstChunk ? 'first_chunk' : 'stream'
+                                );
+
                                 if (secondDone) break;
+
+                                // 收到數據，更新超時控制狀態
+                                isSecondFirstChunk = false;
 
                                 const secondChunk = new TextDecoder().decode(secondValue);
                                 secondBuffer += secondChunk;

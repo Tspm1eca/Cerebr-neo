@@ -67,6 +67,11 @@ export async function appendMessage({
         messageDiv.classList.add('search-used');
     }
 
+    // 檢查是否是錯誤消息
+    if (typeof text === 'object' && text.isError) {
+        messageDiv.classList.add('error');
+    }
+
     // 处理文本内容
     let textContent = typeof text === 'string' ? text : text.content;
 
