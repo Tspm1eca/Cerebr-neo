@@ -52,6 +52,12 @@
     margin-left: 0;
     border-bottom-left-radius: 2px;
     -webkit-touch-callout: none; /* iOS Safari */
+    border: 1px solid transparent; /* 預留邊框空間，避免切換時跳動 */
+}
+
+.ai-message.search-used {
+    border-color: var(--cerebr-search-used-border);
+    box-shadow: 0 0 0 1px var(--cerebr-search-used-border), 0 2px 6px var(--cerebr-message-shadow);
 }
 
 .message p {

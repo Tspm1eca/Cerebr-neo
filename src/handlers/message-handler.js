@@ -62,6 +62,11 @@ export async function appendMessage({
         messageDiv.classList.add('batch-load');
     }
 
+    // 檢查是否使用了搜索
+    if (typeof text === 'object' && text.isSearchUsed) {
+        messageDiv.classList.add('search-used');
+    }
+
     // 处理文本内容
     let textContent = typeof text === 'string' ? text : text.content;
 
@@ -236,11 +241,20 @@ export async function appendMessage({
 /**
  * 创建一个等待中的消息元素
  * @param {HTMLElement} chatContainer - 聊天容器元素
+ * @param {Object} [options] - 可選配置
+ * @param {boolean} [options.isSearchUsed=false] - 是否使用了搜索功能
  * @returns {HTMLElement} 创建的等待消息元素
  */
-export function createWaitingMessage(chatContainer) {
+export function createWaitingMessage(chatContainer, options = {}) {
+    const { isSearchUsed = false } = options;
+
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message ai-message waiting';
+
+    // 如果使用了搜索，添加搜索標記樣式
+    if (isSearchUsed) {
+        messageDiv.classList.add('search-used');
+    }
 
     const thinkingDots = document.createElement('div');
     thinkingDots.className = 'thinking-dots';
@@ -254,6 +268,17 @@ export function createWaitingMessage(chatContainer) {
     });
 
     return messageDiv;
+}
+
+/**
+ * 為等待訊息添加搜索標記樣式
+ * @param {HTMLElement} chatContainer - 聊天容器元素
+ */
+export function markWaitingMessageAsSearchUsed(chatContainer) {
+    const waitingMessage = chatContainer.querySelector('.message.ai-message.waiting');
+    if (waitingMessage && !waitingMessage.classList.contains('search-used')) {
+        waitingMessage.classList.add('search-used');
+    }
 }
 
 /**
@@ -276,6 +301,16 @@ export async function updateAIMessage({
     let textContent = typeof text === 'string' ? text : text.content;
     const reasoningContent = typeof text === 'string' ? null : text.reasoning_content;
 
+    // 特殊處理：如果內容為空且只有 isSearchUsed 標記，則只更新等待訊息的樣式
+    // 這用於 "on" 模式下搜索完成後立即標記等待訊息
+    if (typeof text === 'object' && text.isSearchUsed && !textContent && !reasoningContent) {
+        const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+        if (waitingMsg && !waitingMsg.classList.contains('search-used')) {
+            waitingMsg.classList.add('search-used');
+        }
+        return true;
+    }
+
     // 检查是否是等待动画标记
     const isWaitingAnimation = textContent === WAITING_ANIMATION_MARKER;
 
@@ -283,7 +318,18 @@ export async function updateAIMessage({
     const waitingMessage = chatContainer.querySelector('.message.waiting');
 
     if (isWaitingAnimation) {
-        // 如果已经有等待消息，保持它；否则创建一个新的
+        // 如果已经有等待消息，檢查是否需要添加搜索標記
+        if (waitingMessage) {
+            // 檢查是否使用了搜索並更新樣式
+            if (typeof text === 'object' && text.isSearchUsed) {
+                if (!waitingMessage.classList.contains('search-used')) {
+                    waitingMessage.classList.add('search-used');
+                }
+            }
+            return true;
+        }
+
+        // 否则创建一个新的
         if (!waitingMessage) {
             // 查找正在更新的消息（如果有的话，比如搜索状态消息）
             let targetMessage = chatContainer.querySelector('.ai-message.updating');
@@ -293,6 +339,13 @@ export async function updateAIMessage({
                 targetMessage = document.createElement('div');
                 targetMessage.className = 'message ai-message updating';
                 chatContainer.appendChild(targetMessage);
+            }
+
+            // 檢查是否使用了搜索並更新樣式
+            if (typeof text === 'object' && text.isSearchUsed) {
+                if (!targetMessage.classList.contains('search-used')) {
+                    targetMessage.classList.add('search-used');
+                }
             }
 
             // 动画处理：记录原始尺寸
@@ -357,6 +410,13 @@ export async function updateAIMessage({
 
     // 不是等待动画，如果有等待消息，将其转换为普通消息
     if (waitingMessage) {
+        // 檢查是否使用了搜索並更新樣式（在等待訊息轉換前就添加）
+        if (typeof text === 'object' && text.isSearchUsed) {
+            if (!waitingMessage.classList.contains('search-used')) {
+                waitingMessage.classList.add('search-used');
+            }
+        }
+
         // 动画处理：记录原始尺寸（三点动画时的尺寸）
         const rect = waitingMessage.getBoundingClientRect();
 
@@ -391,6 +451,13 @@ export async function updateAIMessage({
     const currentText = lastMessage ? lastMessage.getAttribute('data-original-text') || '' : '';
 
     if (lastMessage) {
+        // 檢查是否使用了搜索並更新樣式
+        if (typeof text === 'object' && text.isSearchUsed) {
+            if (!lastMessage.classList.contains('search-used')) {
+                lastMessage.classList.add('search-used');
+            }
+        }
+
         // 获取当前显示的文本
         // 只要内容发生变化就更新（包括重置/变短的情况，这对应于重试）
         // 注意：如果是从 waiting 状态刚恢复过来，lastMessage 就是 waitingMessage，我们需要更新它的内容
@@ -589,7 +656,8 @@ export async function updateAIMessage({
         await appendMessage({
             text: {
                 content: textContent,
-                reasoning_content: reasoningContent
+                reasoning_content: reasoningContent,
+                isSearchUsed: typeof text === 'object' ? text.isSearchUsed : false
             },
             sender: 'ai',
             chatContainer

@@ -179,6 +179,9 @@ export class ChatManager {
         if (message.reasoning_content) {
             lastMessage.reasoning_content = message.reasoning_content;
         }
+        if (message.isSearchUsed) {
+            lastMessage.isSearchUsed = true;
+        }
 
         // 当流式响应结束时，触发标题生成
         if (isFinalUpdate) {

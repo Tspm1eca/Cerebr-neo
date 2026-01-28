@@ -185,6 +185,9 @@ export async function callAPI({
     // 'on' 模式：直接执行搜索
     // 'auto' 模式：使用 Function Calling 让 AI 决定
     // 'off' 模式：不搜索
+    // 用於標記 'on' 模式下是否已執行搜索
+    let searchUsedInOnMode = false;
+
     if (webSearchMode === 'on' && tavilyApiKey) {
         try {
             // 获取搜索查询：使用自定义查询或最后一条用户消息
@@ -218,6 +221,16 @@ export async function callAPI({
                     }
                     systemMessageContent += formattedResults;
                     console.log('已添加网络搜索结果到系统提示');
+
+                    // 標記搜索已使用（用於後續流處理）
+                    searchUsedInOnMode = true;
+
+                    // 同時更新 chatManager 和 UI（讓等待訊息立即顯示搜索標記）
+                    if (chatManager && chatId) {
+                        chatManager.updateLastMessage(chatId, { isSearchUsed: true }, false);
+                        // 立即通知 UI 更新，讓等待訊息顯示淺綠色邊框
+                        onMessageUpdate(chatId, { content: '', reasoning_content: '', isSearchUsed: true });
+                    }
                 }
             }
         } catch (error) {
@@ -300,7 +313,9 @@ export async function callAPI({
             let buffer = '';
             let currentMessage = {
                 content: '',
-                reasoning_content: ''
+                reasoning_content: '',
+                // 如果是 'on' 模式且已執行搜索，則初始化為 true
+                isSearchUsed: searchUsedInOnMode
             };
             let lastUpdateTime = 0;
             let updateTimeout = null;
@@ -314,7 +329,12 @@ export async function callAPI({
             const dispatchUpdate = () => {
                 if (chatManager && chatId) {
                     // 创建一个副本以避免回调函数意外修改
-                    const messageCopy = { ...currentMessage };
+                    // 包含 isSearchUsed 以便 UI 能夠即時顯示搜索標記
+                    const messageCopy = {
+                        content: currentMessage.content,
+                        reasoning_content: currentMessage.reasoning_content,
+                        isSearchUsed: currentMessage.isSearchUsed
+                    };
 
                     // 還原URL
                     if (messageCopy.content) {
@@ -476,6 +496,7 @@ export async function callAPI({
 
                             // 显示搜索状态
                             currentMessage.content = `🔍 正在搜索: "${searchQuery}"...\n\n`;
+                            currentMessage.isSearchUsed = true; // 標記搜索已使用
                             if (chatManager && chatId) {
                                 const messageCopy = { ...currentMessage };
                                 if (messageCopy.content) {
@@ -496,6 +517,7 @@ export async function callAPI({
 
                             // 搜索完成，显示等待 AI 回复的动画（使用特殊标记）
                             currentMessage.content = '{{WAITING_ANIMATION}}';
+                            // currentMessage.isSearchUsed 已經在上面設置為 true 了，這裡不需要重複設置，但保留也無妨
                             if (chatManager && chatId) {
                                 const messageCopy = { ...currentMessage };
                                 chatManager.updateLastMessage(chatId, messageCopy, false);
