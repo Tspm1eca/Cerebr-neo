@@ -734,8 +734,6 @@ let tavilyApiKey = '';
     });
 
     await initSendWebpageSwitch();
-    // 初始化时也要检查并更新网络搜索开关的禁用状态
-    updateWebSearchDisabledState(sendWebpageSwitch.checked);
 
     // 初始化"网络搜索"三态开关
     async function initWebSearchSwitch() {
@@ -794,7 +792,10 @@ let tavilyApiKey = '';
         }
     });
 
+    // 先初始化网络搜索模式，确保 webSearchMode 从 storage 正确载入
     await initWebSearchSwitch();
+    // 然后再检查并更新网络搜索开关的禁用状态（此时 webSearchMode 已经是正确的值）
+    updateWebSearchDisabledState(sendWebpageSwitch.checked);
 
    // Tavily API Key aettings
   const tavilyApiKeyInput = document.getElementById('tavily-api-key');
