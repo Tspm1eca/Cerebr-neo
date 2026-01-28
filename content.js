@@ -17,7 +17,6 @@ class CerebrSidebar {
         states.sidebarStates = {};
       }
       states.sidebarStates[this.pageKey] = {
-        isVisible: this.isVisible,
         width: this.sidebarWidth
       };
       await chrome.storage.local.set(states);
@@ -31,13 +30,9 @@ class CerebrSidebar {
       const states = await chrome.storage.local.get('sidebarStates');
       if (states.sidebarStates && states.sidebarStates[this.pageKey]) {
         const state = states.sidebarStates[this.pageKey];
-        this.isVisible = state.isVisible;
-        this.sidebarWidth = state.width;
-
-        if (this.isVisible) {
-          this.sidebar.classList.add('visible');
-        } else {
-          this.sidebar.classList.remove('visible');
+        // 只恢復寬度，不恢復可見狀態
+        if (state.width) {
+          this.sidebarWidth = state.width;
         }
         this.sidebar.style.setProperty('--sidebar-width', `${this.sidebarWidth}px`);
       }
@@ -268,8 +263,7 @@ class CerebrSidebar {
       // 更新DOM状态
       this.sidebar.classList.toggle('visible');
 
-      // 保存状态
-      this.saveState();
+      // 不再保存可見狀態，側邊欄不會自動出現
 
       // 如果从不可见变为可见，通知iframe并聚焦输入框
       if (!wasVisible && this.isVisible) {
