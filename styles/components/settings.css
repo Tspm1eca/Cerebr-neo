@@ -493,6 +493,7 @@ input:checked + .slider:before {
 .settings-content {
     flex: 1;
     overflow-y: auto;
+    scrollbar-gutter: stable both-edges;
 }
 
 .settings-content::-webkit-scrollbar {

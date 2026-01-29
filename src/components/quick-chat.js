@@ -161,6 +161,66 @@ export async function initQuickChat({
         const resetButton = document.getElementById('reset-quick-chat-options');
         const optionsList = settingsPage.querySelector('.quick-chat-options-list');
 
+        // 初始化快速選項提示詞模態框
+        const quickChatPromptModal = document.getElementById('quick-chat-prompt-modal');
+        if (quickChatPromptModal) {
+            const modalTextarea = quickChatPromptModal.querySelector('.quick-chat-prompt-modal-textarea');
+            const modalCloseBtn = quickChatPromptModal.querySelector('.quick-chat-prompt-modal-close');
+            const modalCancelBtn = quickChatPromptModal.querySelector('.quick-chat-prompt-modal-cancel');
+            const modalSaveBtn = quickChatPromptModal.querySelector('.quick-chat-prompt-modal-save');
+            const modalContent = quickChatPromptModal.querySelector('.quick-chat-prompt-modal-content');
+
+            // 模態框關閉按鈕
+            modalCloseBtn?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                quickChatPromptModal.style.display = 'none';
+            });
+
+            // 模態框取消按鈕
+            modalCancelBtn?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                quickChatPromptModal.style.display = 'none';
+            });
+
+            // 模態框保存按鈕
+            modalSaveBtn?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const editIndex = parseInt(quickChatPromptModal.dataset.editIndex, 10);
+                const currentPromptInput = quickChatPromptModal._currentPromptInput;
+
+                if (!isNaN(editIndex) && currentPromptInput) {
+                    // 更新 textarea 的值
+                    currentPromptInput.value = modalTextarea.value;
+                    // 更新選項數據
+                    quickChatOptions[editIndex].prompt = modalTextarea.value;
+                    saveQuickChatOptions();
+                }
+                quickChatPromptModal.style.display = 'none';
+            });
+
+            // 點擊模態框背景關閉（只有點擊背景本身才關閉）
+            quickChatPromptModal.addEventListener('click', (e) => {
+                if (e.target === quickChatPromptModal) {
+                    quickChatPromptModal.style.display = 'none';
+                }
+            });
+
+            // 阻止模態框內容區域的點擊事件冒泡
+            modalContent?.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+
+            // 阻止 textarea 的點擊和焦點事件冒泡
+            modalTextarea?.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+            modalTextarea?.addEventListener('focus', (e) => {
+                e.stopPropagation();
+            });
+            modalTextarea?.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+            });
+        }
 
         // 添加選項按鈕事件
         addButton.addEventListener('click', () => {
@@ -232,6 +292,11 @@ export async function initQuickChat({
                         <input type="text" class="quick-chat-option-title-input" value="${option.title}" placeholder="选项标题">
                     </div>
                     <div class="quick-chat-option-actions">
+                        <button class="quick-chat-option-button expand" title="展开编辑">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                <path d="M2 6V2H6M14 6V2H10M2 10V14H6M14 10V14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
                         <button class="quick-chat-option-button delete" title="刪除">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                                 <path d="M3 4H13" stroke="currentColor" stroke-width="1.5"/>
@@ -247,7 +312,16 @@ export async function initQuickChat({
             const iconInput = itemElement.querySelector('.quick-chat-option-icon-input');
             const titleInput = itemElement.querySelector('.quick-chat-option-title-input');
             const promptInput = itemElement.querySelector('.quick-chat-option-prompt-input');
+            const expandButton = itemElement.querySelector('.quick-chat-option-button.expand');
             const deleteButton = itemElement.querySelector('.quick-chat-option-button.delete');
+
+            // 獲取模態框元素
+            const quickChatPromptModal = document.getElementById('quick-chat-prompt-modal');
+            const modalTextarea = quickChatPromptModal?.querySelector('.quick-chat-prompt-modal-textarea');
+            const modalCloseBtn = quickChatPromptModal?.querySelector('.quick-chat-prompt-modal-close');
+            const modalCancelBtn = quickChatPromptModal?.querySelector('.quick-chat-prompt-modal-cancel');
+            const modalSaveBtn = quickChatPromptModal?.querySelector('.quick-chat-prompt-modal-save');
+            const modalContent = quickChatPromptModal?.querySelector('.quick-chat-prompt-modal-content');
 
             // 阻止输入框点击事件冒泡，防止触发外部的点击处理（如关闭菜单等）导致焦点丢失
             const stopPropagation = (e) => {
@@ -282,6 +356,34 @@ export async function initQuickChat({
                 quickChatOptions[index].prompt = e.target.value;
                 saveQuickChatOptions();
             });
+
+            // 展開編輯按鈕事件
+            if (expandButton && quickChatPromptModal) {
+                expandButton.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    modalTextarea.value = promptInput.value;
+                    // 存儲當前編輯的索引和對應的 promptInput
+                    quickChatPromptModal.dataset.editIndex = index;
+                    quickChatPromptModal._currentPromptInput = promptInput;
+                    quickChatPromptModal.style.display = 'flex';
+                });
+
+                // 阻止模態框內容區域的點擊事件冒泡
+                modalContent?.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                });
+
+                // 阻止 textarea 的點擊和焦點事件冒泡
+                modalTextarea?.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                });
+                modalTextarea?.addEventListener('focus', (e) => {
+                    e.stopPropagation();
+                });
+                modalTextarea?.addEventListener('mousedown', (e) => {
+                    e.stopPropagation();
+                });
+            }
 
             // 刪除按鈕事件
             deleteButton.addEventListener('click', () => {

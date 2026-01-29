@@ -17,7 +17,7 @@
 }
 
 .api-cards {
-    padding: 16px;
+    padding: 16px 8px;
     flex: 1;
     overflow-y: auto;
 }
