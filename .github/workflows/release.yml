@@ -48,39 +48,19 @@ jobs:
           cd build/chrome
           zip -r ../../cerebr-chrome-v${{ steps.version.outputs.version }}.zip . -x "*.DS_Store"
 
-      - name: Create Firefox build directory
-        run: |
-          mkdir -p build/firefox
-
-          # 複製需要的文件和目錄
-          cp -r icons build/firefox/
-          cp -r htmd build/firefox/
-          cp -r lib build/firefox/
-          cp -r src build/firefox/
-          cp -r statics build/firefox/
-          cp -r styles build/firefox/
-          cp background.js build/firefox/
-          cp content.js build/firefox/
-          cp index.html build/firefox/
-          cp manifest.firefox.json build/firefox/manifest.json
-
-          # 創建 ZIP 文件
-          cd build/firefox
-          zip -r ../../cerebr-firefox-v${{ steps.version.outputs.version }}.zip . -x "*.DS_Store"
-
       - name: Generate checksums
         run: |
           sha256sum cerebr-chrome-v${{ steps.version.outputs.version }}.zip > checksums.txt
-          sha256sum cerebr-firefox-v${{ steps.version.outputs.version }}.zip >> checksums.txt
           cat checksums.txt
 
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Cerebr-neo v${{ steps.version.outputs.version }}
           files: |
             cerebr-chrome-v${{ steps.version.outputs.version }}.zip
-            cerebr-firefox-v${{ steps.version.outputs.version }}.zip
             checksums.txt
           draft: false
           prerelease: false
@@ -90,7 +70,6 @@ jobs:
 
             ### 下載
             - **Chrome/Edge**: `cerebr-chrome-v${{ steps.version.outputs.version }}.zip`
-            - **Firefox**: `cerebr-firefox-v${{ steps.version.outputs.version }}.zip`
 
             ### 校驗和
             請參考 `checksums.txt` 文件驗證下載的完整性。
@@ -104,6 +83,5 @@ jobs:
           name: extension-builds-v${{ steps.version.outputs.version }}
           path: |
             cerebr-chrome-v${{ steps.version.outputs.version }}.zip
-            cerebr-firefox-v${{ steps.version.outputs.version }}.zip
             checksums.txt
           retention-days: 90
