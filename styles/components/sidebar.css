@@ -59,17 +59,50 @@
 .cerebr-sidebar__resizer {
     position: absolute;
     left: -5px;
-    top: 0;
+    top: 50%;
+    transform: translateY(-50%);
     width: 15px;
-    height: 100%;
+    height: 80px;
     cursor: ew-resize;
     z-index: 10;
     background-color: transparent;
+    border-radius: 8px;
     transition: background-color 0.2s ease;
 }
 
 .cerebr-sidebar__resizer:hover {
-    background-color: rgba(0, 0, 0, 0.1);
+    background-color: rgba(0, 0, 0, 0.15);
+}
+
+.cerebr-sidebar__resizer::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 4px;
+    height: 30px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 2px;
+    transition: background-color 0.2s ease;
+}
+
+.cerebr-sidebar__resizer:hover::before {
+    background-color: rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+    .cerebr-sidebar__resizer:hover {
+        background-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .cerebr-sidebar__resizer::before {
+        background-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .cerebr-sidebar__resizer:hover::before {
+        background-color: rgba(255, 255, 255, 0.4);
+    }
 }
 
 .cerebr-sidebar__content {
