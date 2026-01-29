@@ -211,6 +211,22 @@ export function initMessageInput(config) {
         }
     });
 
+    // 获取 persistent-placeholder 元素
+    const shell = messageInput.closest('.message-input-shell');
+    const persistentPlaceholder = shell?.querySelector('.persistent-placeholder');
+
+    // 更新 has-content 状态的函数
+    const updateHasContentState = () => {
+        const hasContent = messageInput.textContent.trim() !== '' || messageInput.querySelector('.image-tag');
+        if (shell) {
+            if (hasContent) {
+                shell.classList.add('has-content');
+            } else {
+                shell.classList.remove('has-content');
+            }
+        }
+    };
+
     // 监听输入框变化
     messageInput.addEventListener('input', function() {
         adjustTextareaHeight({
@@ -222,6 +238,9 @@ export function initMessageInput(config) {
         if (isComposing) {
             return;
         }
+
+        // 更新 has-content 状态
+        updateHasContentState();
 
         // 处理 placeholder 的显示
         if (this.textContent.trim() === '' && !this.querySelector('.image-tag')) {
@@ -438,6 +457,13 @@ export function updatePermanentPlaceholder(messageInput, modelName) {
         const placeholder = `${modelName}`;
         messageInput.setAttribute('placeholder', placeholder);
         messageInput.setAttribute('data-original-placeholder', placeholder);
+
+        // 同时更新 persistent-placeholder 元素
+        const shell = messageInput.closest('.message-input-shell');
+        const persistentPlaceholder = shell?.querySelector('.persistent-placeholder');
+        if (persistentPlaceholder) {
+            persistentPlaceholder.textContent = placeholder;
+        }
     }
 }
 
@@ -509,6 +535,12 @@ export function clearMessageInput(messageInput, config) {
         textarea: messageInput,
         config: config.textarea
     });
+
+    // 清空后移除 has-content 状态
+    const shell = messageInput.closest('.message-input-shell');
+    if (shell) {
+        shell.classList.remove('has-content');
+    }
 }
 
 /**

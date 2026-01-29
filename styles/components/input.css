@@ -64,12 +64,28 @@
     caret-color: transparent;
 }
 
+/* 隱藏原本的 ::before placeholder，改用 .persistent-placeholder */
 #message-input:empty::before {
-    content: attr(placeholder);
+    display: none;
+}
+
+/* 持續顯示的 placeholder，位於右下角 */
+.message-input-shell .persistent-placeholder {
+    position: absolute;
+    right: 8px;
+    bottom: 6px;
     color: var(--cerebr-text-color);
     opacity: 0.5;
-    cursor: text;
     font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    pointer-events: none;
+    z-index: 1;
+    transition: opacity 0.2s ease;
+}
+
+/* 當輸入框有內容時，placeholder 變得更淺 */
+.message-input-shell.has-content .persistent-placeholder {
+    opacity: 0.25;
 }
 
 #message-input:focus {
