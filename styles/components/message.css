@@ -148,6 +148,28 @@
     box-sizing: border-box;
 }
 
+/* 等待和流式返回時的藍色呼吸光暈邊框效果 */
+.message.ai-message.waiting,
+.message.ai-message.updating {
+    border: 1px solid rgba(59, 130, 246, 0.5);
+    animation: messageAppear 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards,
+               breathing-glow 2s ease-in-out infinite;
+}
+
+/* 確保搜索標記和錯誤標記的優先級高於呼吸光暈 */
+.message.ai-message.waiting.search-used,
+.message.ai-message.updating.search-used {
+    border-color: var(--cerebr-search-used-border);
+    animation: messageAppear 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards,
+               breathing-glow-search 2s ease-in-out infinite;
+}
+
+.message.ai-message.waiting.error,
+.message.ai-message.updating.error {
+    border-color: var(--cerebr-error-border);
+    animation: messageAppear 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
 .message .thinking-dots span {
     display: inline-block;
     width: 8px;

@@ -741,6 +741,9 @@ let tavilyApiKey = '';
                 }
             });
 
+            // 重新渲染 API 卡片以更新設置頁面中的模型名稱顯示
+            renderAPICardsWithCallbacks();
+
             // 隱藏子菜單
             hideModelSelectorMenu();
         }
