@@ -17,8 +17,10 @@ Cerebr 是一款强大的浏览器 AI 助手扩展，现已支持 Chrome、Firef
 3. 網頁引索，在與網頁交互時，會自己產生「網頁引索」，點擊可自動滾動到引索位置。
 4. 支持Tavily網絡搜索。
 
-<img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/996c681d-4319-46b4-aec1-9b559fdc980f" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/c062ba79-65c7-49fe-92a3-c95bef342793" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/3c2c6e86-f826-4415-b9c1-3e63c2b24aca" />
-<img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/3a75b671-f708-4765-8373-717e30fa93df" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/12fd9b36-b701-404c-b271-ef2dc7c15aa2" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/ce7214a0-a5eb-4948-8d88-0532a1cb30bf" /> 
+<img width="300" height="600" alt="4" src="https://github.com/user-attachments/assets/1945d4f0-f281-493e-939b-2059291cc157" /> <img width="300" height="600" alt="7" src="https://github.com/user-attachments/assets/bccb3d08-8ef3-4e8c-9a4f-f6ab46c915e6" />
+<img width="300" height="600" alt="1" src="https://github.com/user-attachments/assets/43d5ec9d-da16-4985-8632-422717576a6a" /> <img width="300" height="600" alt="2" src="https://github.com/user-attachments/assets/c92be7c7-8b0a-4ad2-ac95-c14577412a51" /> 
+<img width="300" height="600" alt="3" src="https://github.com/user-attachments/assets/888a2cfd-7772-4d80-9d25-15c0c7367dc0" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/3a75b671-f708-4765-8373-717e30fa93df" /> 
+<img width="300" height="600" alt="6" src="https://github.com/user-attachments/assets/da4de073-0133-4b85-a01c-593124695399" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/ce7214a0-a5eb-4948-8d88-0532a1cb30bf" /> 
 ---
 ## 原版訊息
 
