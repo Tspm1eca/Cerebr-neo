@@ -597,6 +597,7 @@ let tavilyApiKey = '';
     // 模型選擇子菜單邏輯
     let modelSelectorTimeout;
     let modelListCache = {}; // 緩存模型列表
+    let isModelSearchFocused = false; // 追蹤搜索框焦點狀態
 
     // 獲取模型列表
     async function fetchModelList(force = false) {
@@ -639,44 +640,86 @@ let tavilyApiKey = '';
         const emptyContainer = modelSelectorMenu.querySelector('.model-selector-empty');
         const config = apiConfigs[selectedConfigIndex];
 
-        if (!models || models.length === 0) {
-            listContainer.innerHTML = '';
-            listContainer.style.display = 'none';
-            emptyContainer.style.display = 'block';
-            return;
+        // 動畫：如果菜單可見，記錄起始尺寸
+        const isVisible = modelSelectorMenu.classList.contains('visible');
+        let startHeight, startWidth;
+
+        if (isVisible) {
+            startHeight = modelSelectorMenu.offsetHeight;
+            startWidth = modelSelectorMenu.offsetWidth;
+            modelSelectorMenu.style.height = `${startHeight}px`;
+            modelSelectorMenu.style.width = `${startWidth}px`;
         }
 
-        // 根據篩選文字過濾模型
-        const filteredModels = filterText
-            ? models.filter(model => model.toLowerCase().includes(filterText.toLowerCase()))
-            : models;
-
-        if (filteredModels.length === 0) {
-            listContainer.innerHTML = '';
-            listContainer.style.display = 'none';
-            emptyContainer.textContent = '没有匹配的模型';
-            emptyContainer.style.display = 'block';
-            return;
-        }
-
-        emptyContainer.style.display = 'none';
-        listContainer.style.display = 'flex';
-        listContainer.innerHTML = '';
-
-        filteredModels.forEach(model => {
-            const item = document.createElement('div');
-            item.className = 'model-selector-item';
-            if (model === config?.modelName) {
-                item.classList.add('selected');
+        const updateDOM = () => {
+            if (!models || models.length === 0) {
+                listContainer.innerHTML = '';
+                listContainer.style.display = 'none';
+                emptyContainer.style.display = 'block';
+                return;
             }
-            item.textContent = model;
-            item.title = model;
-            item.addEventListener('click', (e) => {
-                e.stopPropagation();
-                selectModel(model);
+
+            // 根據篩選文字過濾模型
+            const filteredModels = filterText
+                ? models.filter(model => model.toLowerCase().includes(filterText.toLowerCase()))
+                : models;
+
+            if (filteredModels.length === 0) {
+                listContainer.innerHTML = '';
+                listContainer.style.display = 'none';
+                emptyContainer.textContent = '没有匹配的模型';
+                emptyContainer.style.display = 'block';
+                return;
+            }
+
+            emptyContainer.style.display = 'none';
+            listContainer.style.display = 'flex';
+            listContainer.innerHTML = '';
+
+            filteredModels.forEach(model => {
+                const item = document.createElement('div');
+                item.className = 'model-selector-item';
+                if (model === config?.modelName) {
+                    item.classList.add('selected');
+                }
+                item.textContent = model;
+                item.title = model;
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectModel(model);
+                });
+                listContainer.appendChild(item);
             });
-            listContainer.appendChild(item);
-        });
+        };
+
+        updateDOM();
+
+        // 動畫：應用新尺寸
+        if (isVisible) {
+            // 暫時設為 auto 以測量自然尺寸
+            modelSelectorMenu.style.height = 'auto';
+            modelSelectorMenu.style.width = 'auto';
+
+            const targetHeight = modelSelectorMenu.offsetHeight;
+            const targetWidth = modelSelectorMenu.offsetWidth;
+
+            // 恢復到起始尺寸準備過渡
+            modelSelectorMenu.style.height = `${startHeight}px`;
+            modelSelectorMenu.style.width = `${startWidth}px`;
+
+            // 強制重排
+            modelSelectorMenu.offsetHeight;
+
+            // 設置目標尺寸觸發過渡
+            modelSelectorMenu.style.height = `${targetHeight}px`;
+            modelSelectorMenu.style.width = `${targetWidth}px`;
+
+            // 過渡結束後清理
+            setTimeout(() => {
+                modelSelectorMenu.style.height = 'auto';
+                modelSelectorMenu.style.width = 'auto';
+            }, 200);
+        }
     }
 
     // 選擇模型
@@ -750,6 +793,8 @@ let tavilyApiKey = '';
 
     // 隱藏模型選擇子菜單
     function hideModelSelectorMenu() {
+        // 如果搜索框有焦點，不隱藏菜單
+        if (isModelSearchFocused) return;
         modelSelectorTimeout = setTimeout(() => {
             modelSelectorMenu.classList.remove('visible');
         }, 150);
@@ -803,6 +848,16 @@ let tavilyApiKey = '';
         // 阻止輸入框的 mouseenter/mouseleave 影響菜單顯示
         modelSearchInput.addEventListener('mouseenter', () => {
             clearTimeout(modelSelectorTimeout);
+        });
+
+        // 追蹤搜索框焦點狀態，防止輸入時菜單消失
+        modelSearchInput.addEventListener('focus', () => {
+            isModelSearchFocused = true;
+            clearTimeout(modelSelectorTimeout);
+        });
+
+        modelSearchInput.addEventListener('blur', () => {
+            isModelSearchFocused = false;
         });
 
         // 鍵盤導航支援
