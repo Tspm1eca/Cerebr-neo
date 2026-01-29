@@ -17,7 +17,7 @@ const DEFAULT_QUICK_CHAT_OPTIONS = [
     {
         id: 'option-2',
         title: '200字總結',
-        prompt: '```\n用約200字總結網頁內容。\n```',
+        prompt: '```\n用約200字總結網頁內容，不需要使用引用鏈接。\n```',
         icon: '✨'
     },
     {

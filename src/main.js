@@ -921,9 +921,9 @@ let tavilyApiKey = '';
     if (sidePanelToggle) {
         // 更新按钮状态或文本
         if (isSidePanel) {
-            sidePanelToggle.querySelector('span').textContent = '悬浮窗模式';
+            sidePanelToggle.querySelector('span').textContent = '悬浮模式';
         } else {
-            sidePanelToggle.querySelector('span').textContent = '侧边栏模式';
+            sidePanelToggle.querySelector('span').textContent = '侧栏模式';
         }
 
         sidePanelToggle.addEventListener('click', async () => {
