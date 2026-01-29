@@ -247,7 +247,7 @@
     background-color: var(--cerebr-button-hover-bg);
 }
 .advanced-settings {
-    margin-top: 2px;
+    margin-top: 0px;
 }
 
 .advanced-settings-header {
@@ -336,22 +336,238 @@
 
 .system-prompt {
     width: 100%;
-    background: var(--cerebr-bg-color);
+    background: transparent;
     border: 1px solid var(--cerebr-card-border-color);
     padding: 8px;
     border-radius: 4px;
     color: var(--cerebr-text-color);
     font-size: 14px;
     resize: vertical;
-    min-height: 60px;
-    max-height: 120px;
+    min-height: 240px;
+    max-height: calc(100vh - 450px);
     font-family: inherit;
+    line-height: 1.5;
 }
 
 .system-prompt:focus {
     outline: none;
     border-color: var(--cerebr-highlight-border-color);
     box-shadow: 0 0 0 1px var(--cerebr-highlight-border-color);
+}
+
+/* 限制 advanced-settings-content 的最大高度 */
+.advanced-settings-content.visible {
+    max-height: calc(100vh - 400px);
+    overflow-y: auto;
+}
+
+/* Profile Selector Styles */
+.profile-selector-group {
+    margin-bottom: 8px;
+}
+
+.profile-selector-container {
+    position: relative;
+}
+
+.profile-selector {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--cerebr-message-ai-bg);
+    border: 1px solid var(--cerebr-card-border-color);
+    border-radius: 4px;
+    color: var(--cerebr-text-color);
+    font-size: 14px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+}
+
+.profile-selector:focus {
+    outline: none;
+    border-color: var(--cerebr-highlight-border-color);
+    box-shadow: 0 0 0 1px var(--cerebr-highlight-border-color);
+}
+
+.profile-selector option {
+    background: var(--cerebr-bg-color);
+    color: var(--cerebr-text-color);
+    padding: 8px;
+}
+
+.profile-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.profile-actions .card-button {
+    width: 28px;
+    height: 28px;
+    padding: 6px;
+}
+
+/* System Prompt Item Styles */
+.system-prompt-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.system-prompt-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.system-prompt-actions button {
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    color: var(--cerebr-text-color);
+    opacity: 0.6;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.system-prompt-actions button:hover {
+    opacity: 1;
+    background-color: var(--cerebr-button-hover-bg);
+}
+
+/* System Prompt Modal Styles */
+.system-prompt-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    padding: 20px;
+}
+
+.system-prompt-modal-content {
+    background: var(--cerebr-bg-color);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 600px;
+    height: 90vh;
+    max-height: 800px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.system-prompt-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--cerebr-border-color);
+}
+
+.system-prompt-modal-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--cerebr-text-color);
+}
+
+.system-prompt-modal-close {
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    color: var(--cerebr-text-color);
+    opacity: 0.6;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.system-prompt-modal-close:hover {
+    opacity: 1;
+    background-color: var(--cerebr-button-hover-bg);
+}
+
+.system-prompt-modal-textarea {
+    flex: 1;
+    margin: 16px 20px;
+    padding: 12px;
+    background: var(--cerebr-message-ai-bg);
+    border: 1px solid var(--cerebr-card-border-color);
+    border-radius: 8px;
+    color: var(--cerebr-text-color);
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1.6;
+    resize: none;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.system-prompt-modal-textarea:focus {
+    outline: none;
+    border-color: var(--cerebr-highlight-border-color);
+    box-shadow: 0 0 0 1px var(--cerebr-highlight-border-color);
+}
+
+.system-prompt-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--cerebr-border-color);
+}
+
+.system-prompt-modal-cancel,
+.system-prompt-modal-save {
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.system-prompt-modal-cancel {
+    background: var(--cerebr-message-ai-bg);
+    border: 1px solid var(--cerebr-card-border-color);
+    color: var(--cerebr-text-color);
+}
+
+.system-prompt-modal-cancel:hover {
+    background: var(--cerebr-button-hover-bg);
+}
+
+.system-prompt-modal-save {
+    background: var(--cerebr-highlight-border-color);
+    border: none;
+    color: #fff;
+}
+
+.system-prompt-modal-save:hover {
+    opacity: 0.9;
+}
+
+/* Main API Card Styles */
+.main-api-card {
+    cursor: default;
+}
+
+.main-api-card:hover {
+    transform: none;
+    box-shadow: none;
 }
 
 /* Tavily 设置样式 */

@@ -5,152 +5,207 @@
  * @property {string} baseUrl - API的基础URL
  * @property {string} modelName - 模型名称
  * @property {string} titleModelName - 标题生成模型名称
+ * @property {string} profileName - 配置文件名称
  * @property {Object} advancedSettings - 高级设置
  * @property {string} advancedSettings.systemPrompt - 系统提示
  * @property {boolean} advancedSettings.isExpanded - 高级设置是否展开
  */
 
-/**
- * 渲染 API 卡片
- * @param {Object} params - 渲染参数
- * @param {Array<APIConfig>} params.apiConfigs - API配置列表
- * @param {HTMLElement} params.apiCardsContainer - 卡片容器元素
- * @param {HTMLElement} params.templateCard - 模板卡片元素
- * @param {function} params.onCardCreate - 卡片创建回调函数
- * @param {function} params.onCardSelect - 卡片选择回调函数
- * @param {function} params.onCardDuplicate - 卡片复制回调函数
- * @param {function} params.onCardDelete - 卡片删除回调函数
- * @param {function} params.onCardChange - 卡片内容变更回调函数
- * @param {number} params.selectedIndex - 当前选中的卡片索引
- */
-
-// method tag
-// export const DEFAULT_SYSTEM_PROMPT = "1.當你引用網頁內容時，請使用格式 `<cite id=\"編號\">引用文本</cite>`。例如，如果你想引用\"機器學習是一種人工智能\"，請寫成 `<cite id=\"1\">機器學習是一種人工智能</cite>`。\n2.**重要**：引用文本必須是網頁中**完全一致**的原文片段，包括所有標點符號（逗號、句號、引號等）。\n不要省略或修改任何字元。\n3.為了防止語法錯誤，如果引用的文本中包含雙引號（\"）、括號或特殊符號，請務必將其轉換為URL編碼。\n4.引用文本建議控制在 10-15 個字以內，選擇具有唯一性的片段。\n5.文章內的所有URL將以映射表形式`(URLREF<N>)`給你，例如：`(URLREF1)`。";
-
 // method markdown link
 export const DEFAULT_SYSTEM_PROMPT = "1.當你引用網頁內容時，請使用Markdown鏈接格式 `[編號](cite:引用文本)`。例如，如果你想引用\"機器學習是一種人工智能\"，請寫成 `[1](cite:機器學習是一種人工智能)`。\n2.**重要**：引用文本必須是網頁中**完全一致**的原文片段，包括所有標點符號（逗號、句號、引號等），不能有任何字詞的修改、替換、縮略或添加空格。請直接從網頁內容中複製貼上。\n3.為了防止語法錯誤，如果引用的文本中包含雙引號（\"）、括號或特殊符號，請務必將其轉換為URL編碼。\n4.引用文本建議控制在 10-15 個字以內，選擇具有唯一性的片段。\n5.文章內的所有URL將以映射表形式`(URLREF<N>)`給你，例如：`(URLREF1)`。";
 
-export function renderAPICards({
+/**
+ * 初始化 API 卡片
+ * @param {Object} params - 初始化参数
+ * @param {Array<APIConfig>} params.apiConfigs - API配置列表
+ * @param {number} params.selectedIndex - 当前选中的配置索引
+ * @param {function} params.onProfileChange - 配置切换回调函数
+ * @param {function} params.onProfileAdd - 新增配置回调函数
+ * @param {function} params.onProfileDelete - 删除配置回调函数
+ * @param {function} params.onConfigChange - 配置内容变更回调函数
+ * @param {function} params.onSave - 保存配置回调函数
+ */
+export function initAPICard({
     apiConfigs,
-    apiCardsContainer,
-    templateCard,
-    onCardCreate,
-    onCardSelect,
-    onCardDuplicate,
-    onCardDelete,
-    onCardChange,
-    selectedIndex
+    selectedIndex,
+    onProfileChange,
+    onProfileAdd,
+    onProfileDelete,
+    onConfigChange,
+    onSave
 }) {
-    if (!templateCard) {
-        console.error('找不到模板卡片元素');
+    const card = document.querySelector('.api-card.main-api-card');
+    if (!card) {
+        console.error('找不到主 API 卡片元素');
         return;
     }
 
-    // 保存模板的副本
-    const templateClone = templateCard.cloneNode(true);
+    const profileSelector = card.querySelector('.profile-selector');
+    const renameProfileBtn = card.querySelector('.rename-profile-btn');
+    const addProfileBtn = card.querySelector('.add-profile-btn');
+    const deleteProfileBtn = card.querySelector('.delete-profile-btn');
+    const apiKeyInput = card.querySelector('.api-key');
+    const baseUrlInput = card.querySelector('.base-url');
+    const modelNameInput = card.querySelector('.model-name');
+    const titleModelNameInput = card.querySelector('.title-model-name');
+    const modelListDropdowns = card.querySelectorAll('.model-list-dropdown');
+    const testConnectionBtns = card.querySelectorAll('.test-connection-btn');
+    const systemPromptInput = card.querySelector('.system-prompt');
+    const resetPromptBtn = card.querySelector('.reset-prompt-btn');
+    const expandPromptBtn = card.querySelector('.expand-prompt-btn');
+    const advancedSettingsHeader = card.querySelector('.advanced-settings-header');
+    const advancedSettingsContent = card.querySelector('.advanced-settings-content');
+    const toggleIcon = card.querySelector('.toggle-icon');
 
-    // 清空现有卡片
-   apiCardsContainer.querySelectorAll('.api-card:not(.tavily-api-card):not(.template)').forEach(card => card.remove());
-
-    // 先重新添加模板（保持隐藏状态）
-    apiCardsContainer.appendChild(templateClone);
-
-    // 移除所有卡片的选中状态
-    document.querySelectorAll('.api-card').forEach(card => {
-        card.classList.remove('selected');
-    });
-
-    // 渲染实际的卡片
-    apiConfigs.forEach((config, index) => {
-        const card = createAPICard({
-            config,
-            index,
-            templateCard: templateClone,
-            onSelect: onCardSelect,
-            onDuplicate: onCardDuplicate,
-            onDelete: onCardDelete,
-            onChange: onCardChange,
-            isSelected: index === selectedIndex
-        });
-        apiCardsContainer.appendChild(card);
-        if (onCardCreate) {
-            onCardCreate(card, index);
-        }
-    });
-}
-
-/**
- * 创建单个 API 卡片
- * @param {Object} params - 创建参数
- * @param {APIConfig} params.config - API配置
- * @param {number} params.index - 卡片索引
- * @param {HTMLElement} params.templateCard - 模板卡片元素
- * @param {function} params.onSelect - 选择回调
- * @param {function} params.onDuplicate - 复制回调
- * @param {function} params.onDelete - 删除回调
- * @param {function} params.onChange - 变更回调
- * @param {boolean} params.isSelected - 是否选中
- * @returns {HTMLElement} 创建的卡片元素
- */
-function createAPICard({
-    config,
-    index,
-    templateCard,
-    onSelect,
-    onDuplicate,
-    onDelete,
-    onChange,
-    isSelected
-}) {
-    // 克隆模板
-    const template = templateCard.cloneNode(true);
-    template.classList.remove('template');
-    template.style.display = '';
-    template.setAttribute('tabindex', '0');
-
-    // 设置选中状态
-    if (isSelected) {
-        template.classList.add('selected');
-    } else {
-        template.classList.remove('selected');
-    }
-
-    const apiKeyInput = template.querySelector('.api-key');
-    const baseUrlInput = template.querySelector('.base-url');
-    const modelNameInput = template.querySelector('.model-name');
-    const titleModelNameInput = template.querySelector('.title-model-name');
-    const modelListDropdown = template.querySelector('.model-list-dropdown');
-    const testConnectionBtn = template.querySelector('.test-connection-btn');
-    const systemPromptInput = template.querySelector('.system-prompt');
-    const resetPromptBtn = template.querySelector('.reset-prompt-btn');
-    const advancedSettingsHeader = template.querySelector('.advanced-settings-header');
-    const advancedSettingsContent = template.querySelector('.advanced-settings-content');
-    const toggleIcon = template.querySelector('.toggle-icon');
+    // 系统提示模态框
+    const systemPromptModal = document.getElementById('system-prompt-modal');
+    const modalTextarea = systemPromptModal?.querySelector('.system-prompt-modal-textarea');
+    const modalCloseBtn = systemPromptModal?.querySelector('.system-prompt-modal-close');
+    const modalCancelBtn = systemPromptModal?.querySelector('.system-prompt-modal-cancel');
+    const modalSaveBtn = systemPromptModal?.querySelector('.system-prompt-modal-save');
 
     // 模型列表缓存
     let modelCache = {};
     let highlightedIndex = -1;
 
-    // 设置初始值
-    apiKeyInput.value = config.apiKey || '';
-    baseUrlInput.value = config.baseUrl || '';
-    modelNameInput.value = config.modelName || '';
-    titleModelNameInput.value = config.titleModelName || '';
-
-    // 设置系统提示的默认值
-    systemPromptInput.value = config.advancedSettings?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-
-    // 设置高级设置的展开/折叠状态
-    const isExpanded = config.advancedSettings?.isExpanded || false;
-    if (isExpanded) {
-        advancedSettingsContent.style.display = 'block';
-        advancedSettingsContent.classList.add('visible');
-    } else {
-        advancedSettingsContent.style.display = 'none';
+    // 更新 profile 下拉选单
+    function updateProfileSelector() {
+        profileSelector.innerHTML = '';
+        apiConfigs.forEach((config, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = config.profileName || `配置 ${index + 1}`;
+            if (index === selectedIndex) {
+                option.selected = true;
+            }
+            profileSelector.appendChild(option);
+        });
     }
-    toggleIcon.style.transform = isExpanded ? 'rotate(180deg)' : '';
 
-    // 添加高级设置的展开/折叠功能
+    // 更新表单内容
+    function updateFormContent(config) {
+        if (!config) return;
+
+        apiKeyInput.value = config.apiKey || '';
+        baseUrlInput.value = config.baseUrl || '';
+        modelNameInput.value = config.modelName || '';
+        titleModelNameInput.value = config.titleModelName || '';
+        systemPromptInput.value = config.advancedSettings?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+
+        // 设置高级设置的展开/折叠状态
+        const isExpanded = config.advancedSettings?.isExpanded || false;
+        if (isExpanded) {
+            advancedSettingsContent.style.display = 'block';
+            advancedSettingsContent.classList.add('visible');
+        } else {
+            advancedSettingsContent.style.display = 'none';
+            advancedSettingsContent.classList.remove('visible');
+        }
+        toggleIcon.style.transform = isExpanded ? 'rotate(180deg)' : '';
+    }
+
+    // 获取当前配置
+    function getCurrentConfig() {
+        return apiConfigs[selectedIndex];
+    }
+
+    // 保存当前表单到配置
+    function saveCurrentForm() {
+        const config = getCurrentConfig();
+        if (!config) return;
+
+        config.apiKey = apiKeyInput.value;
+        config.baseUrl = baseUrlInput.value;
+        config.modelName = modelNameInput.value;
+        config.titleModelName = titleModelNameInput.value;
+        config.advancedSettings = {
+            ...config.advancedSettings,
+            systemPrompt: systemPromptInput.value
+        };
+
+        onConfigChange(selectedIndex, config);
+    }
+
+    // 初始化
+    updateProfileSelector();
+    updateFormContent(getCurrentConfig());
+
+    // Profile 选择器变更事件
+    profileSelector.addEventListener('change', (e) => {
+        // 先保存当前配置
+        saveCurrentForm();
+
+        const newIndex = parseInt(e.target.value, 10);
+        selectedIndex = newIndex;
+        updateFormContent(getCurrentConfig());
+        onProfileChange(newIndex);
+    });
+
+    // 新增配置按钮
+    addProfileBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // 先保存当前配置
+        saveCurrentForm();
+
+        const newConfig = {
+            apiKey: '',
+            baseUrl: 'https://api.CloseAi.com/v1/chat/completions',
+            modelName: '',
+            titleModelName: '',
+            profileName: `配置 ${apiConfigs.length + 1}`,
+            advancedSettings: {
+                systemPrompt: DEFAULT_SYSTEM_PROMPT,
+                isExpanded: false
+            }
+        };
+
+        apiConfigs.push(newConfig);
+        selectedIndex = apiConfigs.length - 1;
+
+        updateProfileSelector();
+        updateFormContent(newConfig);
+        onProfileAdd(newConfig, selectedIndex);
+    });
+
+    // 重命名配置按钮
+    renameProfileBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const config = getCurrentConfig();
+        const currentName = config.profileName || `配置 ${selectedIndex + 1}`;
+        const newName = prompt('请输入新的配置名称：', currentName);
+
+        if (newName !== null && newName.trim() !== '') {
+            config.profileName = newName.trim();
+            updateProfileSelector();
+            onConfigChange(selectedIndex, config);
+        }
+    });
+
+    // 删除配置按钮
+    deleteProfileBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+
+        if (apiConfigs.length <= 1) {
+            showToast('至少需要保留一个配置', 'error');
+            return;
+        }
+
+        if (confirm('确定要删除当前配置吗？此操作无法撤销。')) {
+            const deletedIndex = selectedIndex;
+            apiConfigs.splice(deletedIndex, 1);
+
+            // 调整选中索引
+            if (selectedIndex >= apiConfigs.length) {
+                selectedIndex = apiConfigs.length - 1;
+            }
+
+            updateProfileSelector();
+            updateFormContent(getCurrentConfig());
+            onProfileDelete(deletedIndex, selectedIndex);
+        }
+    });
+
+    // 高级设置展开/折叠
     advancedSettingsHeader.addEventListener('click', (e) => {
         e.stopPropagation();
 
@@ -178,45 +233,103 @@ function createAPICard({
         }
 
         // 更新配置
-        onChange(index, {
-            ...config,
-            advancedSettings: {
+        const config = getCurrentConfig();
+        if (config) {
+            config.advancedSettings = {
                 ...config.advancedSettings,
                 isExpanded: !isCurrentlyExpanded
-            }
-        });
+            };
+            onConfigChange(selectedIndex, config);
+        }
     });
 
-    // 监听系统提示的变化
+    // 系统提示变更
     systemPromptInput.addEventListener('change', () => {
-        onChange(index, {
-            ...config,
-            advancedSettings: {
-                ...config.advancedSettings,
-                systemPrompt: systemPromptInput.value
-            }
-        });
+        saveCurrentForm();
     });
 
-    // 监听还原系统提示按钮点击
+    // 还原系统提示按钮
     if (resetPromptBtn) {
         resetPromptBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             if (confirm('确定要还原系统提示为默认值吗？此操作无法撤销。')) {
                 systemPromptInput.value = DEFAULT_SYSTEM_PROMPT;
-                // 触发 change 事件以保存更改
-                systemPromptInput.dispatchEvent(new Event('change'));
+                saveCurrentForm();
             }
         });
     }
 
-    // 阻止输入框和按钮点击事件冒泡
+    // 展开编辑系统提示按钮
+    if (expandPromptBtn && systemPromptModal) {
+        const modalContent = systemPromptModal.querySelector('.system-prompt-modal-content');
+
+        expandPromptBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            modalTextarea.value = systemPromptInput.value;
+            systemPromptModal.style.display = 'flex';
+        });
+
+        // 阻止模态框内容区域的点击事件冒泡
+        modalContent?.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+
+        // 阻止 textarea 的点击和焦点事件冒泡
+        modalTextarea?.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+        modalTextarea?.addEventListener('focus', (e) => {
+            e.stopPropagation();
+        });
+        modalTextarea?.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+        });
+
+        // 模态框关闭按钮
+        modalCloseBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            systemPromptModal.style.display = 'none';
+        });
+
+        // 模态框取消按钮
+        modalCancelBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            systemPromptModal.style.display = 'none';
+        });
+
+        // 模态框保存按钮
+        modalSaveBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            systemPromptInput.value = modalTextarea.value;
+            saveCurrentForm();
+            systemPromptModal.style.display = 'none';
+        });
+
+        // 点击模态框背景关闭（只有点击背景本身才关闭）
+        systemPromptModal.addEventListener('click', (e) => {
+            if (e.target === systemPromptModal) {
+                systemPromptModal.style.display = 'none';
+            }
+        });
+    }
+
+    // 输入框变更事件
+    [apiKeyInput, baseUrlInput, modelNameInput, titleModelNameInput].forEach(input => {
+        input.addEventListener('change', () => {
+            saveCurrentForm();
+        });
+    });
+
+    // 阻止输入框点击事件冒泡
     const stopPropagation = (e) => {
         e.stopPropagation();
-        e.preventDefault();
     };
 
-    // 为输入框添加点击事件阻止冒泡
+    // 阻止 profile 选择器的点击事件冒泡
+    profileSelector.addEventListener('click', stopPropagation);
+    profileSelector.addEventListener('focus', stopPropagation);
+    profileSelector.addEventListener('mousedown', stopPropagation);
+
     [apiKeyInput, baseUrlInput, modelNameInput, titleModelNameInput, systemPromptInput].forEach(input => {
         input.addEventListener('click', stopPropagation);
         input.addEventListener('focus', stopPropagation);
@@ -278,19 +391,12 @@ function createAPICard({
                 e.stopPropagation();
                 input.value = model;
                 dropdown.classList.remove('visible');
-                // The input's value has already been set to `model`
-                onChange(index, {
-                    ...config,
-                    apiKey: apiKeyInput.value,
-                    baseUrl: baseUrlInput.value,
-                    modelName: modelNameInput.value,
-                    titleModelName: titleModelNameInput.value
-                });
+                saveCurrentForm();
             });
             dropdown.appendChild(item);
         });
         dropdown.classList.add('visible');
-        highlightedIndex = -1; // Reset highlight when list is re-rendered
+        highlightedIndex = -1;
     }
 
     function updateHighlight(dropdown) {
@@ -305,33 +411,31 @@ function createAPICard({
         });
     }
 
-    testConnectionBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        testModelConnection(e.currentTarget);
+    // 测试连接按钮
+    testConnectionBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            testModelConnection(e.currentTarget);
+        });
     });
 
-   titleModelNameInput.closest('.model-name-container').querySelector('.test-connection-btn').addEventListener('click', (e) => {
-       e.stopPropagation();
-       testModelConnection(e.currentTarget);
-   });
-
     async function testModelConnection(button) {
-       const container = button.closest('.model-name-container');
-       const input = container.querySelector('input');
-       const modelName = input.value;
-       const apiKey = apiKeyInput.value;
-       const baseUrl = baseUrlInput.value;
+        const container = button.closest('.model-name-container');
+        const input = container.querySelector('input');
+        const modelName = input.value;
+        const apiKey = apiKeyInput.value;
+        const baseUrl = baseUrlInput.value;
 
-       if (!apiKey || !baseUrl || !modelName) {
-           showToast('请输入 API Key, Base URL, 和模型名称', 'error');
-           return;
-       }
+        if (!apiKey || !baseUrl || !modelName) {
+            showToast('请输入 API Key, Base URL, 和模型名称', 'error');
+            return;
+        }
 
-       const originalBtnContent = button.innerHTML;
-       button.disabled = true;
-       button.innerHTML = `
-           <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-               <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+        const originalBtnContent = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = `
+            <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
             </svg>
         `;
 
@@ -377,8 +481,8 @@ function createAPICard({
             `;
         } finally {
             setTimeout(() => {
-               button.disabled = false;
-               button.innerHTML = originalBtnContent;
+                button.disabled = false;
+                button.innerHTML = originalBtnContent;
             }, 3000);
         }
     }
@@ -390,7 +494,6 @@ function createAPICard({
         toast.textContent = message;
         document.body.appendChild(toast);
 
-        // 2.7秒后开始淡出动画，3秒后移除提示
         setTimeout(() => {
             toast.classList.add('fade-out');
         }, 2700);
@@ -400,238 +503,92 @@ function createAPICard({
         }, 3000);
     }
 
+    // 点击外部关闭下拉列表
     document.addEventListener('click', (e) => {
-        if (!template.contains(e.target)) {
-            modelListDropdown.classList.remove('visible');
+        if (!card.contains(e.target)) {
+            modelListDropdowns.forEach(dropdown => {
+                dropdown.classList.remove('visible');
+            });
         }
     });
 
-    // 添加输入法状态跟踪
+    // 输入法状态跟踪
     let isComposing = false;
 
-   // 监听输入法开始
-   [apiKeyInput, baseUrlInput, modelNameInput, titleModelNameInput, systemPromptInput].forEach(input => {
-       input.addEventListener('compositionstart', () => {
-           isComposing = true;
+    [apiKeyInput, baseUrlInput, modelNameInput, titleModelNameInput, systemPromptInput].forEach(input => {
+        input.addEventListener('compositionstart', () => {
+            isComposing = true;
         });
 
-        // 监听输入法结束
         input.addEventListener('compositionend', () => {
             isComposing = false;
         });
-
-        // 修改键盘事件处理
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                if (isComposing) {
-                    // 如果正在使用输入法，不触发选择
-                    return;
-                }
-                e.preventDefault();
-                onSelect(template, index);
-            }
-        });
     });
 
-   function handleModelInputKeydown(input, dropdown, e) {
-       if (!dropdown.classList.contains('visible')) return;
+    function handleModelInputKeydown(input, dropdown, e) {
+        if (!dropdown.classList.contains('visible')) return;
 
-       const items = dropdown.querySelectorAll('.model-list-item');
-       if (items.length === 0) return;
+        const items = dropdown.querySelectorAll('.model-list-item');
+        if (items.length === 0) return;
 
-       switch (e.key) {
-           case 'ArrowDown':
-               e.preventDefault();
-               highlightedIndex = (highlightedIndex + 1) % items.length;
-               updateHighlight(dropdown);
-               break;
-           case 'ArrowUp':
-               e.preventDefault();
-               highlightedIndex = (highlightedIndex - 1 + items.length) % items.length;
-               updateHighlight(dropdown);
-               break;
-           case 'Enter':
-               e.preventDefault();
-               e.stopPropagation();
-               if (highlightedIndex > -1) {
-                   items[highlightedIndex].click();
-               }
-               break;
-           case 'Escape':
-               e.preventDefault();
-               dropdown.classList.remove('visible');
-               break;
-       }
-   }
+        switch (e.key) {
+            case 'ArrowDown':
+                e.preventDefault();
+                highlightedIndex = (highlightedIndex + 1) % items.length;
+                updateHighlight(dropdown);
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                highlightedIndex = (highlightedIndex - 1 + items.length) % items.length;
+                updateHighlight(dropdown);
+                break;
+            case 'Enter':
+                e.preventDefault();
+                e.stopPropagation();
+                if (highlightedIndex > -1) {
+                    items[highlightedIndex].click();
+                }
+                break;
+            case 'Escape':
+                e.preventDefault();
+                dropdown.classList.remove('visible');
+                break;
+        }
+    }
 
-   [modelNameInput, titleModelNameInput].forEach(input => {
-       const dropdown = input.closest('.model-name-container').querySelector('.model-list-dropdown');
-       input.addEventListener('keydown', (e) => handleModelInputKeydown(input, dropdown, e));
+    [modelNameInput, titleModelNameInput].forEach(input => {
+        const dropdown = input.closest('.model-name-container').querySelector('.model-list-dropdown');
+        input.addEventListener('keydown', (e) => handleModelInputKeydown(input, dropdown, e));
 
-       input.addEventListener('focus', () => {
-           fetchModels(input, dropdown);
-           highlightedIndex = -1;
-       });
+        input.addEventListener('focus', () => {
+            fetchModels(input, dropdown);
+            highlightedIndex = -1;
+        });
 
         input.addEventListener('blur', () => {
-            // 使用一个短暂的延迟来允许点击下拉列表中的项目
             setTimeout(() => {
                 dropdown.classList.remove('visible');
             }, 150);
         });
 
-       input.addEventListener('input', () => {
-           const searchTerm = input.value.toLowerCase();
-           const cacheKey = `${baseUrlInput.value.replace(/\/chat\/completions$/, '')}:${apiKeyInput.value}`;
-           if (modelCache[cacheKey]) {
-               const filteredModels = modelCache[cacheKey].filter(model => model.toLowerCase().includes(searchTerm));
-               renderModelList(filteredModels, input, dropdown);
-           }
-       });
-   });
-
-    // 为按钮添加点击事件阻止冒泡
-    template.querySelectorAll('.card-button').forEach(button => {
-        button.addEventListener('click', stopPropagation);
-    });
-
-    // 添加回车键选择功能
-    template.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !isComposing) {
-            e.preventDefault();
-            onSelect(template, index);
-        }
-    });
-
-    // 监听输入框变化
-    [apiKeyInput, baseUrlInput, modelNameInput, titleModelNameInput].forEach(input => {
-        input.addEventListener('change', () => {
-            onChange(index, {
-                ...config,
-                apiKey: apiKeyInput.value,
-                baseUrl: baseUrlInput.value,
-                modelName: modelNameInput.value,
-                titleModelName: titleModelNameInput.value
-            });
+        input.addEventListener('input', () => {
+            const searchTerm = input.value.toLowerCase();
+            const cacheKey = `${baseUrlInput.value.replace(/\/chat\/completions$/, '')}:${apiKeyInput.value}`;
+            if (modelCache[cacheKey]) {
+                const filteredModels = modelCache[cacheKey].filter(model => model.toLowerCase().includes(searchTerm));
+                renderModelList(filteredModels, input, dropdown);
+            }
         });
     });
 
-    // 复制配置
-    template.querySelector('.duplicate-btn').addEventListener('click', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        onDuplicate(config, index);
-    });
-
-    // 删除配置
-    template.querySelector('.delete-btn').addEventListener('click', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        onDelete(index);
-    });
-
-    // 选择配置
-    template.addEventListener('click', (e) => {
-        // 如果点击的是输入框或按钮，不触发选择
-        if (e.target.matches('input') || e.target.matches('.card-button') || e.target.closest('.card-button')) {
-            return;
-        }
-        onSelect(template, index);
-    });
-
-    return template;
-}
-
-/**
- * 创建API卡片回调处理函数
- * @param {Object} params - 参数对象
- * @param {function} params.selectCard - 选择卡片的函数
- * @param {Array<APIConfig>} params.apiConfigs - API配置列表
- * @param {number} params.selectedConfigIndex - 当前选中的配置索引
- * @param {function} params.saveAPIConfigs - 保存API配置的函数
- * @param {function} params.renderAPICardsWithCallbacks - 重新渲染卡片的函数
- * @param {function} params.updatePlaceholder - 更新 placeholder 的函数
- * @returns {Object} 回调函数对象
- */
-export function createCardCallbacks({
-    selectCard,
-    apiConfigs,
-    selectedConfigIndex,
-    saveAPIConfigs,
-    renderAPICardsWithCallbacks,
-    updatePlaceholder
-}) {
+    // 返回更新函数供外部调用
     return {
-        onCardSelect: selectCard,
-        onCardDuplicate: (config, index) => {
-            // 在当前选中卡片后面插入新卡片
-            apiConfigs.splice(index + 1, 0, {...config});
-            // 保存配置但不改变选中状态
-            saveAPIConfigs();
-            // 重新渲染所有卡片，保持原来的选中状态
-            renderAPICardsWithCallbacks();
-        },
-        onCardDelete: (index) => {
-            if (apiConfigs.length > 1) {
-                apiConfigs.splice(index, 1);
-                if (selectedConfigIndex >= apiConfigs.length) {
-                    selectedConfigIndex = apiConfigs.length - 1;
-                }
-                saveAPIConfigs();
-                renderAPICardsWithCallbacks();
-                updatePlaceholder();
-            }
-        },
-        onCardChange: (index, newConfig) => {
-            apiConfigs[index] = newConfig;
-            saveAPIConfigs();
-            if (index === selectedConfigIndex) {
-                updatePlaceholder();
-            }
+        updateProfileSelector,
+        updateFormContent,
+        setSelectedIndex: (index) => {
+            selectedIndex = index;
+            updateProfileSelector();
+            updateFormContent(getCurrentConfig());
         }
     };
-}
-
-/**
- * 选择API卡片的函数
- * @param {Object} params - 参数对象
- * @param {Object} params.template - 模板对象
- * @param {number} params.index - 选中的索引
- * @param {function} params.onIndexChange - 索引变更回调函数
- * @param {function} params.onSave - 保存配置的回调函数
- * @param {string} params.cardSelector - 卡片元素的CSS选择器
- * @param {function} params.onSelect - 选中后的回调函数
- * @returns {void}
- */
-export function selectCard({
-    template,
-    index,
-    onIndexChange,
-    onSave,
-    cardSelector = '.api-card',
-    onSelect
-}) {
-    // 更新选中索引
-    onIndexChange(index);
-
-    // 保存配置
-    onSave();
-
-    // 更新UI状态
-    document.querySelectorAll(cardSelector).forEach(card => {
-        card.classList.remove('selected');
-    });
-
-    // 选中当前卡片
-    const selectedCard = document.querySelectorAll(cardSelector)[index];
-    if (selectedCard) {
-        selectedCard.classList.add('selected');
-    }
-
-    // 执行选中后的回调
-    if (onSelect) {
-        onSelect(selectedCard, index);
-    }
-
-    return selectedCard;
 }

@@ -277,21 +277,26 @@
                             </div>
                         </div>
                     </div>
-                    <!-- API card template -->
-                    <div class="api-card template" style="display: none;">
+                    <!-- API card - single card with profile selector -->
+                    <div class="api-card main-api-card">
                         <div class="card-content">
                             <div class="api-form">
-                                <div class="form-group">
+                                <!-- Profile selector -->
+                                <div class="form-group profile-selector-group">
                                     <div class="form-group-header">
-                                        <label>API Key</label>
-                                        <div class="card-actions">
-                                            <button class="card-button duplicate-btn">
+                                        <label>配置文件</label>
+                                        <div class="profile-actions">
+                                            <button class="card-button rename-profile-btn" title="重命名配置">
                                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                                    <path d="M13 5H7V11H13V5Z" stroke="currentColor" stroke-width="1.5"/>
-                                                    <path d="M10 3H4V9" stroke="currentColor" stroke-width="1.5"/>
+                                                    <path d="M11.5 2.5L13.5 4.5L5 13H3V11L11.5 2.5Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                                                 </svg>
                                             </button>
-                                            <button class="card-button delete-btn">
+                                            <button class="card-button add-profile-btn" title="新增配置">
+                                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                                </svg>
+                                            </button>
+                                            <button class="card-button delete-profile-btn" title="删除当前配置">
                                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                                                     <path d="M3 4H13" stroke="currentColor" stroke-width="1.5"/>
                                                     <path d="M5 4V12H11V4" stroke="currentColor" stroke-width="1.5"/>
@@ -299,6 +304,14 @@
                                             </button>
                                         </div>
                                     </div>
+                                    <div class="profile-selector-container">
+                                        <select class="profile-selector">
+                                            <!-- Options will be dynamically generated -->
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>API Key</label>
                                     <input type="text" class="api-key" placeholder="输入 API Key">
                                 </div>
                                 <div class="form-group">
@@ -337,17 +350,24 @@
                                         <span class="toggle-icon">▼</span>
                                     </div>
                                     <div class="advanced-settings-content" style="display: none;">
-                                        <div class="setting-item">
+                                        <div class="setting-item system-prompt-item">
                                             <div class="setting-header">
                                                 <label for="system-prompt">系统提示</label>
-                                                <button class="reset-prompt-btn" title="还原默认提示词">
-                                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                                        <path d="M2 8C2 4.68629 4.68629 2 8 2C9.29583 2 10.4934 2.41098 11.4704 3.11604L13 1.5M13 5.5H9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                                                        <path d="M14 8C14 11.3137 11.3137 14 8 14C6.70417 14 5.50659 13.589 4.52962 12.884L3 14.5M3 10.5H7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                                                    </svg>
-                                                </button>
+                                                <div class="system-prompt-actions">
+                                                    <button class="expand-prompt-btn" title="展开编辑">
+                                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                                            <path d="M2 6V2H6M14 6V2H10M2 10V14H6M14 10V14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                        </svg>
+                                                    </button>
+                                                    <button class="reset-prompt-btn" title="还原默认提示词">
+                                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                                            <path d="M2 8C2 4.68629 4.68629 2 8 2C9.29583 2 10.4934 2.41098 11.4704 3.11604L13 1.5M13 5.5H9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                            <path d="M14 8C14 11.3137 11.3137 14 8 14C6.70417 14 5.50659 13.589 4.52962 12.884L3 14.5M3 10.5H7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                        </svg>
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <textarea id="system-prompt" class="system-prompt" rows="3"></textarea>
+                                            <textarea id="system-prompt" class="system-prompt" rows="4" placeholder="输入系统提示词..."></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -355,6 +375,25 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Prompt Expand Modal -->
+    <div id="system-prompt-modal" class="system-prompt-modal" style="display: none;">
+        <div class="system-prompt-modal-content">
+            <div class="system-prompt-modal-header">
+                <span class="system-prompt-modal-title">编辑系统提示</span>
+                <button class="system-prompt-modal-close">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+            <textarea class="system-prompt-modal-textarea" placeholder="输入系统提示词..."></textarea>
+            <div class="system-prompt-modal-actions">
+                <button class="system-prompt-modal-cancel">取消</button>
+                <button class="system-prompt-modal-save">保存</button>
             </div>
         </div>
     </div>

@@ -5,7 +5,7 @@ import { appendMessage, createWaitingMessage } from './handlers/message-handler.
 import { hideContextMenu } from './components/context-menu.js';
 import { initChatContainer } from './components/chat-container.js';
 import { showImagePreview, hideImagePreview } from './utils/ui.js';
-import { renderAPICards, createCardCallbacks, selectCard } from './components/api-card.js';
+import { initAPICard, DEFAULT_SYSTEM_PROMPT } from './components/api-card.js';
 import { storageAdapter, syncStorageAdapter, browserAdapter, isExtensionEnvironment } from './utils/storage-adapter.js';
 import { initMessageInput, getFormattedMessageContent, buildMessageContent, clearMessageInput, handleWindowMessage, updatePermanentPlaceholder } from './components/message-input.js';
 import './utils/viewport.js';
@@ -1257,43 +1257,49 @@ let tavilyApiKey = '';
         }
     }
 
-    // 使用新的selectCard函数
-    const handleCardSelect = (template, index) => {
-        selectCard({
-            template,
-            index,
-            onIndexChange: (newIndex) => {
+    // API 卡片控制器引用
+    let apiCardController = null;
+
+    // 初始化 API 卡片的辅助函数
+    const initAPICardWithCallbacks = () => {
+        apiCardController = initAPICard({
+            apiConfigs,
+            selectedIndex: selectedConfigIndex,
+            onProfileChange: (newIndex) => {
                 selectedConfigIndex = newIndex;
                 updatePlaceholderWithCurrentModel();
-                chatManager.setApiConfig(apiConfigs[selectedConfigIndex]); // 更新ChatManager中的API配置
+                chatManager.setApiConfig(apiConfigs[selectedConfigIndex]);
+                saveAPIConfigs();
             },
-            onSave: saveAPIConfigs,
-            cardSelector: '.api-card',
-            onSelect: (selectedCard, index) => {
-                // 只有在点击卡片本身时才关闭设置面板
-                if (selectedCard && selectedCard.contains(event.target) && !selectedCard.querySelector('.model-name-container').contains(event.target)) {
-                   unifiedSettingsPage.style.display = 'none';
+            onProfileAdd: (newConfig, newIndex) => {
+                selectedConfigIndex = newIndex;
+                updatePlaceholderWithCurrentModel();
+                chatManager.setApiConfig(apiConfigs[selectedConfigIndex]);
+                saveAPIConfigs();
+            },
+            onProfileDelete: (deletedIndex, newIndex) => {
+                selectedConfigIndex = newIndex;
+                updatePlaceholderWithCurrentModel();
+                chatManager.setApiConfig(apiConfigs[selectedConfigIndex]);
+                saveAPIConfigs();
+            },
+            onConfigChange: (index, config) => {
+                apiConfigs[index] = config;
+                if (index === selectedConfigIndex) {
+                    updatePlaceholderWithCurrentModel();
+                    chatManager.setApiConfig(apiConfigs[selectedConfigIndex]);
                 }
-            }
+                saveAPIConfigs();
+            },
+            onSave: saveAPIConfigs
         });
     };
 
-    // 创建渲染API卡片的辅助函数
+    // 为了兼容性保留的函数别名
     const renderAPICardsWithCallbacks = () => {
-        renderAPICards({
-            apiConfigs,
-            apiCardsContainer: apiCards,
-            templateCard: document.querySelector('.api-card.template'),
-            ...createCardCallbacks({
-                selectCard: handleCardSelect,
-                apiConfigs,
-                selectedConfigIndex,
-                saveAPIConfigs,
-                renderAPICardsWithCallbacks,
-                updatePlaceholder: updatePlaceholderWithCurrentModel
-            }),
-            selectedIndex: selectedConfigIndex
-        });
+        if (apiCardController) {
+            apiCardController.setSelectedIndex(selectedConfigIndex);
+        }
     };
 
     // 从存储加载配置
@@ -1309,7 +1315,12 @@ let tavilyApiKey = '';
                 apiConfigs = [{
                     apiKey: '',
                     baseUrl: 'https://api.CloseAi.com/v1/chat/completions',
-                    modelName: ''
+                    modelName: '',
+                    profileName: '配置 1',
+                    advancedSettings: {
+                        systemPrompt: DEFAULT_SYSTEM_PROMPT,
+                        isExpanded: false
+                    }
                 }];
                 // 只有在没有任何配置的情况下才保存默认配置
                 await saveAPIConfigs();
@@ -1318,8 +1329,8 @@ let tavilyApiKey = '';
             // 只有当 selectedConfigIndex 为 undefined 或 null 时才使用默认值 0
             selectedConfigIndex = result.selectedConfigIndex ?? 0;
 
-            // 确保一定会渲染卡片
-            renderAPICardsWithCallbacks();
+            // 初始化 API 卡片
+            initAPICardWithCallbacks();
             updatePlaceholderWithCurrentModel();
             chatManager.setApiConfig(apiConfigs[selectedConfigIndex]); // 初始化时设置API配置
         } catch (error) {
@@ -1328,10 +1339,15 @@ let tavilyApiKey = '';
             apiConfigs = [{
                 apiKey: '',
                 baseUrl: 'https://api.CloseAi.com/v1/chat/completions',
-                modelName: ''
+                modelName: '',
+                profileName: '配置 1',
+                advancedSettings: {
+                    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+                    isExpanded: false
+                }
             }];
             selectedConfigIndex = 0;
-            renderAPICardsWithCallbacks();
+            initAPICardWithCallbacks();
             updatePlaceholderWithCurrentModel();
             chatManager.setApiConfig(apiConfigs[selectedConfigIndex]); // 初始化时设置API配置
         }
