@@ -56,7 +56,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                margin 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                background-color 0.2s ease,
+                color 0.2s ease;
+    overflow: hidden;
 }
 
 #new-chat-button svg {

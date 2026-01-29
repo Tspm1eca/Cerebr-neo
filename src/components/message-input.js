@@ -105,7 +105,7 @@ function initAnimatedFakeCaret(messageInput) {
         };
 
         const rect = getRangeRect();
-        const isEmptyInput = (messageInput.textContent || '').trim() === '' && !messageInput.querySelector?.('.image-tag');
+        const isEmptyInput = (messageInput.textContent || '').replace(/[\u200b\u200c\u200d\uFEFF]/g, '').trim() === '' && !messageInput.querySelector?.('.image-tag');
 
         let viewportX;
         let viewportY;
@@ -217,7 +217,9 @@ export function initMessageInput(config) {
 
     // 更新 has-content 状态的函数
     const updateHasContentState = () => {
-        const hasContent = messageInput.textContent.trim() !== '' || messageInput.querySelector('.image-tag');
+        // 过滤掉零宽空格等不可见字符
+        const text = messageInput.textContent.replace(/[\u200b\u200c\u200d\uFEFF]/g, '').trim();
+        const hasContent = text !== '' || messageInput.querySelector('.image-tag');
         if (shell) {
             if (hasContent) {
                 shell.classList.add('has-content');
@@ -234,20 +236,33 @@ export function initMessageInput(config) {
             config: uiConfig.textarea
         });
 
-        // 如果正在使用输入法，则不处理 placeholder
-        if (isComposing) {
-            return;
+        // 过滤掉零宽空格等不可见字符
+        const text = this.textContent.replace(/[\u200b\u200c\u200d\uFEFF]/g, '').trim();
+        const hasContent = text !== '' || this.querySelector('.image-tag');
+        const inputContainer = document.getElementById('input-container');
+
+        // 只有当输入框有内容时才展开 input-container
+        if (hasContent && inputContainer && inputContainer.classList.contains('collapsed')) {
+            inputContainer.classList.remove('collapsed');
         }
 
         // 更新 has-content 状态
         updateHasContentState();
 
+        // 如果正在使用输入法，则不处理 placeholder
+        if (isComposing) {
+            return;
+        }
+
         // 处理 placeholder 的显示
-        if (this.textContent.trim() === '' && !this.querySelector('.image-tag')) {
+        if (!hasContent) {
             // 如果内容空且没有图片标签，清空内容以显示 placeholder
             while (this.firstChild) {
                 this.removeChild(this.firstChild);
             }
+            // 重置高度和 overflow，让 CSS min-height 生效，以便在收缩模式下正确缩小
+            this.style.height = '';
+            this.style.overflowY = '';
         }
     });
 
@@ -269,6 +284,12 @@ export function initMessageInput(config) {
         // 如果存在网页内容菜单，则隐藏它
         if (webpageContentMenu) {
             webpageContentMenu.classList.remove('visible');
+        }
+
+        // 输入框获得焦点时展开 input-container
+        const inputContainer = document.getElementById('input-container');
+        if (inputContainer) {
+            inputContainer.classList.remove('collapsed');
         }
 
         // 输入框获得焦点，阻止事件冒泡
@@ -296,14 +317,15 @@ export function initMessageInput(config) {
                 return;
             }
             e.preventDefault();
-            const text = this.textContent.trim();
+            // 过滤掉零宽空格等不可见字符
+            const text = this.textContent.replace(/[\u200b\u200c\u200d\uFEFF]/g, '').trim();
             if (text || this.querySelector('.image-tag')) {  // 检查是否有文本或图片
                 sendMessage();
             }
         } else if (e.key === 'Escape') {
             // 按 ESC 键时让输入框失去焦点
             messageInput.blur();
-        } else if (e.key === 'ArrowUp' && e.target.textContent.trim() === '') {
+        } else if (e.key === 'ArrowUp' && e.target.textContent.replace(/[\u200b\u200c\u200d\uFEFF]/g, '').trim() === '') {
             // 处理输入框特定的键盘事件
             // 当按下向上键且输入框为空时
             e.preventDefault(); // 阻止默认行为
@@ -426,6 +448,9 @@ export function initMessageInput(config) {
 
     // 初始化时同步一次，避免输入栏高度变化导致底部消息被遮挡
     initAnimatedFakeCaret(messageInput);
+
+    // 初始化 has-content 状态
+    updateHasContentState();
 }
 
 /**
@@ -531,10 +556,9 @@ export function buildMessageContent(message, imageTags) {
  */
 export function clearMessageInput(messageInput, config) {
     messageInput.innerHTML = '';
-    adjustTextareaHeight({
-        textarea: messageInput,
-        config: config.textarea
-    });
+    // 重置高度和 overflow
+    messageInput.style.height = '';
+    messageInput.style.overflowY = '';
 
     // 清空后移除 has-content 状态
     const shell = messageInput.closest('.message-input-shell');

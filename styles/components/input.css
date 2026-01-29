@@ -13,8 +13,27 @@
     padding-bottom: calc(8px + env(safe-area-inset-bottom));
     z-index: 100;
     min-height: auto;
-    transition: background-color 0.3s ease;
+    transition: background-color 0.3s ease, padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     border-top: 1px solid transparent;
+}
+
+#input-container.collapsed #new-chat-button {
+    width: 0;
+    height: 0;
+    opacity: 0;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+#input-container.collapsed .message-input-shell {
+    margin-left: 4px;
+}
+
+#input-container.collapsed #message-input {
+    min-height: 36px;
+    /* padding 保持不變，避免文字抖動 */
 }
 
 .message-input-shell {
@@ -58,6 +77,8 @@
     overflow-wrap: break-word;
     overflow-y: auto;
     display: block;
+    transition: min-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .message-input-shell.fake-caret-enabled #message-input {

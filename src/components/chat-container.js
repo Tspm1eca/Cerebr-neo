@@ -512,11 +512,85 @@ export function initChatContainer({
             }
         });
 
-        // 滚动时隐藏菜单
+        // 滚动相关变量
+        let lastScrollTop = chatContainer.scrollTop;
+        let scrollTimeout = null;
+        let isScrolling = false;
+        const inputContainer = document.getElementById('input-container');
+
+        // 监听 input-container 的 class 变化，当展开时重置 lastScrollTop
+        const inputContainerObserver = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    // 当 collapsed 类被移除时，重置 lastScrollTop
+                    if (!inputContainer.classList.contains('collapsed')) {
+                        lastScrollTop = chatContainer.scrollTop;
+                    }
+                }
+            });
+        });
+        inputContainerObserver.observe(inputContainer, { attributes: true });
+
+        let rafId = null;
+        const messageInputShell = messageInput.closest('.message-input-shell');
+
+        // 滚动时隐藏菜单并处理输入区域收缩
         chatContainer.addEventListener('scroll', () => {
-            hideContextMenu({
-                contextMenu,
-                onMessageElementReset: () => { currentMessageElement = null; }
+            if (rafId) return;
+
+            rafId = requestAnimationFrame(() => {
+                rafId = null;
+
+                // 只有当菜单显示时才隐藏，避免不必要的 DOM 操作
+                if (contextMenu.style.display && contextMenu.style.display !== 'none') {
+                    hideContextMenu({
+                        contextMenu,
+                        onMessageElementReset: () => { currentMessageElement = null; }
+                    });
+                }
+
+                // 检查输入框是否有内容 (使用 class 判断比读取 textContent 更快)
+                // message-input.js 会维护 shell 的 has-content 类
+                const hasContent = messageInputShell && messageInputShell.classList.contains('has-content');
+
+                // 如果输入框有内容，不触发收缩
+                if (hasContent) {
+                    lastScrollTop = chatContainer.scrollTop;
+                    return;
+                }
+
+                // 处理输入区域收缩动画
+                const currentScrollTop = chatContainer.scrollTop;
+                const scrollDelta = currentScrollTop - lastScrollTop;
+                const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 50;
+
+                // 标记正在滚动
+                isScrolling = true;
+
+                // 向下滚动且不在底部时收缩
+                if (scrollDelta > 5 && !isAtBottom && currentScrollTop > 100) {
+                    if (!inputContainer.classList.contains('collapsed')) {
+                        inputContainer.classList.add('collapsed');
+                    }
+                }
+                // 向上滚动时展开
+                else if (scrollDelta < -5) {
+                    if (inputContainer.classList.contains('collapsed')) {
+                        inputContainer.classList.remove('collapsed');
+                    }
+                }
+
+                lastScrollTop = currentScrollTop;
+
+                // 停止滚动后一段时间恢复展开状态
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(() => {
+                    isScrolling = false;
+                    // 如果在底部附近，展开输入区域
+                    if (isAtBottom) {
+                        inputContainer.classList.remove('collapsed');
+                    }
+                }, 1500);
             });
         });
 
