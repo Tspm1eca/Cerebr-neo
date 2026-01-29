@@ -1,6 +1,7 @@
 /* 聊天容器样式 */
 #chat-container {
     flex: 1;
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 15px;
     padding-right: 8px; /* 留出滾動條空間，避免內容重疊 */
