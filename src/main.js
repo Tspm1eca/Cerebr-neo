@@ -43,6 +43,7 @@ let tavilyApiKey = '';
     const chatListPage = document.getElementById('chat-list-page');
     const newChatButton = document.getElementById('new-chat-button');
     const chatListButton = document.getElementById('chat-list');
+    const modelSelectorMenu = document.getElementById('model-selector-menu');
     const unifiedSettingsPage = document.getElementById('unified-settings-page');
     const deleteMessageButton = document.getElementById('delete-message');
     const regenerateMessageButton = document.getElementById('regenerate-message');
@@ -592,6 +593,261 @@ let tavilyApiKey = '';
             webpageContentMenu.classList.remove('visible');
         }
     });
+
+    // 模型選擇子菜單邏輯
+    let modelSelectorTimeout;
+    let modelListCache = {}; // 緩存模型列表
+
+    // 獲取模型列表
+    async function fetchModelList(force = false) {
+        const config = apiConfigs[selectedConfigIndex];
+        if (!config?.apiKey || !config?.baseUrl) {
+            return null;
+        }
+
+        const baseUrl = config.baseUrl.replace(/\/chat\/completions$/, '');
+        const cacheKey = `${baseUrl}:${config.apiKey}`;
+
+        if (!force && modelListCache[cacheKey]) {
+            return modelListCache[cacheKey];
+        }
+
+        try {
+            const response = await fetch(`${baseUrl}/models`, {
+                headers: {
+                    'Authorization': `Bearer ${config.apiKey}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('無法獲取模型列表');
+            }
+
+            const data = await response.json();
+            const models = data.data.map(model => model.id);
+            modelListCache[cacheKey] = models;
+            return models;
+        } catch (error) {
+            console.error('獲取模型列表失敗:', error);
+            return null;
+        }
+    }
+
+    // 渲染模型列表
+    function renderModelSelectorList(models, filterText = '') {
+        const listContainer = modelSelectorMenu.querySelector('.model-selector-list');
+        const emptyContainer = modelSelectorMenu.querySelector('.model-selector-empty');
+        const config = apiConfigs[selectedConfigIndex];
+
+        if (!models || models.length === 0) {
+            listContainer.innerHTML = '';
+            listContainer.style.display = 'none';
+            emptyContainer.style.display = 'block';
+            return;
+        }
+
+        // 根據篩選文字過濾模型
+        const filteredModels = filterText
+            ? models.filter(model => model.toLowerCase().includes(filterText.toLowerCase()))
+            : models;
+
+        if (filteredModels.length === 0) {
+            listContainer.innerHTML = '';
+            listContainer.style.display = 'none';
+            emptyContainer.textContent = '没有匹配的模型';
+            emptyContainer.style.display = 'block';
+            return;
+        }
+
+        emptyContainer.style.display = 'none';
+        listContainer.style.display = 'flex';
+        listContainer.innerHTML = '';
+
+        filteredModels.forEach(model => {
+            const item = document.createElement('div');
+            item.className = 'model-selector-item';
+            if (model === config?.modelName) {
+                item.classList.add('selected');
+            }
+            item.textContent = model;
+            item.title = model;
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                selectModel(model);
+            });
+            listContainer.appendChild(item);
+        });
+    }
+
+    // 選擇模型
+    function selectModel(modelName) {
+        const config = apiConfigs[selectedConfigIndex];
+        if (config) {
+            config.modelName = modelName;
+            saveAPIConfigs();
+            updatePlaceholderWithCurrentModel();
+            chatManager.setApiConfig(apiConfigs[selectedConfigIndex]);
+
+            // 更新子菜單中的選中狀態
+            const items = modelSelectorMenu.querySelectorAll('.model-selector-item');
+            items.forEach(item => {
+                if (item.textContent === modelName) {
+                    item.classList.add('selected');
+                } else {
+                    item.classList.remove('selected');
+                }
+            });
+
+            // 更新當前模型顯示
+            const currentModelName = modelSelectorMenu.querySelector('.current-model-name');
+            currentModelName.textContent = modelName;
+
+            // 隱藏子菜單
+            hideModelSelectorMenu();
+        }
+    }
+
+    // 顯示模型選擇子菜單
+    async function showModelSelectorMenu() {
+        clearTimeout(modelSelectorTimeout);
+        modelSelectorMenu.classList.add('visible');
+
+        const loadingIndicator = modelSelectorMenu.querySelector('.model-selector-loading');
+        const searchInput = modelSelectorMenu.querySelector('.model-search-input');
+        const config = apiConfigs[selectedConfigIndex];
+
+        // 更新搜索框的 placeholder 顯示當前模型
+        if (searchInput) {
+            searchInput.placeholder = config?.modelName ? `${config.modelName}` : '搜索模型...';
+            searchInput.value = '';
+        }
+
+        // 檢查是否有有效的 API 配置
+        if (!config?.apiKey || !config?.baseUrl) {
+            renderModelSelectorList(null);
+            return;
+        }
+
+        // 檢查緩存
+        const baseUrl = config.baseUrl.replace(/\/chat\/completions$/, '');
+        const cacheKey = `${baseUrl}:${config.apiKey}`;
+
+        if (modelListCache[cacheKey]) {
+            renderModelSelectorList(modelListCache[cacheKey]);
+            return;
+        }
+
+        // 顯示加載指示器
+        loadingIndicator.style.display = 'inline-flex';
+
+        try {
+            const models = await fetchModelList();
+            renderModelSelectorList(models);
+        } finally {
+            loadingIndicator.style.display = 'none';
+        }
+    }
+
+    // 隱藏模型選擇子菜單
+    function hideModelSelectorMenu() {
+        modelSelectorTimeout = setTimeout(() => {
+            modelSelectorMenu.classList.remove('visible');
+        }, 150);
+    }
+
+    // 新對話按鈕的 hover 事件
+    newChatButton.addEventListener('mouseenter', () => {
+        showModelSelectorMenu();
+    });
+
+    newChatButton.addEventListener('mouseleave', () => {
+        hideModelSelectorMenu();
+    });
+
+    // 子菜單的 hover 事件（保持顯示）
+    modelSelectorMenu.addEventListener('mouseenter', () => {
+        clearTimeout(modelSelectorTimeout);
+    });
+
+    modelSelectorMenu.addEventListener('mouseleave', () => {
+        hideModelSelectorMenu();
+    });
+
+    // 點擊新對話按鈕時隱藏子菜單
+    newChatButton.addEventListener('click', () => {
+        modelSelectorMenu.classList.remove('visible');
+    });
+
+    // 模型搜索輸入框事件
+    const modelSearchInput = modelSelectorMenu.querySelector('.model-search-input');
+    if (modelSearchInput) {
+        // 輸入時篩選模型列表
+        modelSearchInput.addEventListener('input', (e) => {
+            const config = apiConfigs[selectedConfigIndex];
+            if (!config?.apiKey || !config?.baseUrl) return;
+
+            const baseUrl = config.baseUrl.replace(/\/chat\/completions$/, '');
+            const cacheKey = `${baseUrl}:${config.apiKey}`;
+            const models = modelListCache[cacheKey];
+
+            if (models) {
+                renderModelSelectorList(models, e.target.value);
+            }
+        });
+
+        // 阻止輸入框的點擊事件冒泡
+        modelSearchInput.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+
+        // 阻止輸入框的 mouseenter/mouseleave 影響菜單顯示
+        modelSearchInput.addEventListener('mouseenter', () => {
+            clearTimeout(modelSelectorTimeout);
+        });
+
+        // 鍵盤導航支援
+        modelSearchInput.addEventListener('keydown', (e) => {
+            const listContainer = modelSelectorMenu.querySelector('.model-selector-list');
+            const items = listContainer.querySelectorAll('.model-selector-item');
+            const highlightedItem = listContainer.querySelector('.model-selector-item.highlighted');
+
+            if (items.length === 0) return;
+
+            let currentIndex = -1;
+            if (highlightedItem) {
+                currentIndex = Array.from(items).indexOf(highlightedItem);
+            }
+
+            switch (e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    if (highlightedItem) highlightedItem.classList.remove('highlighted');
+                    currentIndex = (currentIndex + 1) % items.length;
+                    items[currentIndex].classList.add('highlighted');
+                    items[currentIndex].scrollIntoView({ block: 'nearest' });
+                    break;
+                case 'ArrowUp':
+                    e.preventDefault();
+                    if (highlightedItem) highlightedItem.classList.remove('highlighted');
+                    currentIndex = currentIndex <= 0 ? items.length - 1 : currentIndex - 1;
+                    items[currentIndex].classList.add('highlighted');
+                    items[currentIndex].scrollIntoView({ block: 'nearest' });
+                    break;
+                case 'Enter':
+                    e.preventDefault();
+                    if (highlightedItem) {
+                        selectModel(highlightedItem.textContent);
+                    } else if (items.length > 0) {
+                        selectModel(items[0].textContent);
+                    }
+                    break;
+                case 'Escape':
+                    e.preventDefault();
+                    hideModelSelectorMenu();
+                    break;
+            }
+        });
+    }
 
     // 主题切换
     const themeSwitch = document.getElementById('theme-switch');

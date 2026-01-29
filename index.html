@@ -92,6 +92,26 @@
                     <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
             </button>
+            <!-- 模型選擇子菜單 -->
+            <div id="model-selector-menu">
+                <div class="model-selector-header">
+                    <span class="model-selector-title">切换模型</span>
+                    <span class="model-selector-loading" style="display: none;">
+                        <svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                        </svg>
+                    </span>
+                </div>
+                <div class="model-selector-search">
+                    <input type="text" class="model-search-input" placeholder="搜索模型...">
+                </div>
+                <div class="model-selector-list">
+                    <!-- 模型列表將由 JavaScript 動態生成 -->
+                </div>
+                <div class="model-selector-empty" style="display: none;">
+                    请先配置 API
+                </div>
+            </div>
         </div>
         <div id="settings-menu">
             <div class="menu-item" id="theme-toggle">
