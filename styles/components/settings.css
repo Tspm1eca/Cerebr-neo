@@ -85,18 +85,18 @@
 #model-selector-menu {
     position: absolute;
     bottom: 100%;
-    left: 0;
+    left: 4px;
     background-color: var(--cerebr-bg-color);
     border-radius: 12px;
-    padding: 8px;
+    padding: 6px;
     min-width: 200px;
     max-width: 280px;
     max-height: 300px;
-    margin-bottom: 4px;
+    margin-bottom: 0px;
     backdrop-filter: blur(var(--cerebr-blur-radius));
     -webkit-backdrop-filter: blur(var(--cerebr-blur-radius));
     border: 1px solid var(--cerebr-border-color);
-    box-shadow: 0 4px 12px var(--cerebr-popup-shadow);
+    box-shadow: none;
     z-index: 1001;
     overflow: hidden;
     flex-direction: column;
