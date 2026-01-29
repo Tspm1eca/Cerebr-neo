@@ -46,11 +46,11 @@ jobs:
 
           # 創建 ZIP 文件
           cd build/chrome
-          zip -r ../../cerebr-chrome-v${{ steps.version.outputs.version }}.zip . -x "*.DS_Store"
+          zip -r ../../Cerebr-neo_v${{ steps.version.outputs.version }}.zip . -x "*.DS_Store"
 
       - name: Generate checksums
         run: |
-          sha256sum cerebr-chrome-v${{ steps.version.outputs.version }}.zip > checksums.txt
+          sha256sum Cerebr-neo_v${{ steps.version.outputs.version }}.zip > checksums.txt
           cat checksums.txt
 
       - name: Create Release
@@ -60,16 +60,13 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           name: Cerebr-neo v${{ steps.version.outputs.version }}
           files: |
-            cerebr-chrome-v${{ steps.version.outputs.version }}.zip
+            Cerebr-neo_v${{ steps.version.outputs.version }}.zip
             checksums.txt
           draft: false
           prerelease: false
           generate_release_notes: true
           body: |
             ## Cerebr-neo v${{ steps.version.outputs.version }}
-
-            ### 下載
-            - **Chrome/Edge**: `cerebr-chrome-v${{ steps.version.outputs.version }}.zip`
 
             ### 校驗和
             請參考 `checksums.txt` 文件驗證下載的完整性。
@@ -82,6 +79,6 @@ jobs:
         with:
           name: extension-builds-v${{ steps.version.outputs.version }}
           path: |
-            cerebr-chrome-v${{ steps.version.outputs.version }}.zip
+            Cerebr-neo_v${{ steps.version.outputs.version }}.zip
             checksums.txt
           retention-days: 90
