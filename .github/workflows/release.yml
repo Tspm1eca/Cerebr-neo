@@ -68,7 +68,7 @@ jobs:
           body: |
             ## Cerebr-neo v${{ steps.version.outputs.version }}
 
-            ### 校驗和
+            ### 校驗
             請參考 `checksums.txt` 文件驗證下載的完整性。
 
         env:
