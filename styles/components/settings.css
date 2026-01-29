@@ -110,31 +110,6 @@
     animation: menuAppear 0.2s ease;
 }
 
-.model-selector-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 4px 8px 8px 8px;
-    border-bottom: 1px solid var(--cerebr-border-color);
-    margin-bottom: 4px;
-}
-
-.model-selector-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--cerebr-text-color);
-    opacity: 0.7;
-}
-
-.model-selector-loading svg {
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
 .model-selector-search {
     margin-bottom: 6px;
 }

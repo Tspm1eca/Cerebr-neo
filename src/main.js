@@ -741,10 +741,6 @@ let tavilyApiKey = '';
                 }
             });
 
-            // 更新當前模型顯示
-            const currentModelName = modelSelectorMenu.querySelector('.current-model-name');
-            currentModelName.textContent = modelName;
-
             // 隱藏子菜單
             hideModelSelectorMenu();
         }
@@ -755,7 +751,6 @@ let tavilyApiKey = '';
         clearTimeout(modelSelectorTimeout);
         modelSelectorMenu.classList.add('visible');
 
-        const loadingIndicator = modelSelectorMenu.querySelector('.model-selector-loading');
         const searchInput = modelSelectorMenu.querySelector('.model-search-input');
         const config = apiConfigs[selectedConfigIndex];
 
@@ -780,15 +775,9 @@ let tavilyApiKey = '';
             return;
         }
 
-        // 顯示加載指示器
-        loadingIndicator.style.display = 'inline-flex';
-
-        try {
-            const models = await fetchModelList();
-            renderModelSelectorList(models);
-        } finally {
-            loadingIndicator.style.display = 'none';
-        }
+        // 獲取模型列表
+        const models = await fetchModelList();
+        renderModelSelectorList(models);
     }
 
     // 隱藏模型選擇子菜單
