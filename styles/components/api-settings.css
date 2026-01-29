@@ -247,7 +247,7 @@
     background-color: var(--cerebr-button-hover-bg);
 }
 .advanced-settings {
-    margin-top: 12px;
+    margin-top: 2px;
 }
 
 .advanced-settings-header {
@@ -295,10 +295,10 @@
 }
 
 .setting-item {
-    padding: 12px;
+    padding: 2px;
     background-color: var(--cerebr-message-ai-bg);
     border-radius: 6px;
-    margin-top: 8px;
+    margin-top: 2px;
 }
 
 .setting-header {

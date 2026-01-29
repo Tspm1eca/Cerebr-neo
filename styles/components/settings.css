@@ -395,7 +395,7 @@ input:checked + .slider:before {
 }
 
 .setting-item {
-    margin-top: 12px;
+    margin-top: 2px;
 }
 
 .setting-item label {
