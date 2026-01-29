@@ -5,7 +5,7 @@
     padding: 15px;
     padding-right: 8px; /* 留出滾動條空間，避免內容重疊 */
     padding-top: calc(15px + env(safe-area-inset-top));
-    padding-bottom: calc(120px + env(safe-area-inset-bottom));
+    padding-bottom: calc(100px + env(safe-area-inset-bottom));
     min-height: 100%;
     -webkit-overflow-scrolling: touch;
     transform: translateZ(0);

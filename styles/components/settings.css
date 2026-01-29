@@ -1,78 +1,101 @@
 /* 设置按钮和菜单样式 */
+.input-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    /* margin-right: 4px; */
+    /* margin-bottom: 2px; */
+}
+
 #settings-button {
-    padding: 12px 8px;
-    background: none;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border-radius: 12px;
     border: none;
     cursor: pointer;
     color: var(--cerebr-icon-color);
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 #settings-button svg {
     width: 18px;
     height: 18px;
     fill: currentColor;
-    opacity: 0.6;
-    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55),
-                opacity 0.2s ease;
+    opacity: 0.8;
+    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+#settings-button:hover {
+    background-color: var(--cerebr-button-hover-bg);
+    color: var(--cerebr-text-color);
 }
 
 #settings-button:hover svg {
-    transform: scale(1.25);
+    transform: rotate(90deg);
     opacity: 1;
 }
 
-#settings-button:active svg {
+#settings-button:active {
     transform: scale(0.95);
-    opacity: 0.8;
 }
 
 #new-chat-button {
-    padding: 12px 0px;
-    background: none;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border-radius: 12px;
     border: none;
     cursor: pointer;
     color: var(--cerebr-icon-color);
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 #new-chat-button svg {
     width: 18px;
     height: 18px;
     stroke: currentColor;
-    opacity: 0.6;
-    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55),
-                opacity 0.2s ease;
+    opacity: 0.8;
+    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+#new-chat-button:hover {
+    background-color: var(--cerebr-button-hover-bg);
+    color: var(--cerebr-text-color);
 }
 
 #new-chat-button:hover svg {
-    transform: scale(1.25);
+    transform: scale(1.1);
     opacity: 1;
 }
 
-#new-chat-button:active svg {
+#new-chat-button:active {
     transform: scale(0.95);
-    opacity: 0.8;
 }
 
 #settings-menu {
     position: absolute;
     bottom: 100%;
-    left: 8px;
+    left: 16px;
     background-color: var(--cerebr-bg-color);
-    border-radius: 8px;
-    box-shadow: 0 4px 20px var(--cerebr-popup-shadow);
-    padding: 8px;
+    border-radius: 12px;
+    box-shadow: none;
+    padding: 6px;
     display: none;
-    min-width: 140px;
-    margin-bottom: 8px;
+    min-width: 160px;
+    margin-bottom: 0px;
     transform-origin: bottom left;
     backdrop-filter: blur(var(--cerebr-blur-radius));
     -webkit-backdrop-filter: blur(var(--cerebr-blur-radius));
+    border: 1px solid var(--cerebr-border-color);
 }
 
 #settings-menu.visible {

@@ -120,15 +120,15 @@
     display: flex;
     justify-content: space-around;
     align-items: center;
-    padding: 12px 16px;
+    padding: 12px 20px;
     background-color: transparent;
     border-top: none;
     position: fixed;
-    bottom: 45px;
+    bottom: 85px;
     left: 0;
     right: 0;
     z-index: 99;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
     transition: transform 0.3s ease, opacity 0.3s ease;
 }
 
