@@ -210,7 +210,7 @@
 
 .message-edit-input {
     min-height: 40px;
-    max-height: 200px;
+    max-height: 600px;
     padding: 8px 12px;
     border: 1px solid var(--cerebr-input-border-color);
     border-radius: 12px;
@@ -222,6 +222,7 @@
     overflow-y: auto;
     word-wrap: break-word;
     white-space: pre-wrap;
+    resize: vertical;
 }
 
 .message-edit-input:focus {
