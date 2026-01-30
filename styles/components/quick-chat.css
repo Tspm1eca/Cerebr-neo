@@ -19,7 +19,7 @@
 .confirm-modal-content {
     background-color: var(--cerebr-bg-color);
     padding: 24px;
-    border-radius: 12px;
+    border-radius: 18px;
     box-shadow: 0 8px 30px var(--cerebr-popup-shadow);
     width: 90%;
     max-width: 360px;
@@ -139,7 +139,7 @@
     align-items: center;
     justify-content: center;
     padding: 8px 12px;
-    border-radius: 12px;
+    border-radius: 18px;
     background-color: transparent;
     border: 1px solid var(--cerebr-border-color);
     cursor: pointer;
@@ -278,7 +278,7 @@
 .quick-chat-option-item {
     background-color: var(--cerebr-message-ai-bg);
     border: 1px solid var(--cerebr-card-border-color);
-    border-radius: 12px;
+    border-radius: 18px;
     padding: 15px;
     margin-bottom: 12px;
     position: relative;
@@ -420,7 +420,7 @@
 .add-button, .reset-button {
     padding: 12px 24px;
     border: 1px solid var(--cerebr-card-border-color);
-    border-radius: 12px;
+    border-radius: 18px;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
@@ -496,7 +496,7 @@
 
 .quick-chat-prompt-modal-content {
     background: var(--cerebr-bg-color);
-    border-radius: 12px;
+    border-radius: 18px;
     width: 100%;
     max-width: 600px;
     height: 90vh;

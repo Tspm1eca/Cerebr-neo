@@ -33,7 +33,7 @@
 .chat-card {
     outline: none;
     cursor: pointer;
-    border-radius: 12px;
+    border-radius: 18px;
     position: relative;
     margin-bottom: 12px;
     background: var(--cerebr-message-ai-bg);

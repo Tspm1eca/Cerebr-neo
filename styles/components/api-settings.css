@@ -26,7 +26,7 @@
 .api-card {
     outline: none;
     cursor: pointer;
-    border-radius: 12px;
+    border-radius: 18px;
     position: relative;
     margin-bottom: 12px;
     background: var(--cerebr-message-ai-bg);
@@ -458,7 +458,7 @@
 
 .system-prompt-modal-content {
     background: var(--cerebr-bg-color);
-    border-radius: 12px;
+    border-radius: 18px;
     width: 100%;
     max-width: 600px;
     height: 90vh;

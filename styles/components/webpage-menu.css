@@ -3,7 +3,7 @@
     min-width: 160px;
     max-width: 200px;
     background-color: var(--cerebr-bg-color);
-    border-radius: 12px;
+    border-radius: 18px;
     box-shadow: none;
     padding: 6px;
     z-index: 1001;

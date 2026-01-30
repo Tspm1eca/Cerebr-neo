@@ -12,7 +12,7 @@
     height: 32px;
     padding: 0;
     background: transparent;
-    border-radius: 12px;
+    border-radius: 18px;
     border: none;
     cursor: pointer;
     color: var(--cerebr-icon-color);
@@ -49,7 +49,7 @@
     height: 32px;
     padding: 0;
     background: transparent;
-    border-radius: 12px;
+    border-radius: 18px;
     border: none;
     cursor: pointer;
     color: var(--cerebr-icon-color);
@@ -94,7 +94,7 @@
     bottom: 100%;
     left: 4px;
     background-color: var(--cerebr-bg-color);
-    border-radius: 12px;
+    border-radius: 18px;
     padding: 6px;
     min-width: 200px;
     max-width: 280px;
@@ -208,7 +208,7 @@
     bottom: 100%;
     left: 4px;
     background-color: var(--cerebr-bg-color);
-    border-radius: 12px;
+    border-radius: 18px;
     box-shadow: none;
     padding: 6px;
     display: none;
