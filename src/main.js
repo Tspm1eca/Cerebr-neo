@@ -38,6 +38,7 @@ let exaApiUrl = '';
      const chatContainer = document.getElementById('chat-container');
     const messageInput = document.getElementById('message-input');
     const contextMenu = document.getElementById('context-menu');
+    const editMessageButton = document.getElementById('edit-message');
     const copyMessageButton = document.getElementById('copy-message');
     const copyCodeButton = document.getElementById('copy-code');
     const copyImageButton = document.getElementById('copy-image');
@@ -100,6 +101,7 @@ let exaApiUrl = '';
 
     // 设置按钮事件处理
     chatContainerManager.setupButtonHandlers({
+        editMessageButton,
         copyMessageButton,
         copyCodeButton,
         copyImageButton,
@@ -108,6 +110,14 @@ let exaApiUrl = '';
         regenerateMessageButton,
         abortController: abortControllerRef,
         regenerateMessage: regenerateMessage,
+    });
+
+    // 监听从编辑模式触发的重新生成事件
+    document.addEventListener('regenerate-from-edit', (e) => {
+        const { messageElement } = e.detail;
+        if (messageElement) {
+            regenerateMessage(messageElement);
+        }
     });
 
     // 初始化消息输入组件

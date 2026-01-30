@@ -2,6 +2,7 @@ import { createImageTag } from '../utils/ui.js';
 import { showContextMenu, hideContextMenu, copyMessageContent } from './context-menu.js';
 import { handleImageDrop } from '../utils/image.js';
 import { updateAIMessage } from '../handlers/message-handler.js';
+import { processMathAndMarkdown, renderMathInElement } from '../../htmd/latex.js';
 
 /**
  * 初始化聊天容器的所有功能
@@ -66,6 +67,7 @@ export function initChatContainer({
             currentCodeElement = codeElement;
 
             // 获取菜单元素
+            const editMessageButton = document.getElementById('edit-message');
             const copyCodeButton = document.getElementById('copy-code');
             const copyMathButton = document.getElementById('copy-math');
             const copyImageButton = document.getElementById('copy-image');
@@ -75,6 +77,10 @@ export function initChatContainer({
             const regenerateMessageButton = document.getElementById('regenerate-message');
 
             // 根据右键点击的元素类型显示/隐藏相应的菜单项
+            // 只有用户消息且不在更新状态时才显示修改按钮
+            const isUserMessage = messageElement.classList.contains('user-message');
+            const isUpdating = messageElement.classList.contains('updating');
+            editMessageButton.style.display = (isUserMessage && !isUpdating) ? 'flex' : 'none';
             regenerateMessageButton.style.display = 'flex';
             copyMessageButton.style.display = 'flex';
             deleteMessageButton.style.display = 'flex';
@@ -121,6 +127,7 @@ export function initChatContainer({
             currentCodeElement = codeElement;
 
             // 获取菜单元素
+            const editMessageButton = document.getElementById('edit-message');
             const copyMessageButton = document.getElementById('copy-message');
             const copyCodeButton = document.getElementById('copy-code');
             const stopUpdateButton = document.getElementById('stop-update');
@@ -128,6 +135,10 @@ export function initChatContainer({
             const regenerateMessageButton = document.getElementById('regenerate-message');
 
              // 根据长按元素类型显示/隐藏相应的菜单项
+            // 只有用户消息且不在更新状态时才显示修改按钮
+            const isUserMessage = messageElement.classList.contains('user-message');
+            const isUpdating = messageElement.classList.contains('updating');
+            editMessageButton.style.display = (isUserMessage && !isUpdating) ? 'flex' : 'none';
             regenerateMessageButton.style.display = 'flex';
             copyMessageButton.style.display = 'flex';
             deleteMessageButton.style.display = 'flex';
@@ -160,11 +171,17 @@ export function initChatContainer({
         }
     }, { passive: true });
 
-    chatContainer.addEventListener('touchend', () => {
+    chatContainer.addEventListener('touchend', (e) => {
         if (touchTimeout) {
             clearTimeout(touchTimeout);
             touchTimeout = null;
         }
+
+        // 如果点击的是编辑容器内的元素，不处理
+        if (e.target.closest('.message-edit-container')) {
+            return;
+        }
+
         // 如果用户没有触发长按（即正常的触摸结束），则隐藏菜单
         if (!contextMenu.style.display || contextMenu.style.display === 'none') {
             hideContextMenu({
@@ -223,6 +240,7 @@ export function initChatContainer({
 
     // 设置按钮事件处理器
     function setupButtonHandlers({
+        editMessageButton,
         copyMessageButton,
         copyCodeButton,
         copyImageButton,
@@ -232,6 +250,224 @@ export function initChatContainer({
         abortController,
         regenerateMessage
     }) {
+        // 点击修改按钮
+        editMessageButton.addEventListener('click', () => {
+            if (currentMessageElement && currentMessageElement.classList.contains('user-message')) {
+                // 保存当前消息元素的引用，防止在编辑过程中 currentMessageElement 被重置或修改
+                const messageElementToEdit = currentMessageElement;
+
+                // 获取原始文本
+                const originalText = messageElementToEdit.getAttribute('data-original-text') || messageElementToEdit.textContent.trim();
+
+                // 获取消息在聊天记录中的索引
+                const messageIndex = Array.from(chatContainer.children).indexOf(messageElementToEdit);
+
+                // 创建编辑输入框
+                const editContainer = document.createElement('div');
+                editContainer.className = 'message-edit-container';
+
+                const editInput = document.createElement('div');
+                editInput.className = 'message-edit-input';
+                editInput.contentEditable = 'true';
+                editInput.textContent = originalText;
+
+                const editActions = document.createElement('div');
+                editActions.className = 'message-edit-actions';
+
+                // 取消按钮 - 使用 X 图标
+                const cancelButton = document.createElement('button');
+                cancelButton.className = 'message-edit-cancel';
+                cancelButton.title = '取消';
+                cancelButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+
+                // 保存按钮 - 使用勾选图标
+                const saveButton = document.createElement('button');
+                saveButton.className = 'message-edit-save';
+                saveButton.title = '保存';
+                saveButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+
+                // 保存并重新发送按钮 - 使用发送图标
+                const saveAndResendButton = document.createElement('button');
+                saveAndResendButton.className = 'message-edit-resend';
+                saveAndResendButton.title = '保存并重新发送';
+                saveAndResendButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>`;
+
+                editActions.appendChild(cancelButton);
+                editActions.appendChild(saveButton);
+                editActions.appendChild(saveAndResendButton);
+                editContainer.appendChild(editInput);
+                editContainer.appendChild(editActions);
+
+                // 阻止点击输入框时的事件冒泡
+                editInput.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                });
+
+                // 保存原始内容以便取消时恢复
+                const originalContent = messageElementToEdit.innerHTML;
+                const originalClassName = messageElementToEdit.className;
+
+                // 替换消息内容为编辑框
+                messageElementToEdit.innerHTML = '';
+                messageElementToEdit.className = 'message user-message editing';
+                messageElementToEdit.appendChild(editContainer);
+
+                // 聚焦到输入框并将光标移到末尾
+                editInput.focus();
+                const range = document.createRange();
+                const selection = window.getSelection();
+                range.selectNodeContents(editInput);
+                range.collapse(false);
+                selection.removeAllRanges();
+                selection.addRange(range);
+
+                // 取消按钮事件
+                cancelButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    messageElementToEdit.innerHTML = originalContent;
+                    messageElementToEdit.className = originalClassName;
+                });
+
+                // 保存按钮事件
+                saveButton.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const newText = editInput.textContent.trim();
+                    if (newText && newText !== originalText) {
+                        // 更新消息元素
+                        messageElementToEdit.innerHTML = '';
+                        messageElementToEdit.className = originalClassName;
+
+                        // 创建主要内容容器
+                        const mainContent = document.createElement('div');
+                        mainContent.className = 'main-content';
+                        // 使用 processMathAndMarkdown 渲染 Markdown 和數學公式
+                        mainContent.innerHTML = processMathAndMarkdown(newText);
+                        messageElementToEdit.appendChild(mainContent);
+
+                        // 渲染 LaTeX 公式
+                        try {
+                            await renderMathInElement(mainContent);
+                        } catch (err) {
+                            console.error('渲染LaTeX公式失败:', err);
+                        }
+
+                        // 为代码块添加复制按钮
+                        if (window.addCopyButtonToCodeBlocks) {
+                            window.addCopyButtonToCodeBlocks(mainContent);
+                        }
+
+                        // 更新 data-original-text 属性
+                        messageElementToEdit.setAttribute('data-original-text', newText);
+
+                        // 更新 chatManager 中的消息
+                        const currentChat = chatManager.getCurrentChat();
+                        if (currentChat && messageIndex !== -1 && currentChat.messages[messageIndex]) {
+                            // 更新消息内容
+                            const message = currentChat.messages[messageIndex];
+                            if (typeof message.content === 'string') {
+                                message.content = newText;
+                            } else if (Array.isArray(message.content)) {
+                                // 如果是数组格式，更新文本部分
+                                const textItem = message.content.find(item => item.type === 'text');
+                                if (textItem) {
+                                    textItem.text = newText;
+                                }
+                            }
+                            chatManager.saveChats();
+                        }
+                    } else {
+                        // 如果文本没有变化或为空，恢复原始内容
+                        messageElementToEdit.innerHTML = originalContent;
+                        messageElementToEdit.className = originalClassName;
+                    }
+                });
+
+                // 保存并重新发送按钮事件
+                saveAndResendButton.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const newText = editInput.textContent.trim();
+                    if (newText) {
+                        // 更新消息元素
+                        messageElementToEdit.innerHTML = '';
+                        messageElementToEdit.className = originalClassName;
+
+                        // 创建主要内容容器
+                        const mainContent = document.createElement('div');
+                        mainContent.className = 'main-content';
+                        // 使用 processMathAndMarkdown 渲染 Markdown 和數學公式
+                        mainContent.innerHTML = processMathAndMarkdown(newText);
+                        messageElementToEdit.appendChild(mainContent);
+
+                        // 渲染 LaTeX 公式
+                        try {
+                            await renderMathInElement(mainContent);
+                        } catch (err) {
+                            console.error('渲染LaTeX公式失败:', err);
+                        }
+
+                        // 为代码块添加复制按钮
+                        if (window.addCopyButtonToCodeBlocks) {
+                            window.addCopyButtonToCodeBlocks(mainContent);
+                        }
+
+                        // 更新 data-original-text 属性
+                        messageElementToEdit.setAttribute('data-original-text', newText);
+
+                        // 更新 chatManager 中的消息
+                        const currentChat = chatManager.getCurrentChat();
+                        if (currentChat && messageIndex !== -1 && currentChat.messages[messageIndex]) {
+                            // 更新消息内容
+                            const message = currentChat.messages[messageIndex];
+                            if (typeof message.content === 'string') {
+                                message.content = newText;
+                            } else if (Array.isArray(message.content)) {
+                                // 如果是数组格式，更新文本部分
+                                const textItem = message.content.find(item => item.type === 'text');
+                                if (textItem) {
+                                    textItem.text = newText;
+                                }
+                            }
+                            chatManager.saveChats();
+                        }
+
+                        // 触发重新生成消息
+                        // 使用 document 上的自定义事件来触发重新生成
+                        const regenerateEvent = new CustomEvent('regenerate-from-edit', {
+                            detail: { messageElement: messageElementToEdit }
+                        });
+                        document.dispatchEvent(regenerateEvent);
+                    }
+                });
+
+                // 按 Enter 保存，按 Escape 取消，按 Ctrl+Enter 保存并重新发送
+                editInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && e.ctrlKey) {
+                        e.preventDefault();
+                        saveAndResendButton.click();
+                    } else if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        saveButton.click();
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelButton.click();
+                    }
+                });
+
+                // 隐藏右键菜单
+                hideContextMenu({
+                    contextMenu,
+                    onMessageElementReset: () => {
+                        // 不重置 currentMessageElement，因为我们还需要它来保存编辑
+                    }
+                });
+
+                return; // 不重置 currentMessageElement
+            }
+        });
+
         // 点击复制按钮
         copyMessageButton.addEventListener('click', () => {
             copyMessageContent({

@@ -200,7 +200,8 @@ export function initMessageInput(config) {
             !e.target.closest('#settings-menu') &&
             !e.target.closest('#context-menu') &&
             !e.target.closest('#chat-list-page') &&
-            !e.target.closest('#quick-chat-settings-page')) {
+            !e.target.closest('#quick-chat-settings-page') &&
+            !e.target.closest('.message-edit-container')) {
 
             // 切换输入框焦点状态
             if (document.activeElement === messageInput) {
