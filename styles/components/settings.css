@@ -366,6 +366,77 @@ input:checked + .slider:before {
     pointer-events: none;
 }
 
+/* 网络搜索控制区域 */
+.web-search-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* 搜索提供者切换按钮样式 */
+.provider-toggle-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 22px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background-color: var(--cerebr-toggle-bg-off);
+    color: var(--cerebr-text-color);
+    font-size: 12px;
+    font-weight: 600;
+    position: relative;
+    overflow: hidden;
+}
+
+.provider-toggle-button:hover {
+    opacity: 0.8;
+}
+
+.provider-toggle-button:active {
+    transform: scale(0.95);
+}
+
+.provider-toggle-button .provider-label {
+    position: absolute;
+    display: none;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Tavily 状态 */
+.provider-toggle-button[data-value="tavily"] {
+    background-color: #3b82f6;
+    color: #fff;
+}
+
+.provider-toggle-button[data-value="tavily"] .provider-tavily {
+    display: block;
+}
+
+/* Exa 状态 */
+.provider-toggle-button[data-value="exa"] {
+    background-color: #8b5cf6;
+    color: #fff;
+}
+
+.provider-toggle-button[data-value="exa"] .provider-exa {
+    display: block;
+}
+
+/* 禁用状态 */
+.provider-toggle-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.menu-item.disabled .provider-toggle-button {
+    pointer-events: none;
+}
+
 /* 高级设置区域样式 */
 .advanced-settings {
     margin-top: 0;

@@ -918,6 +918,7 @@ let exaApiUrl = '';
     const themeSwitch = document.getElementById('theme-switch');
     const sendWebpageSwitch = document.getElementById('send-webpage-switch');
     const webSearchSwitch = document.getElementById('web-search-switch');
+    const searchProviderSwitch = document.getElementById('search-provider-switch');
 
     // 网络搜索模式状态
     let webSearchMode = 'off'; // 'off' | 'auto' | 'on'
@@ -1026,6 +1027,7 @@ let exaApiUrl = '';
                 savedWebSearchMode = webSearchMode;
             }
             webSearchSwitch.disabled = true;
+            searchProviderSwitch.disabled = true;
             webSearchToggle.classList.add('disabled');
             // 强制设为 off
             webSearchMode = 'off';
@@ -1033,6 +1035,7 @@ let exaApiUrl = '';
         } else {
             // 当传送网页关闭时，恢复网络搜索的可用状态和之前的模式
             webSearchSwitch.disabled = false;
+            searchProviderSwitch.disabled = false;
             webSearchToggle.classList.remove('disabled');
             // 恢复之前保存的模式
             if (savedWebSearchMode !== null) {
@@ -1190,9 +1193,17 @@ let exaApiUrl = '';
               settings.classList.remove('active');
           }
       });
+
+      // 同步更新菜单中的提供者切换按钮
+      if (searchProviderSwitch) {
+          searchProviderSwitch.dataset.value = searchProvider;
+          searchProviderSwitch.title = searchProvider === 'tavily'
+              ? '当前: Tavily - 点击切换到 Exa'
+              : '当前: Exa - 点击切换到 Tavily';
+      }
   }
 
-  // 提供者切换按钮事件
+  // 提供者切换按钮事件（设置页面中的按钮）
   providerBtns.forEach(btn => {
       btn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -1201,6 +1212,17 @@ let exaApiUrl = '';
           saveSearchSettings();
       });
   });
+
+  // 菜单中的提供者切换按钮事件
+  if (searchProviderSwitch) {
+      searchProviderSwitch.addEventListener('click', (e) => {
+          e.stopPropagation();
+          // 切换提供者：tavily <-> exa
+          searchProvider = searchProvider === 'tavily' ? 'exa' : 'tavily';
+          updateProviderUI();
+          saveSearchSettings();
+      });
+  }
 
   // Tavily 输入框事件
   tavilyApiKeyInput.addEventListener('change', () => {
