@@ -262,16 +262,52 @@
                     <div class="api-card tavily-api-card">
                         <div class="card-content">
                             <div class="api-form">
+                                <!-- 搜索提供者切换 -->
                                 <div class="form-group">
-                                    <label>Tavily API Key <span class="optional-label">(网络搜索)</span></label>
-                                    <div class="tavily-key-container">
-                                        <input type="text" id="tavily-api-key" class="tavily-api-key" placeholder="输入 Tavily API Key（可选）">
-                                        <button id="test-tavily-btn" class="test-tavily-btn" title="测试连接">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <line x1="22" y1="2" x2="11" y2="13"></line>
-                                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                                            </svg>
-                                        </button>
+                                    <label>搜索提供者 <span class="optional-label">(网络搜索)</span></label>
+                                    <div class="search-provider-toggle">
+                                        <button type="button" class="provider-btn active" data-provider="tavily">Tavily</button>
+                                        <button type="button" class="provider-btn" data-provider="exa">Exa</button>
+                                    </div>
+                                </div>
+
+                                <!-- Tavily 设置区域 -->
+                                <div class="provider-settings tavily-settings active" data-provider="tavily">
+                                    <div class="form-group">
+                                        <label>Tavily API Key</label>
+                                        <div class="tavily-key-container">
+                                            <input type="text" id="tavily-api-key" class="tavily-api-key" placeholder="输入 Tavily API Key">
+                                            <button id="test-tavily-btn" class="test-tavily-btn" title="测试连接">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                                                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Tavily API URL <span class="optional-label">(可选，无需添加 /search)</span></label>
+                                        <input type="text" id="tavily-api-url" class="tavily-api-url" placeholder="https://api.tavily.com">
+                                    </div>
+                                </div>
+
+                                <!-- Exa 设置区域 -->
+                                <div class="provider-settings exa-settings" data-provider="exa">
+                                    <div class="form-group">
+                                        <label>Exa API Key</label>
+                                        <div class="exa-key-container">
+                                            <input type="text" id="exa-api-key" class="exa-api-key" placeholder="输入 Exa API Key">
+                                            <button id="test-exa-btn" class="test-exa-btn" title="测试连接">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                                                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Exa API URL <span class="optional-label">(可选，无需添加 /search)</span></label>
+                                        <input type="text" id="exa-api-url" class="exa-api-url" placeholder="https://api.exa.ai">
                                     </div>
                                 </div>
                             </div>

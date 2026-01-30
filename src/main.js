@@ -26,7 +26,13 @@ let userQuestions = [];
 // 加载保存的 API 配置
 let apiConfigs = [];
 let selectedConfigIndex = 0;
+
+// 网络搜索配置
+let searchProvider = 'tavily'; // 'tavily' | 'exa'
 let tavilyApiKey = '';
+let tavilyApiUrl = '';
+let exaApiKey = '';
+let exaApiUrl = '';
 
  document.addEventListener('DOMContentLoaded', async () => {
      const chatContainer = document.getElementById('chat-container');
@@ -333,7 +339,13 @@ let tavilyApiKey = '';
                 userLanguage: navigator.language,
                 webpageInfo: isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null,
                 webSearchMode: effectiveWebSearchMode,
-                tavilyApiKey: tavilyApiKey
+                searchConfig: {
+                    provider: searchProvider,
+                    tavilyApiKey: tavilyApiKey,
+                    tavilyApiUrl: tavilyApiUrl,
+                    exaApiKey: exaApiKey,
+                    exaApiUrl: exaApiUrl
+                }
             };
 
             // 显示等待动画
@@ -460,7 +472,13 @@ let tavilyApiKey = '';
                 userLanguage: navigator.language,
                 webpageInfo: webpageInfo,
                 webSearchMode: effectiveWebSearchMode,
-                tavilyApiKey: tavilyApiKey
+                searchConfig: {
+                    provider: searchProvider,
+                    tavilyApiKey: tavilyApiKey,
+                    tavilyApiUrl: tavilyApiUrl,
+                    exaApiKey: exaApiKey,
+                    exaApiUrl: exaApiUrl
+                }
             };
 
             // 调用带重试逻辑的 API
@@ -1100,44 +1118,158 @@ let tavilyApiKey = '';
     // 然后再检查并更新网络搜索开关的禁用状态（此时 webSearchMode 已经是正确的值）
     updateWebSearchDisabledState(sendWebpageSwitch.checked);
 
-   // Tavily API Key aettings
+   // 网络搜索设置
   const tavilyApiKeyInput = document.getElementById('tavily-api-key');
+  const tavilyApiUrlInput = document.getElementById('tavily-api-url');
   const testTavilyBtn = document.getElementById('test-tavily-btn');
+  const exaApiKeyInput = document.getElementById('exa-api-key');
+  const exaApiUrlInput = document.getElementById('exa-api-url');
+  const testExaBtn = document.getElementById('test-exa-btn');
+  const providerBtns = document.querySelectorAll('.provider-btn');
+  const providerSettings = document.querySelectorAll('.provider-settings');
 
-  async function loadTavilyApiKey() {
+  // 加载所有搜索设置
+  async function loadSearchSettings() {
       try {
-          const result = await syncStorageAdapter.get('tavilyApiKey');
+          const result = await syncStorageAdapter.get([
+              'searchProvider',
+              'tavilyApiKey',
+              'tavilyApiUrl',
+              'exaApiKey',
+              'exaApiUrl'
+          ]);
+
+          searchProvider = result.searchProvider || 'tavily';
           tavilyApiKey = result.tavilyApiKey || '';
+          tavilyApiUrl = result.tavilyApiUrl || '';
+          exaApiKey = result.exaApiKey || '';
+          exaApiUrl = result.exaApiUrl || '';
+
+          // 更新 UI
           tavilyApiKeyInput.value = tavilyApiKey;
+          tavilyApiUrlInput.value = tavilyApiUrl;
+          exaApiKeyInput.value = exaApiKey;
+          exaApiUrlInput.value = exaApiUrl;
+
+          // 更新提供者切换按钮状态
+          updateProviderUI();
       } catch (error) {
-          console.error('加载 Tavily API Key 失败:', error);
+          console.error('加载搜索设置失败:', error);
       }
   }
 
-  async function saveTavilyApiKey() {
+  // 保存所有搜索设置
+  async function saveSearchSettings() {
       try {
-          await syncStorageAdapter.set({ tavilyApiKey });
+          await syncStorageAdapter.set({
+              searchProvider,
+              tavilyApiKey,
+              tavilyApiUrl,
+              exaApiKey,
+              exaApiUrl
+          });
       } catch (error) {
-          console.error('保存 Tavily API Key 失败:', error);
+          console.error('保存搜索设置失败:', error);
       }
   }
 
-  tavilyApiKeyInput.addEventListener('change', () => {
-      tavilyApiKey = tavilyApiKeyInput.value;
-      saveTavilyApiKey();
+  // 更新提供者 UI
+  function updateProviderUI() {
+      providerBtns.forEach(btn => {
+          if (btn.dataset.provider === searchProvider) {
+              btn.classList.add('active');
+          } else {
+              btn.classList.remove('active');
+          }
+      });
+
+      providerSettings.forEach(settings => {
+          if (settings.dataset.provider === searchProvider) {
+              settings.classList.add('active');
+          } else {
+              settings.classList.remove('active');
+          }
+      });
+  }
+
+  // 提供者切换按钮事件
+  providerBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          searchProvider = btn.dataset.provider;
+          updateProviderUI();
+          saveSearchSettings();
+      });
   });
 
-   tavilyApiKeyInput.addEventListener('click', (e) => {
-       e.stopPropagation();
-   });
+  // Tavily 输入框事件
+  tavilyApiKeyInput.addEventListener('change', () => {
+      tavilyApiKey = tavilyApiKeyInput.value;
+      saveSearchSettings();
+  });
 
+  tavilyApiKeyInput.addEventListener('click', (e) => {
+      e.stopPropagation();
+  });
+
+  tavilyApiUrlInput.addEventListener('change', () => {
+      tavilyApiUrl = tavilyApiUrlInput.value;
+      saveSearchSettings();
+  });
+
+  tavilyApiUrlInput.addEventListener('click', (e) => {
+      e.stopPropagation();
+  });
+
+  // Exa 输入框事件
+  exaApiKeyInput.addEventListener('change', () => {
+      exaApiKey = exaApiKeyInput.value;
+      saveSearchSettings();
+  });
+
+  exaApiKeyInput.addEventListener('click', (e) => {
+      e.stopPropagation();
+  });
+
+  exaApiUrlInput.addEventListener('change', () => {
+      exaApiUrl = exaApiUrlInput.value;
+      saveSearchSettings();
+  });
+
+  exaApiUrlInput.addEventListener('click', (e) => {
+      e.stopPropagation();
+  });
+
+  // 测试连接按钮事件
   testTavilyBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       await testTavilyConnection(testTavilyBtn);
   });
 
+  testExaBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await testExaConnection(testExaBtn);
+  });
+
+  // 构建带 /search 路径的 URL
+  function buildSearchUrl(baseUrl, defaultUrl) {
+      if (!baseUrl || !baseUrl.trim()) {
+          return defaultUrl;
+      }
+      let url = baseUrl.trim();
+      // 移除结尾的斜线
+      url = url.replace(/\/+$/, '');
+      // 如果用户没有添加 /search，自动添加
+      if (!url.endsWith('/search')) {
+          url += '/search';
+      }
+      return url;
+  }
+
+  // Tavily 测试连接
   async function testTavilyConnection(button) {
       const key = tavilyApiKeyInput.value;
+      const url = buildSearchUrl(tavilyApiUrlInput.value, 'https://api.tavily.com/search');
 
       if (!key) {
           showToast('请输入 Tavily API Key', 'error');
@@ -1153,7 +1285,7 @@ let tavilyApiKey = '';
       `;
 
       try {
-          const response = await fetch('https://api.tavily.com/search', {
+          const response = await fetch(url, {
               method: 'POST',
               headers: {
                   'Content-Type': 'application/json'
@@ -1198,6 +1330,79 @@ let tavilyApiKey = '';
               button.innerHTML = originalBtnContent;
           }, 3000);
       }
+  }
+
+  // Exa 测试连接
+  async function testExaConnection(button) {
+      const key = exaApiKeyInput.value;
+      const url = buildSearchUrl(exaApiUrlInput.value, 'https://api.exa.ai/search');
+
+      if (!key) {
+          showToast('请输入 Exa API Key', 'error');
+          return;
+      }
+
+      const originalBtnContent = button.innerHTML;
+      button.disabled = true;
+      button.innerHTML = `
+          <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+          </svg>
+      `;
+
+      try {
+          const response = await fetch(url, {
+              method: 'POST',
+              headers: {
+                  'Content-Type': 'application/json',
+                  'x-api-key': key
+              },
+              body: JSON.stringify({
+                  query: 'test connection',
+                  numResults: 1,
+                  contents: {
+                      text: true
+                  }
+              })
+          });
+
+          if (!response.ok) {
+              let errorMsg = `HTTP error! status: ${response.status}`;
+              try {
+                  const errorData = await response.json();
+                  errorMsg += ` - ${errorData.error || errorData.message || JSON.stringify(errorData)}`;
+              } catch (e) {
+                  // ignore if response is not json
+              }
+              throw new Error(errorMsg);
+          }
+
+          button.innerHTML = `
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 6L9 17l-5-5"/>
+              </svg>
+          `;
+
+      } catch (error) {
+          console.error('Exa test connection error:', error);
+          showToast(`Exa 连接失败: ${error.message}`, 'error');
+          button.innerHTML = `
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+          `;
+      } finally {
+          setTimeout(() => {
+              button.disabled = false;
+              button.innerHTML = originalBtnContent;
+          }, 3000);
+      }
+  }
+
+  // 兼容旧版本的函数别名
+  async function loadTavilyApiKey() {
+      await loadSearchSettings();
   }
 
    function showToast(message, type = 'success') {

@@ -1,12 +1,14 @@
 /**
- * Tavily 搜索服務
- * 專為 AI 代理設計的網絡搜索 API
+ * 網絡搜索服務
+ * 支持 Tavily 和 Exa 搜索 API
  */
 
 /**
- * Tavily 搜索配置
- * @typedef {Object} TavilySearchConfig
- * @property {string} apiKey - Tavily API 密鑰
+ * 搜索配置
+ * @typedef {Object} SearchConfig
+ * @property {string} provider - 搜索提供者 ('tavily' | 'exa')
+ * @property {string} apiKey - API 密鑰
+ * @property {string} [apiUrl] - 自定義 API URL
  * @property {string} query - 搜索查詢
  * @property {string} [searchDepth='basic'] - 搜索深度 ('basic' | 'advanced')
  * @property {number} [maxResults=5] - 最大結果數量
@@ -17,8 +19,8 @@
  */
 
 /**
- * Tavily 搜索結果
- * @typedef {Object} TavilySearchResult
+ * 搜索結果
+ * @typedef {Object} SearchResult
  * @property {string} title - 結果標題
  * @property {string} url - 結果 URL
  * @property {string} content - 結果摘要內容
@@ -27,24 +29,41 @@
  */
 
 /**
- * Tavily 搜索響應
- * @typedef {Object} TavilySearchResponse
+ * 搜索響應
+ * @typedef {Object} SearchResponse
  * @property {string} [answer] - AI 生成的答案（如果請求）
  * @property {string} query - 原始查詢
  * @property {number} responseTime - 響應時間（秒）
- * @property {TavilySearchResult[]} results - 搜索結果列表
+ * @property {SearchResult[]} results - 搜索結果列表
  */
 
-const TAVILY_API_URL = 'https://api.tavily.com/search';
+const DEFAULT_TAVILY_API_URL = 'https://api.tavily.com/search';
+const DEFAULT_EXA_API_URL = 'https://api.exa.ai/search';
+
+/**
+ * 執行網絡搜索（統一入口）
+ * @param {SearchConfig} config - 搜索配置
+ * @returns {Promise<SearchResponse>} 搜索結果
+ * @throws {Error} 當 API 調用失敗時拋出錯誤
+ */
+export async function webSearch(config) {
+    const provider = config.provider || 'tavily';
+
+    if (provider === 'exa') {
+        return exaSearch(config);
+    }
+    return tavilySearch(config);
+}
 
 /**
  * 執行 Tavily 網絡搜索
- * @param {TavilySearchConfig} config - 搜索配置
- * @returns {Promise<TavilySearchResponse>} 搜索結果
+ * @param {SearchConfig} config - 搜索配置
+ * @returns {Promise<SearchResponse>} 搜索結果
  * @throws {Error} 當 API 調用失敗時拋出錯誤
  */
 export async function tavilySearch({
     apiKey,
+    apiUrl,
     query,
     searchDepth = 'basic',
     maxResults = 5,
@@ -78,8 +97,21 @@ export async function tavilySearch({
         requestBody.exclude_domains = excludeDomains;
     }
 
+    // 使用自定義 URL 或默認 URL，自動添加 /search 路徑
+    let url = DEFAULT_TAVILY_API_URL;
+    if (apiUrl && apiUrl.trim()) {
+        let baseUrl = apiUrl.trim();
+        // 移除結尾的斜線
+        baseUrl = baseUrl.replace(/\/+$/, '');
+        // 如果用戶沒有添加 /search，自動添加
+        if (!baseUrl.endsWith('/search')) {
+            baseUrl += '/search';
+        }
+        url = baseUrl;
+    }
+
     try {
-        const response = await fetch(TAVILY_API_URL, {
+        const response = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -110,6 +142,118 @@ export async function tavilySearch({
         }
         throw error;
     }
+}
+
+/**
+ * 執行 Exa 網絡搜索
+ * @param {SearchConfig} config - 搜索配置
+ * @returns {Promise<SearchResponse>} 搜索結果
+ * @throws {Error} 當 API 調用失敗時拋出錯誤
+ */
+export async function exaSearch({
+    apiKey,
+    apiUrl,
+    query,
+    maxResults = 5,
+    includeAnswer = false,
+    includeDomains = [],
+    excludeDomains = []
+}) {
+    if (!apiKey) {
+        throw new Error('Exa API Key 未設置');
+    }
+
+    if (!query || query.trim() === '') {
+        throw new Error('搜索查詢不能為空');
+    }
+
+    const requestBody = {
+        query: query.trim(),
+        numResults: maxResults,
+        contents: {
+            text: true
+        }
+    };
+
+    // Exa 的域名過濾
+    if (includeDomains.length > 0) {
+        requestBody.includeDomains = includeDomains;
+    }
+    if (excludeDomains.length > 0) {
+        requestBody.excludeDomains = excludeDomains;
+    }
+
+    // 使用自定義 URL 或默認 URL，自動添加 /search 路徑
+    let url = DEFAULT_EXA_API_URL;
+    if (apiUrl && apiUrl.trim()) {
+        let baseUrl = apiUrl.trim();
+        // 移除結尾的斜線
+        baseUrl = baseUrl.replace(/\/+$/, '');
+        // 如果用戶沒有添加 /search，自動添加
+        if (!baseUrl.endsWith('/search')) {
+            baseUrl += '/search';
+        }
+        url = baseUrl;
+    }
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            let errorMessage = `Exa API 錯誤: ${response.status}`;
+            try {
+                const errorData = await response.json();
+                if (errorData.error) {
+                    errorMessage += ` - ${errorData.error}`;
+                } else if (errorData.message) {
+                    errorMessage += ` - ${errorData.message}`;
+                }
+            } catch {
+                // 忽略 JSON 解析錯誤
+            }
+            throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+
+        // 將 Exa 響應格式轉換為統一格式
+        return normalizeExaResponse(data, query);
+    } catch (error) {
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            throw new Error('網絡連接失敗，請檢查網絡狀態');
+        }
+        throw error;
+    }
+}
+
+/**
+ * 將 Exa 響應格式轉換為統一格式
+ * @param {Object} exaResponse - Exa API 響應
+ * @param {string} query - 原始查詢
+ * @returns {SearchResponse} 統一格式的搜索響應
+ */
+function normalizeExaResponse(exaResponse, query) {
+    const results = (exaResponse.results || []).map(result => ({
+        title: result.title || '',
+        url: result.url || '',
+        content: result.text || result.snippet || '',
+        score: result.score || 0,
+        rawContent: result.text || ''
+    }));
+
+    return {
+        query: query,
+        responseTime: exaResponse.requestId ? 0 : 0, // Exa 不提供響應時間
+        results: results,
+        answer: null // Exa 不提供 AI 答案
+    };
 }
 
 /**

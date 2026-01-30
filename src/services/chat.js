@@ -8,7 +8,7 @@
  */
 
 import { DEFAULT_SYSTEM_PROMPT } from '../components/api-card.js';
-import { tavilySearch, formatSearchResultsForPrompt, extractSearchQuery } from './tavily.js';
+import { webSearch, tavilySearch, formatSearchResultsForPrompt, extractSearchQuery } from './web-search.js';
 
 // 超時配置（毫秒）
 const STREAM_TIMEOUT = 30000; // 流式響應超時：60秒無數據則超時
@@ -206,7 +206,8 @@ export async function callAPI({
     webpageInfo = null,
     webSearchMode = 'off',
     searchQuery = null,
-    tavilyApiKey = null
+    tavilyApiKey = null, // 保留向後兼容
+    searchConfig = null  // 新的搜索配置
 }, chatManager, chatId, onMessageUpdate) {
     if (!apiConfig?.baseUrl || !apiConfig?.apiKey) {
         throw new Error('API 配置不完整');
@@ -235,6 +236,20 @@ export async function callAPI({
         systemMessageContent = `${systemPrompt}${pagesContent}`;
     }
 
+    // 解析搜索配置（支持新舊兩種格式）
+    const effectiveSearchConfig = searchConfig || {
+        provider: 'tavily',
+        tavilyApiKey: tavilyApiKey,
+        tavilyApiUrl: '',
+        exaApiKey: '',
+        exaApiUrl: ''
+    };
+
+    // 獲取當前提供者的 API Key
+    const currentApiKey = effectiveSearchConfig.provider === 'exa'
+        ? effectiveSearchConfig.exaApiKey
+        : effectiveSearchConfig.tavilyApiKey;
+
     // 处理网络搜索 - 根据模式决定行为
     // 'on' 模式：直接执行搜索
     // 'auto' 模式：使用 Function Calling 让 AI 决定
@@ -242,7 +257,7 @@ export async function callAPI({
     // 用於標記 'on' 模式下是否已執行搜索
     let searchUsedInOnMode = false;
 
-    if (webSearchMode === 'on' && tavilyApiKey) {
+    if (webSearchMode === 'on' && currentApiKey) {
         try {
             // 获取搜索查询：使用自定义查询或最后一条用户消息
             let query = searchQuery;
@@ -257,9 +272,15 @@ export async function callAPI({
             }
 
             if (query) {
-                console.log('执行 Tavily 网络搜索:', query);
-                const searchResults = await tavilySearch({
-                    apiKey: tavilyApiKey,
+                console.log(`执行 ${effectiveSearchConfig.provider} 网络搜索:`, query);
+
+                // 使用統一的搜索入口
+                const searchResults = await webSearch({
+                    provider: effectiveSearchConfig.provider,
+                    apiKey: currentApiKey,
+                    apiUrl: effectiveSearchConfig.provider === 'exa'
+                        ? effectiveSearchConfig.exaApiUrl
+                        : effectiveSearchConfig.tavilyApiUrl,
                     query: query,
                     searchDepth: 'basic',
                     maxResults: 5,
@@ -288,15 +309,15 @@ export async function callAPI({
                 }
             }
         } catch (error) {
-            console.error('Tavily 搜索失败:', error);
+            console.error(`${effectiveSearchConfig.provider} 搜索失败:`, error);
             // 搜索失败不应阻止 API 调用，继续执行
         }
-    } else if (webSearchMode === 'on' && !tavilyApiKey) {
-        console.warn('网络搜索已启用，但未设置 Tavily API Key');
+    } else if (webSearchMode === 'on' && !currentApiKey) {
+        console.warn(`网络搜索已启用，但未设置 ${effectiveSearchConfig.provider} API Key`);
     }
 
     // 判断是否使用 Function Calling（自动模式）
-    const useToolCalling = webSearchMode === 'auto' && tavilyApiKey;
+    const useToolCalling = webSearchMode === 'auto' && currentApiKey;
 
     const systemMessage = {
         role: "system",
@@ -581,9 +602,13 @@ export async function callAPI({
                                 onMessageUpdate(chatId, messageCopy);
                             }
 
-                            // 执行 Tavily 搜索
-                            const searchResults = await tavilySearch({
-                                apiKey: tavilyApiKey,
+                            // 执行网络搜索（使用統一入口）
+                            const searchResults = await webSearch({
+                                provider: effectiveSearchConfig.provider,
+                                apiKey: currentApiKey,
+                                apiUrl: effectiveSearchConfig.provider === 'exa'
+                                    ? effectiveSearchConfig.exaApiUrl
+                                    : effectiveSearchConfig.tavilyApiUrl,
                                 query: searchQuery,
                                 searchDepth: 'basic',
                                 maxResults: 5,
