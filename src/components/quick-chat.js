@@ -474,6 +474,9 @@ export async function initQuickChat({
     };
 }
 
+// 用於追蹤 toggleQuickChatOptions 的 timeout，避免競態條件
+let toggleTimeoutId = null;
+
 /**
  * 控制選項按鈕區域的顯示或隱藏
  * @param {boolean} show - 是否顯示選項按鈕區域
@@ -481,18 +484,26 @@ export async function initQuickChat({
 export function toggleQuickChatOptions(show) {
     const quickChatOptionsElement = document.getElementById('quick-chat-options');
     if (quickChatOptionsElement) {
+        // 取消之前的 timeout，避免競態條件
+        if (toggleTimeoutId !== null) {
+            clearTimeout(toggleTimeoutId);
+            toggleTimeoutId = null;
+        }
+
         if (show) {
             // 顯示時使用動畫效果
             quickChatOptionsElement.style.display = '';
             quickChatOptionsElement.classList.remove('quick-chat-options-hiding');
             quickChatOptionsElement.classList.add('quick-chat-options-showing');
-            setTimeout(() => {
+            toggleTimeoutId = setTimeout(() => {
+                toggleTimeoutId = null;
                 quickChatOptionsElement.classList.remove('quick-chat-options-showing');
             }, 300);
         } else {
             // 隱藏時使用動畫效果
             quickChatOptionsElement.classList.add('quick-chat-options-hiding');
-            setTimeout(() => {
+            toggleTimeoutId = setTimeout(() => {
+                toggleTimeoutId = null;
                 quickChatOptionsElement.style.display = 'none';
                 quickChatOptionsElement.classList.remove('quick-chat-options-hiding');
             }, 300);
