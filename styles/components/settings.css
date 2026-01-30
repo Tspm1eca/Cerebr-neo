@@ -93,14 +93,14 @@
     position: absolute;
     bottom: 100%;
     left: 4px;
-    background-color: var(--cerebr-bg-color);
     border-radius: 18px;
     padding: 6px;
     min-width: 200px;
     max-width: 280px;
     max-height: 300px;
     margin-bottom: 0px;
-    backdrop-filter: blur(var(--cerebr-blur-radius));
+    background-color: var(--cerebr-input-bg);
+    backdrop-filter: blur(var(--cerebr-menu-blur-radius));
     -webkit-backdrop-filter: blur(var(--cerebr-blur-radius));
     border: 1px solid var(--cerebr-border-color);
     box-shadow: none;
@@ -123,12 +123,14 @@
 
 .model-search-input {
     width: 100%;
-    padding: 8px 10px;
+    padding: 8px 12px;
     font-size: 13px;
     color: var(--cerebr-text-color);
-    background-color: var(--cerebr-message-ai-bg);
+    /* background-color: var(--cerebr-message-ai-bg); */
+    background-color: var(--cerebr-input-bg);
+    backdrop-filter: blur(var(--cerebr-menu-blur-radius));
     border: 1px solid var(--cerebr-border-color);
-    border-radius: 6px;
+    border-radius: 18px;
     outline: none;
     box-sizing: border-box;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -207,7 +209,8 @@
     position: absolute;
     bottom: 100%;
     left: 4px;
-    background-color: var(--cerebr-bg-color);
+    background-color: var(--cerebr-input-bg);
+    backdrop-filter: blur(var(--cerebr-menu-blur-radius));
     border-radius: 18px;
     box-shadow: none;
     padding: 6px;
@@ -215,7 +218,6 @@
     min-width: 160px;
     margin-bottom: 0px;
     transform-origin: bottom left;
-    backdrop-filter: blur(var(--cerebr-blur-radius));
     -webkit-backdrop-filter: blur(var(--cerebr-blur-radius));
     border: 1px solid var(--cerebr-border-color);
 }

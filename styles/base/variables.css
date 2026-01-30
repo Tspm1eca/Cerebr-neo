@@ -7,7 +7,7 @@
     --cerebr-card-bg: rgba(255, 255, 255, 0.8);
     --cerebr-card-hover-bg: rgba(255, 255, 255, 0.9);
     --cerebr-border-color: rgba(0, 0, 0, 0.1);
-    --cerebr-input-bg: #f8f8f8;
+    --cerebr-input-bg: #dfdfdf;
     --cerebr-icon-color: #666666;
     /* --cerebr-bg-color: #f2f2f7;
     --cerebr-text-color: #1d1d1f;
@@ -16,6 +16,7 @@
     --cerebr-input-bg: #ffffff;
     --cerebr-icon-color: #8e8e93; */
     --cerebr-blur-radius: 12px;
+    --cerebr-menu-blur-radius: 8px;
     --cerebr-card-border-color: rgba(0, 0, 0, 0.15);
     --cerebr-highlight-border-color: rgba(0, 122, 255, 0.5);
     --cerebr-button-hover-bg: rgba(0, 0, 0, 0.1);
@@ -54,7 +55,7 @@
     --cerebr-card-bg: rgba(50, 50, 50, 0.8);
     --cerebr-card-hover-bg: rgba(60, 60, 60, 0.9);
     --cerebr-border-color: rgba(255, 255, 255, 0.1);
-    --cerebr-input-bg: #21252b;
+    --cerebr-input-bg:rgba(33, 37, 43, 0.90);
     --cerebr-icon-color: #abb2bf;
     --cerebr-card-border-color: rgba(255, 255, 255, 0.1);
     --cerebr-highlight-border-color: rgba(0, 122, 255, 0.5);
@@ -97,7 +98,7 @@
         --cerebr-card-bg: rgba(50, 50, 50, 0.8);
         --cerebr-card-hover-bg: rgba(60, 60, 60, 0.9);
         --cerebr-border-color: rgba(255, 255, 255, 0.1);
-        --cerebr-input-bg: #21252b;
+        --cerebr-input-bg:rgba(33, 37, 43, 0.90);
         --cerebr-icon-color: #abb2bf;
         --cerebr-card-border-color: rgba(255, 255, 255, 0.1);
         --cerebr-highlight-border-color: rgba(0, 122, 255, 0.5);

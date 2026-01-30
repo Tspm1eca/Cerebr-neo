@@ -2,7 +2,6 @@
     position: fixed;
     min-width: 160px;
     max-width: 200px;
-    background-color: var(--cerebr-bg-color);
     border-radius: 18px;
     box-shadow: none;
     padding: 6px;
@@ -10,8 +9,8 @@
     display: none;
     max-height: 300px;
     overflow-y: auto;
-    backdrop-filter: blur(var(--cerebr-blur-radius));
-    -webkit-backdrop-filter: blur(var(--cerebr-blur-radius));
+    background-color: var(--cerebr-input-bg);
+    backdrop-filter: blur(var(--cerebr-menu-blur-radius));
     border: 1px solid var(--cerebr-border-color);
 }
 
