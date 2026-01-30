@@ -220,10 +220,11 @@ export async function callAPI({
     // 构建系统消息
     let systemMessageContent = '';
 
-    if (webpageInfo && webpageInfo.pages && webpageInfo.pages.length > 0) {
-        let systemPrompt = apiConfig.advancedSettings?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-        systemPrompt = systemPrompt.replace(/\{\{userLanguage\}\}/gm, userLanguage);
+    // 獲取用戶設定的 systemPrompt（如果為 undefined/null 則使用預設值，空字串則保持空字串）
+    const userSystemPrompt = apiConfig.advancedSettings?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+    const processedSystemPrompt = userSystemPrompt.replace(/\{\{userLanguage\}\}/gm, userLanguage);
 
+    if (webpageInfo && webpageInfo.pages && webpageInfo.pages.length > 0) {
         const pagesContent = webpageInfo.pages.map(page => {
             const prefix = page.isCurrent ? '当前网页内容' : '其他打开的网页';
             const contentWithMappedUrls = extractAndReplaceUrls(page.content, urlToIdMap, idToUrlMap);
@@ -233,7 +234,10 @@ export async function callAPI({
             return `\n${prefix}：\n标题：${page.title}\nURL：${page.url}\n内容：${contentWithMappedUrls}`;
         }).join('\n\n---\n');
 
-        systemMessageContent = `${systemPrompt}${pagesContent}`;
+        systemMessageContent = `${processedSystemPrompt}${pagesContent}`;
+    } else if (processedSystemPrompt) {
+        // 沒有網頁內容但有 systemPrompt 時，單獨使用 systemPrompt
+        systemMessageContent = processedSystemPrompt;
     }
 
     // 解析搜索配置（支持新舊兩種格式）

@@ -12,7 +12,7 @@
  */
 
 // method markdown link
-export const DEFAULT_SYSTEM_PROMPT = "1.當你引用網頁內容時，請使用Markdown鏈接格式 `[編號](cite:引用文本)`。例如，如果你想引用\"機器學習是一種人工智能\"，請寫成 `[1](cite:機器學習是一種人工智能)`。\n2.**重要**：引用文本必須是網頁中**完全一致**的原文片段，包括所有標點符號（逗號、句號、引號等），不能有任何字詞的修改、替換、縮略或添加空格。請直接從網頁內容中複製貼上。\n3.為了防止語法錯誤，如果引用的文本中包含雙引號（\"）、括號或特殊符號，請務必將其轉換為URL編碼。\n4.引用文本建議控制在 10-15 個字以內，選擇具有唯一性的片段。\n5.文章內的所有URL將以映射表形式`(URLREF<N>)`給你，例如：`(URLREF1)`。";
+export const DEFAULT_SYSTEM_PROMPT = "1. 當你引用網頁內容時，請使用這種格式： `[編號](cite:引用內容)`。例如，如果你想引用“機器學習是一種人工智能”，請寫成 `[1](cite:機器學習是一種人工智能)`。\n2. **重要**：引用內容必須完全和網頁上看到的文字一模一樣，包括所有標點符號（如逗號、句號、引號等）。不要修改、替換、縮短或加空格。請直接從網頁上複製。\n3. 引用內容建議不超過 10-15 個字，選擇有特色的部分。\n4. 引用內容只是幫助說明，不能代替文章內容。只能放在句子的最後。\n5. 文章中的URL會給你對應的代號，比如：`(URLREF1)`。";
 
 /**
  * 初始化 API 卡片
@@ -90,7 +90,7 @@ export function initAPICard({
         baseUrlInput.value = config.baseUrl || '';
         modelNameInput.value = config.modelName || '';
         titleModelNameInput.value = config.titleModelName || '';
-        systemPromptInput.value = config.advancedSettings?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+        systemPromptInput.value = config.advancedSettings?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
 
         // 设置高级设置的展开/折叠状态
         const isExpanded = config.advancedSettings?.isExpanded || false;
