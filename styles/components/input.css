@@ -13,7 +13,7 @@
     padding-bottom: calc(8px + env(safe-area-inset-bottom));
     z-index: 100;
     min-height: auto;
-    transition: background-color 0.3s ease, padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    /* transition: background-color 0.3s ease, padding 0.3s cubic-bezier(0.4, 0, 0.2, 1); */
     border-top: 1px solid transparent;
 }
 
@@ -78,8 +78,8 @@
     overflow-wrap: break-word;
     overflow-y: auto;
     display: block;
-    transition: min-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: min-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: min-height;
 }
 
 .message-input-shell.fake-caret-enabled #message-input {
