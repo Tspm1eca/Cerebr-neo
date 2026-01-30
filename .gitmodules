@@ -1,3 +1,4 @@
 [submodule "htmd"]
 	path = htmd
 	url = https://github.com/Tspm1eca/htmd.git
+	branch = main
