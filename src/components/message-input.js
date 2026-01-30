@@ -195,6 +195,17 @@ export function initMessageInput(config) {
             return;
         }
 
+        // 檢查點擊的是否是可聚焦的表單元素，避免搶走其他輸入框的焦點
+        const isFocusableElement = e.target.matches(
+            'input, select, textarea, [contenteditable="true"], button'
+        ) || e.target.closest(
+            'input, select, textarea, [contenteditable="true"]'
+        );
+
+        if (isFocusableElement) {
+            return;  // 不干預其他可聚焦元素
+        }
+
         // 排除点击设置按钮、设置菜单、上下文菜单、历史页面的情况
         if (!e.target.closest('#settings-button') &&
             !e.target.closest('#settings-menu') &&
