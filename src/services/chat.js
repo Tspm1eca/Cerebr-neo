@@ -77,7 +77,7 @@ const WEB_SEARCH_TOOL = {
             properties: {
                 query: {
                     type: "string",
-                    description: "搜索查询关键词。直接使用用户问题中的关键词，保持简洁。例如：用户问'今天有什么科技新闻'，query应为'科技新闻 今天'"
+                    description: "搜索查询关键词。**必须使用英文进行搜索**，将用户的问题翻译成英文关键词。保持简洁。例如：用户问'今天有什么科技新闻'，query应为'technology news today'；用户问'台积电股价'，query应为'TSMC stock price'"
                 }
             },
             required: ["query"]
