@@ -910,6 +910,8 @@ let exaApiUrl = '';
                     break;
                 case 'Enter':
                     e.preventDefault();
+                    // 先讓搜索框失去焦點，確保 hideModelSelectorMenu 能正常工作
+                    modelSearchInput.blur();
                     if (highlightedItem) {
                         selectModel(highlightedItem.textContent);
                     } else if (items.length > 0) {
