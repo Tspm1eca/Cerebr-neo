@@ -21,7 +21,7 @@ export function showContextMenu({
     contextMenu.style.display = 'block';
 
     // 根据消息状态显示或隐藏停止更新按钮
-    if (messageElement.classList.contains('updating')) {
+    if (messageElement.classList.contains('updating') || messageElement.classList.contains('waiting')) {
         stopUpdateButton.style.display = 'flex';
     } else {
         stopUpdateButton.style.display = 'none';

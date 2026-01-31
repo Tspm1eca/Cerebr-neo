@@ -62,7 +62,8 @@ let exaApiUrl = '';
     const quickChatSettingsPage = document.getElementById('quick-chat-tab');
 
     // 修改: 创建一个对象引用来保存当前控制器
-    const abortControllerRef = { current: null };
+    // pendingAbort 用于处理「首 token 前」用户立刻点停止的情况
+    const abortControllerRef = { current: null, pendingAbort: false };
     let currentController = null;
     let activeRequestId = null; // 用于跟踪当前活动的请求ID
 
@@ -219,6 +220,20 @@ let exaApiUrl = '';
             currentController = controller;
             abortControllerRef.current = controller;
 
+            // 检查是否有「预约取消」
+            if (abortControllerRef.pendingAbort) {
+                abortControllerRef.pendingAbort = false;
+                try {
+                    controller.abort();
+                } finally {
+                    abortControllerRef.current = null;
+                    currentController = null;
+                }
+                const error = new Error('Aborted');
+                error.name = 'AbortError';
+                throw error;
+            }
+
             const result = await processStream();
 
             // 如果 content 为空但 reasoning_content 不为空，则可能被截断，进行重试
@@ -240,14 +255,21 @@ let exaApiUrl = '';
         const currentRequestId = Date.now().toString();
         activeRequestId = currentRequestId;
 
-        // 如果有正在更新的AI消息，停止它
-        const updatingMessage = chatContainer.querySelector('.ai-message.updating');
+        // 如果有正在更新或等待的AI消息，停止它
+        const updatingMessage = chatContainer.querySelector('.ai-message.updating, .ai-message.waiting');
         if (updatingMessage && currentController) {
+            const isWaiting = updatingMessage.classList.contains('waiting');
             currentController.abort();
             currentController = null;
             abortControllerRef.current = null;
             updatingMessage.classList.remove('updating');
+            updatingMessage.classList.remove('waiting');
+
+            if (isWaiting) {
+                updatingMessage.remove();
+            }
         }
+        if (abortControllerRef) abortControllerRef.pendingAbort = false;
 
         let userMessageElement = null;
         let aiMessageElement = null;
@@ -372,6 +394,13 @@ let exaApiUrl = '';
         } catch (error) {
             if (error.name === 'AbortError') {
                 console.log('用户手动停止更新');
+                // 如果是手动停止，也要移除等待消息
+                if (currentRequestId === activeRequestId) {
+                    const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+                    if (waitingMsg) {
+                        waitingMsg.remove();
+                    }
+                }
                 return;
             }
             console.error('重新生成消息失败:', error);
@@ -416,14 +445,21 @@ let exaApiUrl = '';
         const currentRequestId = Date.now().toString();
         activeRequestId = currentRequestId;
 
-        // 如果有正在更新的AI消息，停止它
-        const updatingMessage = chatContainer.querySelector('.ai-message.updating');
+        // 如果有正在更新或等待的AI消息，停止它
+        const updatingMessage = chatContainer.querySelector('.ai-message.updating, .ai-message.waiting');
         if (updatingMessage && currentController) {
+            const isWaiting = updatingMessage.classList.contains('waiting');
             currentController.abort();
             currentController = null;
             abortControllerRef.current = null; // 同步更新引用对象
             updatingMessage.classList.remove('updating');
+            updatingMessage.classList.remove('waiting');
+
+            if (isWaiting) {
+                updatingMessage.remove();
+            }
         }
+        if (abortControllerRef) abortControllerRef.pendingAbort = false;
 
         // 获取格式化后的消息内容
         const { message, imageTags } = getFormattedMessageContent(messageInput);
@@ -503,6 +539,13 @@ let exaApiUrl = '';
         } catch (error) {
             if (error.name === 'AbortError') {
                 console.log('用户手动停止更新');
+                // 如果是手动停止，也要移除等待消息（如果在等待阶段停止）
+                if (currentRequestId === activeRequestId) {
+                    const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+                    if (waitingMsg) {
+                        waitingMsg.remove();
+                    }
+                }
                 return;
             }
             console.error('发送消息失败:', error);

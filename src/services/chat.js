@@ -369,26 +369,26 @@ export async function callAPI({
         requestBody.tool_choice = "auto";
     }
 
-    const response = await fetch(apiConfig.baseUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiConfig.apiKey}`
-        },
-        body: JSON.stringify(requestBody),
-        signal
-    });
-
-    if (!response.ok) {
-        const error = await response.text();
-        throw new Error(error);
-    }
-
-    // 处理流式响应
-    const reader = response.body.getReader();
-
     const processStream = async () => {
         try {
+            const response = await fetch(apiConfig.baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiConfig.apiKey}`
+                },
+                body: JSON.stringify(requestBody),
+                signal
+            });
+
+            if (!response.ok) {
+                const error = await response.text();
+                throw new Error(error);
+            }
+
+            // 处理流式响应
+            const reader = response.body.getReader();
+
             let buffer = '';
             let currentMessage = {
                 content: '',
@@ -753,7 +753,7 @@ export async function callAPI({
             return currentMessage;
         } catch (error) {
             if (error.name === 'AbortError') {
-                return;
+                throw error;
             }
             throw error;
         }

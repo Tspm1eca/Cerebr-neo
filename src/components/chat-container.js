@@ -87,8 +87,9 @@ export function initChatContainer({
             copyCodeButton.style.display = codeElement ? 'flex' : 'none';
             copyMathButton.style.display = 'none';  // 默认隐藏复制公式按钮
 
-            // 只有AI消息且正在更新时才显示停止更新按钮
-            stopUpdateButton.style.display = (messageElement.classList.contains('ai-message') && messageElement.classList.contains('updating')) ? 'flex' : 'none';
+            // 只有AI消息且正在更新或等待时才显示停止更新按钮
+            stopUpdateButton.style.display = (messageElement.classList.contains('ai-message') &&
+                (messageElement.classList.contains('updating') || messageElement.classList.contains('waiting'))) ? 'flex' : 'none';
 
             const isImageClick = imageElement && messageElement.classList.contains('ai-message');
             copyImageButton.style.display = isImageClick ? 'flex' : 'none';
@@ -143,7 +144,8 @@ export function initChatContainer({
             copyMessageButton.style.display = 'flex';
             deleteMessageButton.style.display = 'flex';
             copyCodeButton.style.display = codeElement ? 'flex' : 'none';
-            stopUpdateButton.style.display = (messageElement.classList.contains('ai-message') && messageElement.classList.contains('updating')) ? 'flex' : 'none';
+            stopUpdateButton.style.display = (messageElement.classList.contains('ai-message') &&
+                (messageElement.classList.contains('updating') || messageElement.classList.contains('waiting'))) ? 'flex' : 'none';
 
             showContextMenu({
                 event: {
@@ -556,11 +558,14 @@ export function initChatContainer({
             if (abortController.current) {
                 abortController.current.abort();  // 中止当前请求
                 abortController.current = null;
-                hideContextMenu({
-                    contextMenu,
-                    onMessageElementReset: () => { currentMessageElement = null; }
-                });
+            } else {
+                // 兼容「首 token 前」用户立即停止：controller 还未暴露出来时先记账
+                if (abortController) abortController.pendingAbort = true;
             }
+            hideContextMenu({
+                contextMenu,
+                onMessageElementReset: () => { currentMessageElement = null; }
+            });
         });
 
         // 添加删除消息按钮的点击事件处理
