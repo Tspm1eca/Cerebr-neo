@@ -45,15 +45,7 @@
     flex-shrink: 0;
 }
 
-#stop-update svg {
-    fill: currentColor;
-    stroke: none;
-}
-
-#stop-update:hover {
-    background-color: var(--cerebr-message-user-bg);
-    color: #ff4d4d;
-}
+/* 停止更新按钮已移除 */
 
 #delete-message:hover {
     background-color: var(--cerebr-message-user-bg);

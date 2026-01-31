@@ -71,7 +71,6 @@ export function initChatContainer({
             const copyCodeButton = document.getElementById('copy-code');
             const copyMathButton = document.getElementById('copy-math');
             const copyImageButton = document.getElementById('copy-image');
-            const stopUpdateButton = document.getElementById('stop-update');
             const copyMessageButton = document.getElementById('copy-message');
             const deleteMessageButton = document.getElementById('delete-message');
             const regenerateMessageButton = document.getElementById('regenerate-message');
@@ -87,10 +86,6 @@ export function initChatContainer({
             copyCodeButton.style.display = codeElement ? 'flex' : 'none';
             copyMathButton.style.display = 'none';  // 默认隐藏复制公式按钮
 
-            // 只有AI消息且正在更新或等待时才显示停止更新按钮
-            stopUpdateButton.style.display = (messageElement.classList.contains('ai-message') &&
-                (messageElement.classList.contains('updating') || messageElement.classList.contains('waiting'))) ? 'flex' : 'none';
-
             const isImageClick = imageElement && messageElement.classList.contains('ai-message');
             copyImageButton.style.display = isImageClick ? 'flex' : 'none';
             if (isImageClick) {
@@ -101,7 +96,6 @@ export function initChatContainer({
                 event: e,
                 messageElement,
                 contextMenu,
-                stopUpdateButton,
                 onMessageElementSelect: (element) => {
                     currentMessageElement = element;
                 }
@@ -131,7 +125,6 @@ export function initChatContainer({
             const editMessageButton = document.getElementById('edit-message');
             const copyMessageButton = document.getElementById('copy-message');
             const copyCodeButton = document.getElementById('copy-code');
-            const stopUpdateButton = document.getElementById('stop-update');
             const deleteMessageButton = document.getElementById('delete-message');
             const regenerateMessageButton = document.getElementById('regenerate-message');
 
@@ -144,8 +137,6 @@ export function initChatContainer({
             copyMessageButton.style.display = 'flex';
             deleteMessageButton.style.display = 'flex';
             copyCodeButton.style.display = codeElement ? 'flex' : 'none';
-            stopUpdateButton.style.display = (messageElement.classList.contains('ai-message') &&
-                (messageElement.classList.contains('updating') || messageElement.classList.contains('waiting'))) ? 'flex' : 'none';
 
             showContextMenu({
                 event: {
@@ -155,7 +146,6 @@ export function initChatContainer({
                 },
                 messageElement,
                 contextMenu,
-                stopUpdateButton,
                 onMessageElementSelect: (element) => {
                     currentMessageElement = element;
                 }
@@ -246,7 +236,6 @@ export function initChatContainer({
         copyMessageButton,
         copyCodeButton,
         copyImageButton,
-        stopUpdateButton,
         deleteMessageButton,
         regenerateMessageButton,
         abortController,
@@ -553,21 +542,6 @@ export function initChatContainer({
             }
         });
 
-        // 添加停止更新按钮的点击事件处理
-        stopUpdateButton.addEventListener('click', () => {
-            if (abortController.current) {
-                abortController.current.abort();  // 中止当前请求
-                abortController.current = null;
-            } else {
-                // 兼容「首 token 前」用户立即停止：controller 还未暴露出来时先记账
-                if (abortController) abortController.pendingAbort = true;
-            }
-            hideContextMenu({
-                contextMenu,
-                onMessageElementReset: () => { currentMessageElement = null; }
-            });
-        });
-
         // 添加删除消息按钮的点击事件处理
         deleteMessageButton.addEventListener('click', () => {
             if (currentMessageElement) {
@@ -636,14 +610,12 @@ export function initChatContainer({
                     const mathContextMenu = document.getElementById('copy-math');
                     const copyMessageButton = document.getElementById('copy-message');
                     const copyCodeButton = document.getElementById('copy-code');
-                    const stopUpdateButton = document.getElementById('stop-update');
 
                     if (mathContextMenu) {
                         // 设置菜单项的显示状态
                         mathContextMenu.style.display = 'flex';
                         copyMessageButton.style.display = 'flex';  // 显示复制消息按钮
                         copyCodeButton.style.display = 'none';
-                        stopUpdateButton.style.display = 'none';
 
                         // 获取包含公式的 AI 消息元素
                         const aiMessage = container.closest('.ai-message');
@@ -653,8 +625,7 @@ export function initChatContainer({
                         showContextMenu({
                             event,
                             messageElement: aiMessage,  // 使用 AI 消息元素
-                            contextMenu,
-                            stopUpdateButton
+                            contextMenu
                         });
 
                         // 设置数学公式内容

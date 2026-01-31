@@ -3,7 +3,6 @@ export function showContextMenu({
     event,                    // 事件对象
     messageElement,           // 消息元素
     contextMenu,             // 右键菜单元素
-    stopUpdateButton,        // 停止更新按钮元素
     onMessageElementSelect,  // 消息元素选择回调
     windowDimensions = {     // 窗口尺寸（可选）
         width: window.innerWidth,
@@ -19,13 +18,6 @@ export function showContextMenu({
 
     // 设置菜单位置
     contextMenu.style.display = 'block';
-
-    // 根据消息状态显示或隐藏停止更新按钮
-    if (messageElement.classList.contains('updating') || messageElement.classList.contains('waiting')) {
-        stopUpdateButton.style.display = 'flex';
-    } else {
-        stopUpdateButton.style.display = 'none';
-    }
 
     const menuWidth = contextMenu.offsetWidth;
     const menuHeight = contextMenu.offsetHeight;

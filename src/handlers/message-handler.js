@@ -455,6 +455,18 @@ export async function updateAIMessage({
     let lastMessage = chatContainer.querySelector('.ai-message.updating');
     const currentText = lastMessage ? lastMessage.getAttribute('data-original-text') || '' : '';
 
+    // 如果没有找到 updating 消息，但有 waiting 消息，则使用 waiting 消息
+    // 这处理了从 waiting 状态直接转换的情况，确保不会创建重复消息
+    if (!lastMessage && waitingMessage) {
+        lastMessage = waitingMessage;
+        if (!lastMessage.classList.contains('updating')) {
+            lastMessage.classList.add('updating');
+        }
+        lastMessage.classList.remove('waiting');
+        const dots = lastMessage.querySelector('.thinking-dots');
+        if (dots) dots.remove();
+    }
+
     if (lastMessage) {
         // 檢查是否使用了搜索並更新樣式
         if (typeof text === 'object' && text.isSearchUsed) {

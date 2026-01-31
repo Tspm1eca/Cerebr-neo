@@ -42,7 +42,6 @@ let exaApiUrl = '';
     const copyMessageButton = document.getElementById('copy-message');
     const copyCodeButton = document.getElementById('copy-code');
     const copyImageButton = document.getElementById('copy-image');
-    const stopUpdateButton = document.getElementById('stop-update');
     const settingsButton = document.getElementById('settings-button');
     const settingsMenu = document.getElementById('settings-menu');
     const previewModal = document.querySelector('.image-preview-modal');
@@ -107,7 +106,6 @@ let exaApiUrl = '';
         copyMessageButton,
         copyCodeButton,
         copyImageButton,
-        stopUpdateButton,
         deleteMessageButton,
         regenerateMessageButton,
         abortController: abortControllerRef,
@@ -221,6 +219,29 @@ let exaApiUrl = '';
         newChatButton.style.display = 'none';
         stopResponseButton.style.display = 'flex';
 
+        // 绑定停止按钮事件
+        const stopHandler = () => {
+            if (currentController) {
+                currentController.abort();
+                currentController = null;
+            }
+            if (abortControllerRef) {
+                abortControllerRef.pendingAbort = true;
+            }
+            // 移除等待动画
+            const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+            if (waitingMsg) {
+                waitingMsg.classList.add('message-vanishing');
+                waitingMsg.addEventListener('animationend', () => {
+                    waitingMsg.remove();
+                }, { once: true });
+                setTimeout(() => {
+                    if (waitingMsg.parentNode) waitingMsg.remove();
+                }, 350);
+            }
+        };
+        stopResponseButton.onclick = stopHandler;
+
         try {
             while (attempt <= maxRetries) {
                 const { processStream, controller } = await callAPI(apiParams, chatManager, chatId, onMessageUpdate);
@@ -257,6 +278,7 @@ let exaApiUrl = '';
             // 恢復按鈕顯示：顯示新對話按鈕，隱藏停止按鈕
             newChatButton.style.display = 'flex';
             stopResponseButton.style.display = 'none';
+            stopResponseButton.onclick = null; // 清理事件处理
         }
     }
 
