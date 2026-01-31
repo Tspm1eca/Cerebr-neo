@@ -828,8 +828,8 @@ export function initChatContainer({
 
             const button = document.createElement('button');
             button.className = 'copy-code-button';
-            const copyIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
-            const copiedIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+            const copyIcon = `<svg class="copy-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+            const copiedIcon = `<svg class="checkmark-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12 L9 17 L20 6"></path></svg>`;
             button.innerHTML = copyIcon;
             pre.appendChild(button);
 
@@ -837,18 +837,36 @@ export function initChatContainer({
                 e.stopPropagation(); // 防止触发其他点击事件
                 const code = pre.querySelector('code');
                 if (code) {
+                    // 防止重复点击
+                    if (button.classList.contains('copied')) return;
+
                     navigator.clipboard.writeText(code.textContent).then(() => {
-                        button.innerHTML = copiedIcon;
+                        // 添加动画类
+                        button.classList.add('copying');
+
+                        // 短暂延迟后切换到打勾图标
                         setTimeout(() => {
-                            button.innerHTML = copyIcon;
-                        }, 2000);
+                            button.innerHTML = copiedIcon;
+                            button.classList.remove('copying');
+                            button.classList.add('copied');
+                        }, 80);
+
+                        // 不再自动恢复，而是等用户离开代码块时才恢复
                     }).catch(err => {
                         console.error('Failed to copy code: ', err);
-                        button.textContent = 'Error'; // Keep text for error
+                        button.textContent = 'Error';
                         setTimeout(() => {
                             button.innerHTML = copyIcon;
                         }, 2000);
                     });
+                }
+            });
+
+            // 当用户离开代码块时，恢复复制按钮的原始状态
+            pre.addEventListener('mouseleave', () => {
+                if (button.classList.contains('copied')) {
+                    button.classList.remove('copied');
+                    button.innerHTML = copyIcon;
                 }
             });
         });

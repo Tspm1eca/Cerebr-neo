@@ -56,3 +56,40 @@ pre .copy-code-button:hover {
     opacity: 1;
     transform: scale(1.05);
 }
+
+/* 复制成功状态 */
+.copy-code-button.copied {
+    opacity: 1 !important;
+    transform: scale(1) !important;
+}
+
+.copy-code-button.copied svg {
+    color: #22c55e;
+    stroke: #22c55e;
+}
+
+/* 打勾动画 */
+.copy-code-button .checkmark-icon {
+    stroke-dasharray: 24;
+    stroke-dashoffset: 24;
+    animation: checkmark-draw 0.2s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+@keyframes checkmark-draw {
+    0% {
+        stroke-dashoffset: 24;
+    }
+    100% {
+        stroke-dashoffset: 0;
+    }
+}
+
+/* 复制图标淡出动画 */
+.copy-code-button .copy-icon {
+    transition: opacity 0.08s ease-out, transform 0.08s ease-out;
+}
+
+.copy-code-button.copying .copy-icon {
+    opacity: 0;
+    transform: scale(0.8);
+}
