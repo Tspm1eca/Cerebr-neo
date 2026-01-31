@@ -1643,7 +1643,7 @@ let exaApiUrl = '';
     };
 
     // 从存储加载配置
-    async function loadAPIConfigs() {
+    async function loadAPIConfigs(skipInit = false) {
         try {
             // 统一使用 syncStorageAdapter 来实现配置同步
             const result = await syncStorageAdapter.get(['apiConfigs', 'selectedConfigIndex']);
@@ -1669,8 +1669,13 @@ let exaApiUrl = '';
             // 只有当 selectedConfigIndex 为 undefined 或 null 时才使用默认值 0
             selectedConfigIndex = result.selectedConfigIndex ?? 0;
 
-            // 初始化 API 卡片
-            initAPICardWithCallbacks();
+            // 初始化 API 卡片（只在首次加载时初始化，避免重复绑定事件）
+            if (!skipInit) {
+                initAPICardWithCallbacks();
+            } else if (apiCardController) {
+                // 标签页切换时只更新 UI，不重新绑定事件
+                apiCardController.setSelectedIndex(selectedConfigIndex);
+            }
             updatePlaceholderWithCurrentModel();
             chatManager.setApiConfig(apiConfigs[selectedConfigIndex]); // 初始化时设置API配置
         } catch (error) {
@@ -1687,7 +1692,11 @@ let exaApiUrl = '';
                 }
             }];
             selectedConfigIndex = 0;
-            initAPICardWithCallbacks();
+            if (!skipInit) {
+                initAPICardWithCallbacks();
+            } else if (apiCardController) {
+                apiCardController.setSelectedIndex(selectedConfigIndex);
+            }
             updatePlaceholderWithCurrentModel();
             chatManager.setApiConfig(apiConfigs[selectedConfigIndex]); // 初始化时设置API配置
         }
@@ -1697,10 +1706,9 @@ let exaApiUrl = '';
     browserAdapter.onTabActivated(async () => {
         // console.log('标签页切换，重新加载API配置');
         // await loadWebpageSwitch();
-        // 同步API配置
-        await loadAPIConfigs();
+        // 同步API配置（传入 skipInit=true 避免重复绑定事件）
+        await loadAPIConfigs(true);
         await loadTavilyApiKey();
-        renderAPICardsWithCallbacks();
 
         // 同步历史
         await chatManager.initialize();
