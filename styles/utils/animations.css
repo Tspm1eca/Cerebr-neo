@@ -2,14 +2,14 @@
 @keyframes messageAppear {
     0% {
         opacity: 0;
-        transform: translateY(16px) scale(0.98);
+        transform: translateY(16px) scaleX(0.92) scaleY(0.98);
     }
     40% {
         opacity: 1;
     }
     100% {
         opacity: 1;
-        transform: translateY(0) scale(1);
+        transform: translateY(0) scaleX(1) scaleY(1);
     }
 }
 
