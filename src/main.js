@@ -410,7 +410,19 @@ let exaApiUrl = '';
                 if (currentRequestId === activeRequestId) {
                     const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
                     if (waitingMsg) {
-                        waitingMsg.remove();
+                        // 添加消失動畫類
+                        waitingMsg.classList.add('message-vanishing');
+                        // 監聽動畫結束事件後移除元素
+                        waitingMsg.addEventListener('animationend', () => {
+                            waitingMsg.remove();
+                        }, { once: true });
+
+                        // 設置一個超時作為保險，防止動畫事件未觸發
+                        setTimeout(() => {
+                            if (waitingMsg.parentNode) {
+                                waitingMsg.remove();
+                            }
+                        }, 350); // 稍微比動畫時間 (0.3s) 長一點
                     }
                 }
                 return;
@@ -555,7 +567,19 @@ let exaApiUrl = '';
                 if (currentRequestId === activeRequestId) {
                     const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
                     if (waitingMsg) {
-                        waitingMsg.remove();
+                        // 添加消失動畫類
+                        waitingMsg.classList.add('message-vanishing');
+                        // 監聽動畫結束事件後移除元素
+                        waitingMsg.addEventListener('animationend', () => {
+                            waitingMsg.remove();
+                        }, { once: true });
+
+                        // 設置一個超時作為保險，防止動畫事件未觸發
+                        setTimeout(() => {
+                            if (waitingMsg.parentNode) {
+                                waitingMsg.remove();
+                            }
+                        }, 350); // 稍微比動畫時間 (0.3s) 長一點
                     }
                 }
                 return;

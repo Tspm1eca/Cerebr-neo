@@ -188,3 +188,36 @@
         transform: translateY(-10px);
     }
 }
+
+/* 消息收縮消失動畫 */
+@keyframes shrinkAndVanish {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+        max-height: 100px;
+        margin-top: 8px;
+        margin-bottom: 8px;
+        padding: 12px 16px;
+        border-width: 1px;
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.8);
+        max-height: 0;
+        margin-top: 0;
+        margin-bottom: 0;
+        padding: 0;
+        border-width: 0;
+    }
+}
+
+.message.message-vanishing {
+    animation: shrinkAndVanish 0.3s ease-out forwards !important;
+    overflow: hidden;
+    transform-origin: center center;
+    /* 確保這些屬性被動畫控制 */
+    min-height: 0 !important;
+    min-width: 0 !important;
+    box-shadow: none !important;
+    /* 移除 border: none !important，讓動畫控制 border-width */
+}
