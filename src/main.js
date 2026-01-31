@@ -65,6 +65,7 @@ let exaApiUrl = '';
     const abortControllerRef = { current: null };
     let currentController = null;
     let activeRequestId = null; // 用于跟踪当前活动的请求ID
+    let isAIResponding = false; // 追蹤 AI 是否正在回覆
 
     // 创建UI工具配置
     const uiConfig = {
@@ -240,6 +241,12 @@ let exaApiUrl = '';
         const currentRequestId = Date.now().toString();
         activeRequestId = currentRequestId;
 
+        // 清除當前 chat 的中止標記（開始新請求）
+        const currentChatForClear = chatManager.getCurrentChat();
+        if (currentChatForClear) {
+            chatManager.clearChatAborted(currentChatForClear.id);
+        }
+
         // 如果有正在更新的AI消息，停止它
         const updatingMessage = chatContainer.querySelector('.ai-message.updating');
         if (updatingMessage && currentController) {
@@ -361,6 +368,9 @@ let exaApiUrl = '';
             // 显示等待动画
             createWaitingMessage(chatContainer);
 
+            // 將按鈕切換為停止模式
+            setStopButtonMode(true);
+
             // 调用带重试逻辑的 API
             await callAPIWithRetry(apiParams, chatManager, currentChat.id, (chatId, message) => {
                 // 只有当仍然是当前活动的请求时才更新界面
@@ -407,6 +417,8 @@ let exaApiUrl = '';
                 if (lastMessage) {
                     lastMessage.classList.remove('updating');
                 }
+                // 恢復按鈕為新對話模式
+                setStopButtonMode(false);
             }
         }
     }
@@ -415,6 +427,12 @@ let exaApiUrl = '';
         // 生成新的请求ID
         const currentRequestId = Date.now().toString();
         activeRequestId = currentRequestId;
+
+        // 清除當前 chat 的中止標記（開始新請求）
+        const currentChatForClear = chatManager.getCurrentChat();
+        if (currentChatForClear) {
+            chatManager.clearChatAborted(currentChatForClear.id);
+        }
 
         // 如果有正在更新的AI消息，停止它
         const updatingMessage = chatContainer.querySelector('.ai-message.updating');
@@ -469,6 +487,9 @@ let exaApiUrl = '';
 
             // 显示等待动画
             const waitingMessage = createWaitingMessage(chatContainer);
+
+            // 將按鈕切換為停止模式
+            setStopButtonMode(true);
 
             // 准备API调用参数
             // 当传送网页开启时，强制关闭 auto 模式（避免 tool_choice 冲突）
@@ -550,6 +571,8 @@ let exaApiUrl = '';
                 if (lastMessage) {
                     lastMessage.classList.remove('updating');
                 }
+                // 恢復按鈕為新對話模式
+                setStopButtonMode(false);
             }
         }
     }
@@ -822,7 +845,10 @@ let exaApiUrl = '';
 
     // 新對話按鈕的 hover 事件
     newChatButton.addEventListener('mouseenter', () => {
-        showModelSelectorMenu();
+        // 只有在非停止模式下才顯示模型選擇菜單
+        if (!isAIResponding) {
+            showModelSelectorMenu();
+        }
     });
 
     newChatButton.addEventListener('mouseleave', () => {
@@ -838,10 +864,132 @@ let exaApiUrl = '';
         hideModelSelectorMenu();
     });
 
-    // 點擊新對話按鈕時隱藏子菜單
-    newChatButton.addEventListener('click', () => {
-        modelSelectorMenu.classList.remove('visible');
-    });
+    // 切換 new-chat-button 為停止按鈕的函數
+    function setStopButtonMode(isStop) {
+        isAIResponding = isStop;
+        if (isStop) {
+            newChatButton.classList.add('stop-mode');
+            newChatButton.title = '停止回覆';
+            newChatButton.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <rect x="4" y="4" width="8" height="8" fill="currentColor" rx="1"/>
+                </svg>
+            `;
+            // 隱藏模型選擇菜單
+            modelSelectorMenu.classList.remove('visible');
+        } else {
+            newChatButton.classList.remove('stop-mode');
+            newChatButton.title = '新对话';
+            newChatButton.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+            `;
+        }
+    }
+
+    // 停止 AI 回覆的函數
+    function stopAIResponse() {
+        // 清除當前活動請求 ID，防止後續的異步回調更新 UI
+        activeRequestId = null;
+
+        // 標記當前 chat 的請求已被中止，防止後續的異步回調更新 storage
+        const chatToAbort = chatManager.getCurrentChat();
+        if (chatToAbort) {
+            chatManager.markChatAborted(chatToAbort.id);
+        }
+
+        if (currentController) {
+            currentController.abort();
+            currentController = null;
+            abortControllerRef.current = null;
+        }
+
+        // 用於追蹤是否需要從 chatManager 中移除不完整的消息
+        let shouldRemoveFromHistory = false;
+        // 用於追蹤 UI 上是否有內容被保留
+        let uiHasContent = false;
+
+        // 處理等待動畫消息（使用收縮消失動畫）
+        const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+        if (waitingMsg) {
+            // 先移除 waiting 類以停止呼吸動畫
+            waitingMsg.classList.remove('waiting');
+            waitingMsg.classList.remove('updating');
+            // 添加收縮消失動畫類
+            waitingMsg.classList.add('shrink-disappear');
+            // 動畫結束後移除元素
+            waitingMsg.addEventListener('animationend', () => {
+                waitingMsg.remove();
+            }, { once: true });
+            // 等待動畫消息被移除，需要從歷史記錄中移除不完整的 assistant 消息
+            shouldRemoveFromHistory = true;
+        }
+
+        // 處理正在更新的消息
+        const updatingMessage = chatContainer.querySelector('.ai-message.updating');
+        if (updatingMessage) {
+            // 檢查消息是否有實際內容
+            const mainContent = updatingMessage.querySelector('.main-content');
+            const hasContent = mainContent && mainContent.textContent.trim().length > 0;
+
+            if (hasContent) {
+                // 如果有內容，只移除 updating 類並標記為已停止
+                updatingMessage.classList.remove('updating');
+                updatingMessage.classList.add('stopped');
+                // 有內容的消息保留在歷史記錄中，不需要移除
+                shouldRemoveFromHistory = false;
+                uiHasContent = true;
+            } else {
+                // 如果沒有內容，使用收縮消失動畫移除
+                updatingMessage.classList.remove('updating');
+                updatingMessage.classList.add('shrink-disappear');
+                updatingMessage.addEventListener('animationend', () => {
+                    updatingMessage.remove();
+                }, { once: true });
+                // 沒有內容的消息被移除，需要從歷史記錄中也移除
+                shouldRemoveFromHistory = true;
+            }
+        }
+
+        // 從 chatManager 中處理不完整的 assistant 消息
+        const chatToClean = chatManager.getCurrentChat();
+        if (chatToClean && chatToClean.messages.length > 0) {
+            const lastMessage = chatToClean.messages[chatToClean.messages.length - 1];
+
+            if (lastMessage.role === 'assistant') {
+                if (shouldRemoveFromHistory) {
+                    // UI 上的消息被移除了，也從歷史記錄中移除
+                    chatManager.popMessage();
+                } else if (uiHasContent) {
+                    // UI 上有內容被保留，確保歷史記錄中的消息也是完整的
+                    // 移除 updating 標記並保存
+                    if (lastMessage.updating) {
+                        delete lastMessage.updating;
+                        chatManager.saveChats();
+                    }
+                } else if (lastMessage.updating || !lastMessage.content || lastMessage.content.trim() === '') {
+                    // 沒有 UI 元素但歷史記錄中有不完整的消息，移除它
+                    chatManager.popMessage();
+                }
+            }
+        }
+
+        setStopButtonMode(false);
+    }
+
+    // 點擊新對話按鈕時的處理（停止回覆功能）
+    // 使用 capture: true 確保這個事件處理器在其他處理器之前執行
+    newChatButton.addEventListener('click', (e) => {
+        if (isAIResponding) {
+            // 如果 AI 正在回覆，則停止回覆
+            e.stopImmediatePropagation(); // 阻止其他事件處理器（如創建新對話）執行
+            stopAIResponse();
+        } else {
+            // 否則讓其他事件處理器處理（創建新對話）
+            modelSelectorMenu.classList.remove('visible');
+        }
+    }, true); // capture: true 確保在捕獲階段執行
 
     // 模型搜索輸入框事件
     const modelSearchInput = modelSelectorMenu.querySelector('.model-search-input');

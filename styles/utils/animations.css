@@ -188,3 +188,31 @@
         transform: translateY(-10px);
     }
 }
+
+/* AI 消息收縮消失動畫 */
+@keyframes messageShrinkDisappear {
+    0% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(0.95) translateY(-2px);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.8) translateY(-8px);
+    }
+}
+
+.message.shrink-disappear {
+    animation: messageShrinkDisappear 0.15s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
+    pointer-events: none;
+}
+
+/* 確保收縮消失動畫覆蓋其他動畫狀態 */
+.message.ai-message.shrink-disappear {
+    animation: messageShrinkDisappear 0.15s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+}

@@ -10,7 +10,46 @@ export class ChatManager {
         this.currentChatId = null;
         this.chats = new Map();
         this.apiConfig = null; // 用于存储API配置
+        // 優化：使用 Map 存儲中止標記和時間戳，便於自動清理過期標記
+        this.abortedChats = new Map(); // Map<chatId, timestamp>
+        // 中止標記的過期時間（毫秒），超過此時間的標記會被自動清理
+        this.ABORT_MARK_EXPIRY = 60000; // 60秒
         this.initialize();
+    }
+
+    // 標記某個 chat 的請求已被中止
+    markChatAborted(chatId) {
+        this.abortedChats.set(chatId, Date.now());
+        // 每次標記時，順便清理過期的標記，防止記憶體洩漏
+        this._cleanupExpiredAbortMarks();
+    }
+
+    // 檢查某個 chat 的請求是否已被中止
+    isChatAborted(chatId) {
+        const timestamp = this.abortedChats.get(chatId);
+        if (!timestamp) return false;
+
+        // 檢查標記是否已過期
+        if (Date.now() - timestamp > this.ABORT_MARK_EXPIRY) {
+            this.abortedChats.delete(chatId);
+            return false;
+        }
+        return true;
+    }
+
+    // 清除某個 chat 的中止標記（當開始新請求時調用）
+    clearChatAborted(chatId) {
+        this.abortedChats.delete(chatId);
+    }
+
+    // 清理所有過期的中止標記（內部方法）
+    _cleanupExpiredAbortMarks() {
+        const now = Date.now();
+        for (const [chatId, timestamp] of this.abortedChats) {
+            if (now - timestamp > this.ABORT_MARK_EXPIRY) {
+                this.abortedChats.delete(chatId);
+            }
+        }
     }
 
     setApiConfig(config) {
@@ -68,6 +107,8 @@ export class ChatManager {
             throw new Error('对话不存在');
         }
         this.chats.delete(chatId);
+        // 清理該對話的中止標記
+        this.clearChatAborted(chatId);
         await this.saveChats();
 
         // 如果删除的是当前对话，切换到其他对话
@@ -158,6 +199,12 @@ export class ChatManager {
     }
 
     async updateLastMessage(chatId, message, isFinalUpdate = false) {
+        // 如果這個 chat 的請求已被中止，不進行任何更新
+        if (this.isChatAborted(chatId)) {
+            console.log('Chat request was aborted, skipping update for chatId:', chatId);
+            return;
+        }
+
         const currentChat = this.chats.get(chatId);
         if (!currentChat || currentChat.messages.length === 0) {
             return;
@@ -220,6 +267,8 @@ export class ChatManager {
     async clearAllChats() {
         // 清除所有對話
         this.chats.clear();
+        // 清除所有中止標記
+        this.abortedChats.clear();
 
         // 保存空的對話列表到存儲
         await this.saveChats();

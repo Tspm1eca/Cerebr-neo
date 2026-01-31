@@ -410,6 +410,14 @@ export async function callAPI({
             let lastDataTime = Date.now(); // 上次收到數據的時間
 
             const dispatchUpdate = () => {
+                // 在函數開始時立即檢查 abort 狀態，防止任何數據被保存
+                if (signal.aborted) {
+                    if (updateTimeout) {
+                        clearTimeout(updateTimeout);
+                        updateTimeout = null;
+                    }
+                    return;
+                }
                 if (chatManager && chatId) {
                     // 创建一个副本以避免回调函数意外修改
                     // 包含 isSearchUsed 以便 UI 能夠即時顯示搜索標記
@@ -438,6 +446,15 @@ export async function callAPI({
             };
 
             while (true) {
+                // 在每次循環開始時檢查 abort 狀態
+                if (signal.aborted) {
+                    if (updateTimeout) {
+                        clearTimeout(updateTimeout);
+                        updateTimeout = null;
+                    }
+                    break;
+                }
+
                 // 計算當前應使用的超時時間
                 const currentTimeout = isFirstChunk ? FIRST_CHUNK_TIMEOUT : STREAM_TIMEOUT;
                 const timeoutMessage = isFirstChunk
@@ -453,9 +470,21 @@ export async function callAPI({
                 );
 
                 if (done) {
+                    // 如果請求已被中止，不進行任何更新，直接跳出
+                    if (signal.aborted) {
+                        if (updateTimeout) {
+                            clearTimeout(updateTimeout);
+                            updateTimeout = null;
+                        }
+                        break;
+                    }
                     // 确保最后的数据被发送
                    if (Date.now() - lastUpdateTime > 0) {
                        dispatchUpdate();
+                   }
+                   // 再次檢查 abort 狀態（dispatchUpdate 可能需要一些時間）
+                   if (signal.aborted) {
+                       break;
                    }
                    // 流结束，进行最终更新
                    // 最終更新也需要還原URL
@@ -467,7 +496,10 @@ export async function callAPI({
                        finalMessage.reasoning_content = restoreUrls(finalMessage.reasoning_content, idToUrlMap);
                    }
 
-                   chatManager.updateLastMessage(chatId, finalMessage, true);
+                   // 最後一次檢查 abort 狀態，確保不會保存被中止的消息
+                   if (!signal.aborted) {
+                       chatManager.updateLastMessage(chatId, finalMessage, true);
+                   }
                    break;
                    }
 
@@ -564,6 +596,14 @@ export async function callAPI({
 
 
                             if (hasUpdate) {
+                                // 在設置更新之前檢查 abort 狀態
+                                if (signal.aborted) {
+                                    if (updateTimeout) {
+                                        clearTimeout(updateTimeout);
+                                        updateTimeout = null;
+                                    }
+                                    break; // 跳出內層循環
+                                }
                                 if (!updateTimeout) {
                                      // 如果距离上次更新超过了间隔，则立即更新
                                     if (Date.now() - lastUpdateTime > UPDATE_INTERVAL) {
@@ -752,6 +792,9 @@ export async function callAPI({
 
             return currentMessage;
         } catch (error) {
+            if (updateTimeout) {
+                clearTimeout(updateTimeout);
+            }
             if (error.name === 'AbortError') {
                 return;
             }

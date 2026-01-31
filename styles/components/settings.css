@@ -88,6 +88,25 @@
     transform: scale(0.95);
 }
 
+/* 停止模式樣式 */
+#new-chat-button.stop-mode {
+    background-color: transparent;
+    color: #ef4444;
+}
+
+#new-chat-button.stop-mode:hover {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+}
+
+#new-chat-button.stop-mode svg {
+    opacity: 1;
+}
+
+#new-chat-button.stop-mode svg rect {
+    fill: currentColor;
+}
+
 /* 模型選擇子菜單樣式 */
 #model-selector-menu {
     position: absolute;

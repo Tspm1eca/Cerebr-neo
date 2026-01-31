@@ -453,6 +453,16 @@ export async function updateAIMessage({
 
     // 優先尋找正在更新中的 AI 消息
     let lastMessage = chatContainer.querySelector('.ai-message.updating');
+
+    // 如果找不到正在更新的消息，檢查最後一條消息是否被標記為已停止
+    // 如果是，說明這是一個延遲到達的更新，應該被忽略，避免創建新消息
+    if (!lastMessage) {
+        const lastAiMessage = chatContainer.querySelector('.ai-message:last-child');
+        if (lastAiMessage && lastAiMessage.classList.contains('stopped')) {
+            return true;
+        }
+    }
+
     const currentText = lastMessage ? lastMessage.getAttribute('data-original-text') || '' : '';
 
     if (lastMessage) {
