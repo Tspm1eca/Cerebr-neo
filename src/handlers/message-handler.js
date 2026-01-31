@@ -2,15 +2,22 @@ import { chatManager } from '../utils/chat-manager.js';
 import { showImagePreview, createImageTag } from '../utils/ui.js';
 import { processMathAndMarkdown, renderMathInElement } from '../../htmd/latex.js';
 
+// 使用 WeakMap 來緩存圖片 Blob，當 img 元素被垃圾回收時，緩存會自動清理
+const imageBlobCache = new WeakMap();
+
+// 緩存大小限制（最多緩存 50 張圖片的 URL）
+const MAX_CACHE_SIZE = 50;
+const cacheOrder = []; // 用於 LRU 淘汰
+
 /**
- * Preloads and caches an image to a blob property on the img element.
- * This allows for instant copying later.
+ * Preloads and caches an image to a WeakMap for memory-safe caching.
+ * This allows for instant copying later while preventing memory leaks.
  * @param {HTMLImageElement} imgElement The image element to preload.
  */
 async function preloadAndCacheImage(imgElement) {
     const imageUrl = imgElement.src;
     // Don't preload base64 images, or if already cached
-    if (!imageUrl || imageUrl.startsWith('data:') || imgElement.cachedBlob) {
+    if (!imageUrl || imageUrl.startsWith('data:') || imageBlobCache.has(imgElement)) {
         return;
     }
 
@@ -24,10 +31,61 @@ async function preloadAndCacheImage(imgElement) {
             return;
         }
         const blob = await response.blob();
-        imgElement.cachedBlob = blob;
+
+        // 使用 WeakMap 存儲，當 img 元素被移除時會自動清理
+        imageBlobCache.set(imgElement, blob);
+
+        // LRU 緩存管理 - 記錄順序用於手動清理
+        cacheOrder.push(new WeakRef(imgElement));
+
+        // 清理過期的 WeakRef
+        if (cacheOrder.length > MAX_CACHE_SIZE * 2) {
+            // 移除已經被垃圾回收的引用
+            const validRefs = cacheOrder.filter(ref => ref.deref() !== undefined);
+            cacheOrder.length = 0;
+            cacheOrder.push(...validRefs.slice(-MAX_CACHE_SIZE));
+        }
     } catch (err) {
         console.error(`Failed to preload and cache image for ${imageUrl} via proxy:`, err);
     }
+}
+
+/**
+ * 獲取圖片的緩存 Blob
+ * @param {HTMLImageElement} imgElement The image element
+ * @returns {Blob|null} The cached blob or null
+ */
+export function getCachedImageBlob(imgElement) {
+    return imageBlobCache.get(imgElement) || null;
+}
+
+/**
+ * 清理消息元素中的圖片緩存
+ * @param {HTMLElement} messageElement The message element to clean up
+ */
+export function cleanupMessageImages(messageElement) {
+    if (!messageElement) return;
+
+    messageElement.querySelectorAll('img').forEach(img => {
+        // WeakMap 會自動清理，但我們可以主動刪除以立即釋放內存
+        if (imageBlobCache.has(img)) {
+            imageBlobCache.delete(img);
+        }
+    });
+}
+
+/**
+ * 清理所有圖片緩存（用於切換對話或清空聊天時）
+ */
+export function clearAllImageCache() {
+    // WeakMap 不支持遍歷，所以我們通過 cacheOrder 來清理
+    cacheOrder.forEach(ref => {
+        const img = ref.deref();
+        if (img && imageBlobCache.has(img)) {
+            imageBlobCache.delete(img);
+        }
+    });
+    cacheOrder.length = 0;
 }
 
 /**

@@ -647,7 +647,9 @@ let exaApiUrl = '';
 
     // 模型選擇子菜單邏輯
     let modelSelectorTimeout;
-    let modelListCache = {}; // 緩存模型列表
+    // 使用 Map 來實現 LRU 緩存，限制緩存大小防止內存洩漏
+    const MAX_MODEL_CACHE_SIZE = 5;
+    let modelListCache = new Map(); // 緩存模型列表
     let isModelSearchFocused = false; // 追蹤搜索框焦點狀態
 
     // 獲取模型列表
@@ -660,8 +662,12 @@ let exaApiUrl = '';
         const baseUrl = config.baseUrl.replace(/\/chat\/completions$/, '');
         const cacheKey = `${baseUrl}:${config.apiKey}`;
 
-        if (!force && modelListCache[cacheKey]) {
-            return modelListCache[cacheKey];
+        if (!force && modelListCache.has(cacheKey)) {
+            // 將訪問的項目移到最後（LRU 策略）
+            const cachedValue = modelListCache.get(cacheKey);
+            modelListCache.delete(cacheKey);
+            modelListCache.set(cacheKey, cachedValue);
+            return cachedValue;
         }
 
         try {
@@ -677,7 +683,14 @@ let exaApiUrl = '';
 
             const data = await response.json();
             const models = data.data.map(model => model.id);
-            modelListCache[cacheKey] = models;
+
+            // LRU 緩存管理：如果超過最大大小，刪除最舊的項目
+            if (modelListCache.size >= MAX_MODEL_CACHE_SIZE) {
+                const oldestKey = modelListCache.keys().next().value;
+                modelListCache.delete(oldestKey);
+            }
+
+            modelListCache.set(cacheKey, models);
             return models;
         } catch (error) {
             console.error('獲取模型列表失敗:', error);
@@ -824,8 +837,8 @@ let exaApiUrl = '';
         const baseUrl = config.baseUrl.replace(/\/chat\/completions$/, '');
         const cacheKey = `${baseUrl}:${config.apiKey}`;
 
-        if (modelListCache[cacheKey]) {
-            renderModelSelectorList(modelListCache[cacheKey]);
+        if (modelListCache.has(cacheKey)) {
+            renderModelSelectorList(modelListCache.get(cacheKey));
             return;
         }
 
@@ -1001,7 +1014,7 @@ let exaApiUrl = '';
 
             const baseUrl = config.baseUrl.replace(/\/chat\/completions$/, '');
             const cacheKey = `${baseUrl}:${config.apiKey}`;
-            const models = modelListCache[cacheKey];
+            const models = modelListCache.get(cacheKey);
 
             if (models) {
                 renderModelSelectorList(models, e.target.value);

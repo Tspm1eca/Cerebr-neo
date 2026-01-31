@@ -1,4 +1,4 @@
-import { appendMessage } from '../handlers/message-handler.js';
+import { appendMessage, clearAllImageCache, cleanupMessageImages } from '../handlers/message-handler.js';
 import { storageAdapter, browserAdapter, isExtensionEnvironment } from '../utils/storage-adapter.js';
 import { toggleQuickChatOptions } from './quick-chat.js';
 
@@ -71,6 +71,13 @@ export function renderChatList(chatManager, chatCards, searchTerm = '') {
 
 // 加载对话内容
 export async function loadChatContent(chat, chatContainer) {
+    // 在清空容器前，清理所有現有消息的圖片緩存
+    const existingMessages = chatContainer.querySelectorAll('.message');
+    existingMessages.forEach(msg => cleanupMessageImages(msg));
+
+    // 清理全局圖片緩存（切換對話時釋放內存）
+    clearAllImageCache();
+
     chatContainer.innerHTML = '';
     // 确定要遍历的消息范围
     const messages = chat.messages;

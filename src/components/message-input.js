@@ -278,6 +278,10 @@ export function initMessageInput(config) {
         }
     });
 
+    // 創建一個命名的事件處理函數，以便正確移除
+    const stopPropagationHandler = (e) => e.stopPropagation();
+    let isClickHandlerAttached = false;
+
     // 监听输入框的焦点状态
     messageInput.addEventListener('focus', () => {
         // 输入框获得焦点时隐藏右键菜单
@@ -304,13 +308,19 @@ export function initMessageInput(config) {
             inputContainer.classList.remove('collapsed');
         }
 
-        // 输入框获得焦点，阻止事件冒泡
-        messageInput.addEventListener('click', (e) => e.stopPropagation());
+        // 输入框获得焦点，阻止事件冒泡（使用命名函數以便正確移除）
+        if (!isClickHandlerAttached) {
+            messageInput.addEventListener('click', stopPropagationHandler);
+            isClickHandlerAttached = true;
+        }
     });
 
     messageInput.addEventListener('blur', () => {
-        // 输入框失去焦点时，移除点击事件监听
-        messageInput.removeEventListener('click', (e) => e.stopPropagation());
+        // 输入框失去焦点时，移除点击事件监听（使用相同的函數引用）
+        if (isClickHandlerAttached) {
+            messageInput.removeEventListener('click', stopPropagationHandler);
+            isClickHandlerAttached = false;
+        }
     });
 
     // 处理换行和输入

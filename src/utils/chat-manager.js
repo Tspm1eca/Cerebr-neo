@@ -4,6 +4,10 @@ import { generateTitle } from '../services/title-generator.js';
 const CHATS_KEY = 'cerebr_chats';
 const CURRENT_CHAT_ID_KEY = 'cerebr_current_chat_id';
 
+// 內存優化配置
+const MAX_CHATS_IN_MEMORY = 50; // 內存中最多保留的對話數量
+const MAX_MESSAGES_PER_CHAT = 100; // 每個對話最多保留的消息數量
+
 export class ChatManager {
     constructor() {
         this.storage = storageAdapter;
@@ -61,9 +65,21 @@ export class ChatManager {
         const result = await this.storage.get(CHATS_KEY);
         const savedChats = result[CHATS_KEY] || [];
         if (Array.isArray(savedChats)) {
-            savedChats.forEach(chat => {
+            // 按創建時間排序，只加載最近的對話到內存
+            const sortedChats = savedChats.sort((a, b) =>
+                new Date(b.createdAt) - new Date(a.createdAt)
+            );
+
+            // 只加載最近的對話到內存，舊的對話保留在 storage 中
+            const chatsToLoad = sortedChats.slice(0, MAX_CHATS_IN_MEMORY);
+            chatsToLoad.forEach(chat => {
                 this.chats.set(chat.id, chat);
             });
+
+            // 如果有超出限制的對話，記錄日誌
+            if (savedChats.length > MAX_CHATS_IN_MEMORY) {
+                console.log(`ChatManager: Loaded ${chatsToLoad.length} of ${savedChats.length} chats into memory`);
+            }
         }
 
         // 获取当前对话ID
@@ -89,6 +105,10 @@ export class ChatManager {
             isNew: true // 添加一个标记来识别新创建的、尚未保存的对话
         };
         this.chats.set(chatId, chat);
+
+        // 清理內存中的舊對話
+        this._trimChatsInMemory();
+
         // this.saveChats(); // 不再立即保存
         return chat;
     }
@@ -137,6 +157,49 @@ export class ChatManager {
             );
     }
 
+    /**
+     * 清理內存中的舊對話，只保留最近的對話
+     * 這個方法會在添加新對話時自動調用
+     */
+    _trimChatsInMemory() {
+        if (this.chats.size <= MAX_CHATS_IN_MEMORY) {
+            return;
+        }
+
+        // 獲取所有對話並按創建時間排序
+        const allChats = Array.from(this.chats.entries())
+            .sort((a, b) => new Date(b[1].createdAt) - new Date(a[1].createdAt));
+
+        // 保留最近的對話，刪除舊的
+        const chatsToRemove = allChats.slice(MAX_CHATS_IN_MEMORY);
+        chatsToRemove.forEach(([chatId, chat]) => {
+            // 不刪除當前對話
+            if (chatId !== this.currentChatId) {
+                this.chats.delete(chatId);
+                // 清理該對話的中止標記
+                this.clearChatAborted(chatId);
+            }
+        });
+
+        console.log(`ChatManager: Trimmed ${chatsToRemove.length} old chats from memory`);
+    }
+
+    /**
+     * 限制對話中的消息數量，防止單個對話佔用過多內存
+     * @param {Object} chat - 對話對象
+     */
+    _trimMessagesInChat(chat) {
+        if (!chat || !chat.messages || chat.messages.length <= MAX_MESSAGES_PER_CHAT) {
+            return;
+        }
+
+        // 保留最近的消息
+        const trimmedMessages = chat.messages.slice(-MAX_MESSAGES_PER_CHAT);
+        chat.messages = trimmedMessages;
+
+        console.log(`ChatManager: Trimmed messages in chat ${chat.id} to ${MAX_MESSAGES_PER_CHAT}`);
+    }
+
     async addMessageToCurrentChat(message, webpageInfo) {
         const currentChat = this.getCurrentChat();
         if (!currentChat) {
@@ -146,6 +209,9 @@ export class ChatManager {
         const isFirstMessage = currentChat.isNew && currentChat.messages.length === 0;
 
         currentChat.messages.push(message);
+
+        // 檢查並限制消息數量
+        this._trimMessagesInChat(currentChat);
 
         // If there's webpage info, add the URLs to the chat
         if (webpageInfo && webpageInfo.pages) {

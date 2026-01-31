@@ -1,7 +1,7 @@
 import { createImageTag } from '../utils/ui.js';
 import { showContextMenu, hideContextMenu, copyMessageContent } from './context-menu.js';
 import { handleImageDrop } from '../utils/image.js';
-import { updateAIMessage } from '../handlers/message-handler.js';
+import { updateAIMessage, getCachedImageBlob, cleanupMessageImages, clearAllImageCache } from '../handlers/message-handler.js';
 import { processMathAndMarkdown, renderMathInElement } from '../../htmd/latex.js';
 
 /**
@@ -28,8 +28,21 @@ export function initChatContainer({
     let currentMessageElement = null;
     let currentCodeElement = null;
 
+    // 用於追蹤需要清理的資源
+    let scrollTimeout = null;
+    let touchTimeout = null;
+    let rafId = null;
+
+    // 清理資源的對象，用於存儲需要清理的引用（必須在使用前定義）
+    const cleanupResources = {
+        inputContainerObserver: null
+    };
+
+    // 用戶問題歷史的最大數量限制
+    const MAX_USER_QUESTIONS = 50;
+
     // 初始化 MutationObserver 来监视添加到聊天容器的新用户消息
-    const observer = new MutationObserver((mutations) => {
+    const chatObserver = new MutationObserver((mutations) => {
         mutations.forEach((mutation) => {
             mutation.addedNodes.forEach((node) => {
                 if (node.nodeType === Node.ELEMENT_NODE) { // 确保是元素节点
@@ -38,6 +51,11 @@ export function initChatContainer({
                         // 只有当问题不在历史记录中时才添加
                         if (question && !userQuestions.includes(question)) {
                             userQuestions.push(question);
+
+                            // 限制用戶問題歷史的大小，防止內存洩漏
+                            if (userQuestions.length > MAX_USER_QUESTIONS) {
+                                userQuestions.shift(); // 移除最舊的問題
+                            }
                         }
                     }
                     // 为新消息中的代码块添加复制按钮
@@ -48,7 +66,7 @@ export function initChatContainer({
     });
 
     // 开始观察聊天容器的变化
-    observer.observe(chatContainer, { childList: true });
+    chatObserver.observe(chatContainer, { childList: true });
 
     // 添加点击事件监听
     chatContainer.addEventListener('click', () => {
@@ -109,7 +127,6 @@ export function initChatContainer({
     });
 
     // 添加长按触发右键菜单的支持
-    let touchTimeout;
     let touchStartX;
     let touchStartY;
     const LONG_PRESS_DURATION = 200; // 长按触发时间为200ms
@@ -510,7 +527,8 @@ export function initChatContainer({
             const imgElement = currentMessageElement.querySelector(`img[src="${imageUrl}"]`);
 
             try {
-                let blob = imgElement ? imgElement.cachedBlob : null;
+                // 使用新的 WeakMap 緩存獲取 blob
+                let blob = imgElement ? getCachedImageBlob(imgElement) : null;
 
                 // If not cached, fetch it on-demand
                 if (!blob) {
@@ -571,6 +589,9 @@ export function initChatContainer({
                     abortController.current.abort();
                     abortController.current = null;
                 }
+
+                // 清理消息中的圖片緩存，防止內存洩漏
+                cleanupMessageImages(currentMessageElement);
 
                 // 从DOM中移除消息元素
                 const messageIndex = Array.from(chatContainer.children).indexOf(currentMessageElement);
@@ -750,7 +771,6 @@ export function initChatContainer({
 
         // 滚动相关变量
         let lastScrollTop = chatContainer.scrollTop;
-        let scrollTimeout = null;
         let isScrolling = false;
         const inputContainer = document.getElementById('input-container');
 
@@ -767,8 +787,10 @@ export function initChatContainer({
         });
         inputContainerObserver.observe(inputContainer, { attributes: true });
 
-        let rafId = null;
         const messageInputShell = messageInput.closest('.message-input-shell');
+
+        // 保存 inputContainerObserver 的引用以便清理
+        cleanupResources.inputContainerObserver = inputContainerObserver;
 
         // 滚动时隐藏菜单并处理输入区域收缩
         chatContainer.addEventListener('scroll', () => {
@@ -926,10 +948,51 @@ export function initChatContainer({
         event.clipboardData.setData('text/plain', plainText);
     });
 
+    // 清理函數 - 用於釋放所有資源
+    function cleanup() {
+        // 斷開 MutationObserver 連接
+        chatObserver.disconnect();
+
+        if (cleanupResources.inputContainerObserver) {
+            cleanupResources.inputContainerObserver.disconnect();
+        }
+
+        // 清理定時器
+        if (scrollTimeout) {
+            clearTimeout(scrollTimeout);
+            scrollTimeout = null;
+        }
+
+        if (touchTimeout) {
+            clearTimeout(touchTimeout);
+            touchTimeout = null;
+        }
+
+        // 取消 requestAnimationFrame
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+
+        // 清理所有消息中的圖片緩存
+        const allMessages = chatContainer.querySelectorAll('.message');
+        allMessages.forEach(msg => cleanupMessageImages(msg));
+
+        // 清理全局圖片緩存
+        clearAllImageCache();
+
+        // 清空引用
+        currentMessageElement = null;
+        currentCodeElement = null;
+
+        console.log('Chat container resources cleaned up');
+    }
+
     // 返回包含公共方法的对象
     return {
         syncMessage,
         setupButtonHandlers,
-        initializeUserQuestions
+        initializeUserQuestions,
+        cleanup  // 導出清理函數
     };
 }
