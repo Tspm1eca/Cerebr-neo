@@ -88,16 +88,18 @@
                     <circle cx="12" cy="18" r="2"/>
                 </svg>
             </button>
-            <button id="new-chat-button" title="新对话">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
-            </button>
-            <button id="stop-response-button" title="停止生成" style="display: none;">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor"/>
-                </svg>
-            </button>
+            <div class="button-switch-container">
+                <button id="new-chat-button" title="新对话">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <button id="stop-response-button" title="停止生成">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor"/>
+                    </svg>
+                </button>
+            </div>
             <!-- 模型選擇子菜單 -->
             <div id="model-selector-menu">
                 <div class="model-selector-search">

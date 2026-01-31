@@ -44,6 +44,13 @@
     transform: scale(0.95);
 }
 
+/* 按鈕切換容器 - 用於 new-chat-button 和 stop-response-button 的動畫轉換 */
+.button-switch-container {
+    position: relative;
+    width: 32px;
+    height: 32px;
+}
+
 #new-chat-button {
     width: 32px;
     height: 32px;
@@ -56,14 +63,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                margin 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                background-color 0.2s ease,
-                color 0.2s ease;
+    transition: background-color 0.2s ease,
+                color 0.2s ease,
+                transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
-    will-change: width, opacity, margin;
 }
 
 #new-chat-button svg {
@@ -71,7 +75,8 @@
     height: 18px;
     stroke: currentColor;
     opacity: 0.8;
-    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55),
+                opacity 0.2s ease;
 }
 
 #new-chat-button:hover {
@@ -88,7 +93,17 @@
     transform: scale(0.95);
 }
 
+/* new-chat-button 隱藏狀態（切換到 stop 按鈕時） */
+#new-chat-button.button-hidden {
+    opacity: 0;
+    transform: scale(0.5) rotate(-90deg);
+    pointer-events: none;
+}
+
 #stop-response-button {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 32px;
     height: 32px;
     padding: 0;
@@ -100,14 +115,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                margin 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                background-color 0.2s ease,
-                color 0.2s ease;
+    transition: background-color 0.2s ease,
+                color 0.2s ease,
+                transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
-    will-change: width, opacity, margin;
+    /* 初始隱藏狀態 */
+    opacity: 0;
+    transform: scale(0.5) rotate(90deg);
+    pointer-events: none;
 }
 
 #stop-response-button svg {
@@ -115,7 +131,8 @@
     height: 18px;
     fill: currentColor;
     opacity: 0.8;
-    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55),
+                opacity 0.2s ease;
 }
 
 #stop-response-button:hover {
@@ -130,6 +147,13 @@
 
 #stop-response-button:active {
     transform: scale(0.95);
+}
+
+/* stop-response-button 顯示狀態 */
+#stop-response-button.button-visible {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+    pointer-events: auto;
 }
 
 /* 模型選擇子菜單樣式 */

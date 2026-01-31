@@ -215,9 +215,9 @@ let exaApiUrl = '';
     async function callAPIWithRetry(apiParams, chatManager, chatId, onMessageUpdate, maxRetries = 10) {
         let attempt = 0;
 
-        // 切換按鈕顯示：隱藏新對話按鈕，顯示停止按鈕
-        newChatButton.style.display = 'none';
-        stopResponseButton.style.display = 'flex';
+        // 切換按鈕顯示：使用 CSS 類觸發動畫
+        newChatButton.classList.add('button-hidden');
+        stopResponseButton.classList.add('button-visible');
 
         // 绑定停止按钮事件
         const stopHandler = () => {
@@ -275,9 +275,9 @@ let exaApiUrl = '';
                 }
             }
         } finally {
-            // 恢復按鈕顯示：顯示新對話按鈕，隱藏停止按鈕
-            newChatButton.style.display = 'flex';
-            stopResponseButton.style.display = 'none';
+            // 恢復按鈕顯示：使用 CSS 類觸發動畫
+            newChatButton.classList.remove('button-hidden');
+            stopResponseButton.classList.remove('button-visible');
             stopResponseButton.onclick = null; // 清理事件处理
         }
     }
