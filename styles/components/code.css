@@ -16,30 +16,43 @@
     position: relative;
 }
 
-/* 复制按钮的样式 */
+/* 复制按钮的样式 - 与语言标签位置相同 */
 .copy-code-button {
     position: absolute;
-    top: 0.5em;
-    right: 0.5em;
-    padding: 0.25em;
+    top: 1px;
+    right: 1px;
+    padding: 6px 10px;
     border: none;
-    background-color: transparent;
+    background-color: var(--cerebr-code-tag-bg);
     cursor: pointer;
     opacity: 0; /* 默认隐藏 */
-    transition: opacity 0.2s ease-in-out;
-    color: var(--text-color); /* 使用CSS变量以匹配主题 */
+    color: var(--cerebr-code-tag-color);
+    font-size: 13px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    border-bottom-left-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    /* 伸缩动画 */
+    transform: scale(0.8);
+    transform-origin: top right;
+    transition: opacity 0.2s ease-in-out, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .copy-code-button svg {
     stroke: currentColor;
+    width: 16px;
+    height: 16px;
 }
 
-/* 鼠标悬停在代码块上时显示按钮 */
-.ai-message pre:hover .copy-code-button {
-    opacity: 0.7;
+/* 鼠标悬停在代码块上时显示按钮 - 带伸缩动画 */
+pre:hover .copy-code-button {
+    opacity: 0.5;
+    transform: scale(1);
 }
 
-/* 复制按钮悬停效果 */
-.copy-code-button:hover {
+/* 复制按钮悬停效果 - 高亮 */
+pre .copy-code-button:hover {
     opacity: 1;
+    transform: scale(1.05);
 }
