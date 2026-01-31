@@ -49,6 +49,7 @@ let exaApiUrl = '';
     const previewImage = previewModal.querySelector('img');
     const chatListPage = document.getElementById('chat-list-page');
     const newChatButton = document.getElementById('new-chat-button');
+    const stopResponseButton = document.getElementById('stop-response-button');
     const chatListButton = document.getElementById('chat-list');
     const modelSelectorMenu = document.getElementById('model-selector-menu');
     const unifiedSettingsPage = document.getElementById('unified-settings-page');
@@ -215,36 +216,47 @@ let exaApiUrl = '';
     // 新增：带重试逻辑的API调用函数
     async function callAPIWithRetry(apiParams, chatManager, chatId, onMessageUpdate, maxRetries = 10) {
         let attempt = 0;
-        while (attempt <= maxRetries) {
-            const { processStream, controller } = await callAPI(apiParams, chatManager, chatId, onMessageUpdate);
-            currentController = controller;
-            abortControllerRef.current = controller;
 
-            // 检查是否有「预约取消」
-            if (abortControllerRef.pendingAbort) {
-                abortControllerRef.pendingAbort = false;
-                try {
-                    controller.abort();
-                } finally {
-                    abortControllerRef.current = null;
-                    currentController = null;
+        // 切換按鈕顯示：隱藏新對話按鈕，顯示停止按鈕
+        newChatButton.style.display = 'none';
+        stopResponseButton.style.display = 'flex';
+
+        try {
+            while (attempt <= maxRetries) {
+                const { processStream, controller } = await callAPI(apiParams, chatManager, chatId, onMessageUpdate);
+                currentController = controller;
+                abortControllerRef.current = controller;
+
+                // 检查是否有「预约取消」
+                if (abortControllerRef.pendingAbort) {
+                    abortControllerRef.pendingAbort = false;
+                    try {
+                        controller.abort();
+                    } finally {
+                        abortControllerRef.current = null;
+                        currentController = null;
+                    }
+                    const error = new Error('Aborted');
+                    error.name = 'AbortError';
+                    throw error;
                 }
-                const error = new Error('Aborted');
-                error.name = 'AbortError';
-                throw error;
-            }
 
-            const result = await processStream();
+                const result = await processStream();
 
-            // 如果 content 为空但 reasoning_content 不为空，则可能被截断，进行重试
-            if (result && !result.content && result.reasoning_content && attempt < maxRetries) {
-                console.log(`API响应可能被截断，正在重试... (尝试次数 ${attempt + 1})`);
-                attempt++;
-                // 在重试前，将不完整的 assistant 消息从历史记录中移除
-                chatManager.popMessage();
-            } else {
-                return; // 成功或达到最大重试次数
+                // 如果 content 为空但 reasoning_content 不为空，则可能被截断，进行重试
+                if (result && !result.content && result.reasoning_content && attempt < maxRetries) {
+                    console.log(`API响应可能被截断，正在重试... (尝试次数 ${attempt + 1})`);
+                    attempt++;
+                    // 在重试前，将不完整的 assistant 消息从历史记录中移除
+                    chatManager.popMessage();
+                } else {
+                    return; // 成功或达到最大重试次数
+                }
             }
+        } finally {
+            // 恢復按鈕顯示：顯示新對話按鈕，隱藏停止按鈕
+            newChatButton.style.display = 'flex';
+            stopResponseButton.style.display = 'none';
         }
     }
 

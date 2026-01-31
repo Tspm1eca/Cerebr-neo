@@ -88,6 +88,50 @@
     transform: scale(0.95);
 }
 
+#stop-response-button {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border-radius: 18px;
+    border: none;
+    cursor: pointer;
+    color: #ff4d4f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                margin 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                background-color 0.2s ease,
+                color 0.2s ease;
+    overflow: hidden;
+    will-change: width, opacity, margin;
+}
+
+#stop-response-button svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+    opacity: 0.8;
+    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+#stop-response-button:hover {
+    background-color: var(--cerebr-button-hover-bg);
+    color: #ff4d4f;
+}
+
+#stop-response-button:hover svg {
+    transform: scale(1.1);
+    opacity: 1;
+}
+
+#stop-response-button:active {
+    transform: scale(0.95);
+}
+
 /* 模型選擇子菜單樣式 */
 #model-selector-menu {
     position: absolute;
