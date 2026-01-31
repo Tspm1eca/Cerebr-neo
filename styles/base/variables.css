@@ -38,6 +38,7 @@
     --cerebr-reasoning-bg: rgba(0, 0, 0, 0.03);
     --cerebr-reasoning-text-color: #666;
     --cerebr-reasoning-hover-bg: rgba(0, 0, 0, 0.05);
+    --cerebr-reasoning-pulse-color: rgba(218, 165, 32, 0.5);
     --cerebr-toggle-bg-off: rgba(128, 128, 128, 0.3);
     --cerebr-toggle-bg-on: #34c759;
     --cerebr-input-border-color: rgba(0, 0, 0, 0.15);
@@ -81,6 +82,7 @@
     --cerebr-reasoning-bg: rgba(255, 255, 255, 0.03);
     --cerebr-reasoning-text-color: #b3b3b3;
     --cerebr-reasoning-hover-bg: rgba(255, 255, 255, 0.05);
+    --cerebr-reasoning-pulse-color: rgba(255, 193, 37, 0.5);
     --cerebr-toggle-bg-off: rgba(255, 255, 255, 0.15);
     --cerebr-toggle-bg-on: #32d74b;
     --cerebr-input-border-color: rgba(255, 255, 255, 0.15);
@@ -127,6 +129,7 @@
         --cerebr-reasoning-bg: rgba(255, 255, 255, 0.03);
         --cerebr-reasoning-text-color: #b3b3b3;
         --cerebr-reasoning-hover-bg: rgba(255, 255, 255, 0.05);
+        --cerebr-reasoning-pulse-color: rgba(255, 193, 37, 0.5);
         --cerebr-toggle-bg-off: rgba(255, 255, 255, 0.15);
         --cerebr-toggle-bg-on: #32d74b;
         --cerebr-input-border-color: rgba(255, 255, 255, 0.15);
