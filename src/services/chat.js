@@ -53,31 +53,31 @@ const WEB_SEARCH_TOOL = {
     type: "function",
     function: {
         name: "web_search",
-        description: `你必须在以下任何情况下调用此工具进行网络搜索：
+        description: `You MUST call this tool to perform a web search in ANY of the following situations:
 
-1. 时效性信息：用户询问"今天"、"最新"、"最近"、"现在"、"目前"、"当前"等时间相关的问题
-2. 新闻事件：任何关于新闻、事件、发生了什么的问题
-3. 实时数据：天气、股价、汇率、比分、价格等需要实时更新的数据
-4. 人物动态：某人最近做了什么、说了什么、发布了什么
-5. 产品信息：最新版本、发布日期、更新内容
-6. 不确定的事实：你不确定或可能过时的信息
+1. Time-sensitive information: User asks about "today", "latest", "recent", "now", "current", or any time-related questions
+2. News and events: Any questions about news, events, or what happened
+3. Real-time data: Weather, stock prices, exchange rates, sports scores, prices, or any data that requires real-time updates
+4. People updates: What someone recently did, said, or published
+5. Product information: Latest versions, release dates, update contents
+6. Uncertain facts: Information you are unsure about or might be outdated
 
-示例必须搜索的问题：
-- "今天有什么新闻？" → 必须搜索
-- "XXX的最新消息" → 必须搜索
-- "现在几点了" → 必须搜索
-- "天气怎么样" → 必须搜索
-- "XXX股票价格" → 必须搜索
+Examples that REQUIRE search:
+- "What's in the news today?" → MUST search
+- "Latest news about XXX" → MUST search
+- "What time is it now?" → MUST search
+- "How's the weather?" → MUST search
+- "XXX stock price" → MUST search
 
-不需要搜索的问题：
-- "什么是机器学习？" → 不需要搜索（一般知识）
-- "Python如何写循环？" → 不需要搜索（编程知识）`,
+Examples that do NOT require search:
+- "What is machine learning?" → No search needed (general knowledge)
+- "How to write a loop in Python?" → No search needed (programming knowledge)`,
         parameters: {
             type: "object",
             properties: {
                 query: {
                     type: "string",
-                    description: "搜索查询关键词。**必须使用英文进行搜索**，将用户的问题翻译成英文关键词。保持简洁。例如：用户问'今天有什么科技新闻'，query应为'technology news today'；用户问'台积电股价'，query应为'TSMC stock price'"
+                    description: "Search query keywords. **MUST use English for searching**. Translate the user's question into English keywords. Keep it concise. Examples: If user asks '今天有什么科技新闻', query should be 'technology news today'; If user asks '台积电股价', query should be 'TSMC stock price'; If user asks 'latest iPhone release', query should be 'iPhone latest release date'"
                 }
             },
             required: ["query"]
