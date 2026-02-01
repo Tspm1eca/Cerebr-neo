@@ -1,4 +1,4 @@
-import { setTheme } from './utils/theme.js';
+import { initDarkTheme } from './utils/theme.js';
 import { callAPI, TimeoutError } from './services/chat.js';
 import { chatManager } from './utils/chat-manager.js';
 import { appendMessage, createWaitingMessage } from './handlers/message-handler.js';
@@ -1080,20 +1080,8 @@ let exaApiUrl = '';
         });
     }
 
-    // 创建主题配置对象（固定使用深色主题）
-    const themeConfig = {
-        root: document.documentElement,
-        themeSwitch: null,
-        saveTheme: null
-    };
-
-    // 初始化主题（固定深色）
-    function initTheme() {
-        setTheme(true, themeConfig);
-    }
-
-    // 初始化主题
-    initTheme();
+    // 初始化深色主题
+    initDarkTheme({ root: document.documentElement });
 
     // 初始化“传送网页”开关
     async function initSendWebpageSwitch() {
