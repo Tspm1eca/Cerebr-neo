@@ -250,15 +250,7 @@
     animation: cerebr-fake-caret-blink 1.9s ease-in-out infinite;
 }
 
-@keyframes cerebr-fake-caret-blink {
-    0%,
-    100% {
-        opacity: 0.28;
-    }
-    50% {
-        opacity: 1;
-    }
-}
+/* 動畫定義已移至 @/styles/utils/animations.css */
 
 /* 減少動畫偏好設置 */
 @media (prefers-reduced-motion: reduce) {

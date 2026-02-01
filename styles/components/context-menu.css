@@ -14,7 +14,10 @@
 
 #context-menu.visible {
     display: block;
+    animation: contextMenuAppear 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* 動畫定義已移至 @/styles/utils/animations.css */
 
 .context-menu-item {
     padding: 8px 12px;

@@ -221,3 +221,108 @@
     box-shadow: none !important;
     /* 移除 border: none !important，讓動畫控制 border-width */
 }
+
+/* ===== 從 reasoning.css 移動的動畫 ===== */
+/* 思考中状态动画 */
+@keyframes reasoning-pulse {
+    0% { background-color: var(--cerebr-reasoning-bg); box-shadow: inset 0 0 0 1px transparent; }
+    50% { background-color: var(--cerebr-reasoning-hover-bg); box-shadow: inset 0 0 0 1px var(--cerebr-reasoning-pulse-color); }
+    100% { background-color: var(--cerebr-reasoning-bg); box-shadow: inset 0 0 0 1px transparent; }
+}
+
+@keyframes ellipsis {
+    0% { content: ''; }
+    25% { content: '.'; }
+    50% { content: '..'; }
+    75% { content: '...'; }
+}
+
+/* ===== 從 quick-chat.css 移動的動畫 ===== */
+@keyframes fadeIn {
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes scaleIn {
+    to {
+        transform: scale(1);
+    }
+}
+
+/* ===== 從 context-menu.css 移動的動畫 ===== */
+@keyframes contextMenuAppear {
+    0% {
+        opacity: 0;
+        transform: scale(0.95) translateY(-8px);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+/* ===== 從 input.css 移動的動畫 ===== */
+@keyframes cerebr-fake-caret-blink {
+    0%,
+    100% {
+        opacity: 0.28;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+/* ===== 從 code.css 移動的動畫 ===== */
+@keyframes checkmark-draw {
+    0% {
+        stroke-dashoffset: 24;
+    }
+    100% {
+        stroke-dashoffset: 0;
+    }
+}
+
+/* ===== 從 chat-list.css 移動的動畫 ===== */
+@keyframes toast-fade-in {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* ===== 從 api-settings.css 移動的動畫 ===== */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+@keyframes toast-out {
+    from {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+    }
+}

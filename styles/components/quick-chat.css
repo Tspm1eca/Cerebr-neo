@@ -101,17 +101,7 @@
     cursor: not-allowed;
 }
 
-@keyframes fadeIn {
-    to {
-        opacity: 1;
-    }
-}
-
-@keyframes scaleIn {
-    to {
-        transform: scale(1);
-    }
-}
+/* 動畫定義已移至 @/styles/utils/animations.css */
 
 /* 常用聊天選項樣式 */
 

@@ -36,10 +36,15 @@ export function showContextMenu({
 
     contextMenu.style.left = x + 'px';
     contextMenu.style.top = y + 'px';
+    // 添加 visible 类以触发动画
+    requestAnimationFrame(() => {
+        contextMenu.classList.add('visible');
+    });
 }
 
 // 隐藏上下文菜单
 export function hideContextMenu({ contextMenu, onMessageElementReset }) {
+    contextMenu.classList.remove('visible');
     contextMenu.style.display = 'none';
     if (onMessageElementReset) {
         onMessageElementReset();

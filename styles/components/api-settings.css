@@ -206,14 +206,7 @@
     height: 16px;
 }
 
-@keyframes spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
-}
+/* 動畫定義已移至 @/styles/utils/animations.css */
 
 .spin {
     animation: spin 1s linear infinite;
@@ -626,16 +619,7 @@
     display: flex;
 }
 
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(-5px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
+/* 動畫定義已移至 @/styles/utils/animations.css */
 
 /* Tavily 和 Exa 通用样式 */
 .tavily-settings label,
@@ -748,24 +732,4 @@
     background-color: #f44336;
 }
 
-@keyframes toast-in {
-    from {
-        opacity: 0;
-        transform: translateX(-50%) translateY(20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateX(-50%) translateY(0);
-    }
-}
-
-@keyframes toast-out {
-    from {
-        opacity: 1;
-        transform: translateX(-50%) translateY(0);
-    }
-    to {
-        opacity: 0;
-        transform: translateX(-50%) translateY(20px);
-    }
-}
+/* 動畫定義已移至 @/styles/utils/animations.css */
