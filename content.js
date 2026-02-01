@@ -346,62 +346,60 @@ class CerebrSidebar {
       if (img.tagName === 'IMG') {
         isDraggingImage = true;
         console.log('检测到图片拖动，图片src:', img.src);
-        // 尝试直接获取图片的 src
-        try {
-          // 对于跨域图片，尝试使用 fetch 获取
-          console.log('尝试获取图片数据');
-          fetch(img.src)
-            .then(response => response.blob())
-            .then(blob => {
-              console.log('成功获取图片blob数据，大小:', blob.size);
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const base64Data = reader.result;
-                console.log('成功转换为base64数据');
-                const imageData = {
-                  type: 'image',
-                  data: base64Data,
-                  name: img.alt || '拖放图片'
-                };
-                console.log('设置拖动数据:', imageData.name);
-                lastImageData = imageData;  // 保存最后一次的图片数据
-                // 使用自定义事件类型，避免数据丢失
-                e.dataTransfer.setData('application/x-cerebr-image', JSON.stringify(imageData));
-                e.dataTransfer.effectAllowed = 'copy';
-              };
-              reader.readAsDataURL(blob);
-            })
-            .catch(error => {
-              console.error('获取图片数据失败:', error);
-              // 如果 fetch 失败，回退到 canvas 方法
-              console.log('尝试使用Canvas方法获取图片数据');
-              try {
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth;
-                canvas.height = img.naturalHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0);
-                const base64Data = canvas.toDataURL(img.src.match(/\.png$/i) ? 'image/png' : 'image/jpeg');
-                console.log('成功使用Canvas获取图片数据');
-                const imageData = {
-                  type: 'image',
-                  data: base64Data,
-                  name: img.alt || '拖放图片'
-                };
-                console.log('设置拖动数据:', imageData.name);
-                lastImageData = imageData;  // 保存最后一次的图片数据
-                // 使用自定义事件类型，避免数据丢失
-                e.dataTransfer.setData('application/x-cerebr-image', JSON.stringify(imageData));
-                e.dataTransfer.effectAllowed = 'copy';
-              } catch (canvasError) {
-                console.error('Canvas获取图片数据失败:', canvasError);
-              }
-            });
-        } catch (error) {
-          console.error('处理图片拖动失败:', error);
-        }
+
+        // 保存图片 URL，用于后续通过 background script 获取
+        const pendingImageUrl = img.src;
+        const pendingImageName = img.alt || '拖放图片';
+
+        // 通过 background script 获取图片数据（绕过 CORS 限制）
+        chrome.runtime.sendMessage({
+          action: 'fetchImageAsBase64',
+          url: pendingImageUrl
+        }).then(response => {
+          if (response && response.success && response.data) {
+            console.log('通过 background 成功获取图片数据');
+            const imageData = {
+              type: 'image',
+              data: response.data,
+              name: pendingImageName
+            };
+            lastImageData = imageData;
+          } else {
+            console.error('通过 background 获取图片失败:', response?.error);
+            // 回退：尝试使用 Canvas 方法（对于同源图片可能有效）
+            tryCanvasFallback(img, pendingImageName);
+          }
+        }).catch(error => {
+          console.error('发送消息到 background 失败:', error);
+          // 回退：尝试使用 Canvas 方法
+          tryCanvasFallback(img, pendingImageName);
+        });
+
+        e.dataTransfer.effectAllowed = 'copy';
       }
     });
+
+    // Canvas 回退方法（仅对同源或已设置 crossorigin 的图片有效）
+    function tryCanvasFallback(img, imageName) {
+      try {
+        console.log('尝试使用 Canvas 方法获取图片数据');
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const base64Data = canvas.toDataURL(img.src.match(/\.png$/i) ? 'image/png' : 'image/jpeg');
+        console.log('成功使用 Canvas 获取图片数据');
+        const imageData = {
+          type: 'image',
+          data: base64Data,
+          name: imageName
+        };
+        lastImageData = imageData;
+      } catch (canvasError) {
+        console.error('Canvas 获取图片数据失败（可能是跨域图片）:', canvasError);
+      }
+    }
 
     // 监听 dragenter 事件，检测外部拖入
     document.addEventListener('dragenter', (e) => {
