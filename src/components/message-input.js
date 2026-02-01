@@ -22,6 +22,8 @@ function initAnimatedFakeCaret(messageInput) {
 
     let rafId = 0;
     let pendingForceScroll = false;
+    let lastCaretX = null;
+    let movingTimeout = null;
 
     const scheduleUpdate = (options) => {
         pendingForceScroll ||= options?.forceScrollIntoView;
@@ -177,6 +179,32 @@ function initAnimatedFakeCaret(messageInput) {
 
         const x = clampedViewportX - shellRect.left;
         const y = clampedViewportY - shellRect.top;
+
+        // 檢測光標水平移動方向並添加吸附效果
+        if (lastCaretX !== null && Math.abs(x - lastCaretX) > 1) {
+            // 清除之前的超時
+            if (movingTimeout) {
+                clearTimeout(movingTimeout);
+            }
+
+            // 移除舊的移動類別
+            caretEl.classList.remove('moving-left', 'moving-right');
+
+            // 根據移動方向添加對應的類別
+            if (x < lastCaretX) {
+                caretEl.classList.add('moving-left');
+            } else if (x > lastCaretX) {
+                caretEl.classList.add('moving-right');
+            }
+
+            // 設置超時以移除移動效果
+            movingTimeout = setTimeout(() => {
+                caretEl.classList.remove('moving-left', 'moving-right');
+                movingTimeout = null;
+            }, 150);
+        }
+
+        lastCaretX = x;
 
         caretEl.style.setProperty('--cerebr-fake-caret-x', `${x}px`);
         caretEl.style.setProperty('--cerebr-fake-caret-y', `${y}px`);
