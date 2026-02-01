@@ -24,6 +24,14 @@
 @import '../htmd/styles/math.css';
 @import '../htmd/styles/table.css';
 
+/* 全局文字選擇樣式 */
+::selection {
+    background-color: rgb(82, 107, 135);
+    color: inherit;
+    text-shadow: 0 0 8px rgba(88, 166, 255, 0.4),
+                 0 0 16px rgba(88, 166, 255, 0.2);
+}
+
 /* 全局滚动条样式 */
 ::-webkit-scrollbar {
     width: 8px;

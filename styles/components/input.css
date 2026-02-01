@@ -260,22 +260,6 @@
     }
 }
 
-/* 文字選擇時的光暈效果 */
-#message-input::selection {
-    background-color: rgb(82, 107, 135);
-    /* background-color: rgba(88, 166, 255, 0.3); */
-    color: inherit;
-    text-shadow: 0 0 8px rgba(88, 166, 255, 0.4),
-                 0 0 16px rgba(88, 166, 255, 0.2);
-}
-
-#message-input::-moz-selection {
-    background-color: rgb(82, 107, 135);
-    color: inherit;
-    text-shadow: 0 0 8px rgba(88, 166, 255, 0.4),
-                 0 0 16px rgba(88, 166, 255, 0.2);
-}
-
 /* 減少動畫偏好設置 */
 @media (prefers-reduced-motion: reduce) {
     .message-input-shell .fake-caret {
@@ -286,4 +270,57 @@
     .message-input-shell .fake-caret::before {
         animation: none;
     }
+}
+
+/* 拖拽調整高度手柄 */
+.message-input-shell .resize-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 12px;
+    cursor: ns-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 3;
+}
+
+.message-input-shell .resize-handle.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.message-input-shell .resize-handle:hover {
+    opacity: 1;
+}
+
+.message-input-shell .resize-handle-bar {
+    width: 32px;
+    height: 4px;
+    background: var(--cerebr-border-color);
+    border-radius: 2px;
+    transition: background-color 0.2s ease, width 0.2s ease;
+}
+
+.message-input-shell .resize-handle:hover .resize-handle-bar {
+    background: var(--cerebr-link-color);
+    width: 40px;
+}
+
+.message-input-shell.resizing .resize-handle .resize-handle-bar {
+    background: var(--cerebr-link-color);
+    width: 48px;
+}
+
+/* 拖拽時的樣式 */
+.message-input-shell.resizing {
+    user-select: none;
+}
+
+.message-input-shell.resizing #message-input {
+    transition: none;
 }

@@ -241,6 +241,118 @@ function initAnimatedFakeCaret(messageInput) {
 }
 
 /**
+ * 初始化輸入框拖拽調整高度功能
+ * @param {HTMLElement} messageInput - 消息輸入框元素
+ * @param {Object} config - UI配置對象
+ */
+function initResizeDrag(messageInput, config) {
+    const shell = messageInput.closest('.message-input-shell');
+    if (!shell) return;
+
+    // 創建拖拽手柄
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'resize-handle';
+    resizeHandle.innerHTML = '<div class="resize-handle-bar"></div>';
+    shell.appendChild(resizeHandle);
+
+    let isResizing = false;
+    let startY = 0;
+    let startHeight = 0;
+    let currentHeight = 0;
+    const maxHeight = config?.textarea?.maxHeight || 200;
+
+    // 檢查是否達到最大高度
+    const isAtMaxHeight = () => {
+        return messageInput.scrollHeight >= maxHeight;
+    };
+
+    // 更新手柄可見性
+    const updateHandleVisibility = () => {
+        if (isAtMaxHeight()) {
+            resizeHandle.classList.add('visible');
+        } else {
+            resizeHandle.classList.remove('visible');
+        }
+    };
+
+    // 監聽輸入框內容變化，更新手柄可見性
+    const inputObserver = new MutationObserver(updateHandleVisibility);
+    inputObserver.observe(messageInput, {
+        childList: true,
+        subtree: true,
+        characterData: true
+    });
+
+    // 監聽輸入事件
+    messageInput.addEventListener('input', updateHandleVisibility);
+
+    // 鼠標按下開始拖拽
+    resizeHandle.addEventListener('mousedown', (e) => {
+        if (!isAtMaxHeight()) return;
+
+        isResizing = true;
+        startY = e.clientY;
+        startHeight = messageInput.offsetHeight;
+        currentHeight = startHeight;
+
+        // 添加拖拽狀態類
+        shell.classList.add('resizing');
+        document.body.style.cursor = 'ns-resize';
+        document.body.style.userSelect = 'none';
+
+        e.preventDefault();
+    });
+
+    // 鼠標移動調整高度
+    const handleMouseMove = (e) => {
+        if (!isResizing) return;
+
+        const deltaY = e.clientY - startY;
+        // 手柄在頂部，向下拖動（deltaY > 0）應該減小高度，向上拖動（deltaY < 0）應該增加高度
+        let newHeight = startHeight - deltaY;
+
+        // 獲取 chat-container 的高度，限制最大高度為其一半
+        const chatContainer = document.getElementById('chat-container');
+        const maxAllowedHeight = chatContainer ? chatContainer.offsetHeight / 2 : 400;
+
+        // 確保高度在合理範圍內：不小於 maxHeight，不大於 chat-container 的一半
+        newHeight = Math.max(maxHeight, Math.min(newHeight, maxAllowedHeight));
+
+        // 設置新高度
+        messageInput.style.height = `${newHeight}px`;
+        messageInput.style.maxHeight = `${newHeight}px`;
+        currentHeight = newHeight;
+
+        e.preventDefault();
+    };
+
+    // 鼠標釋放結束拖拽
+    const handleMouseUp = () => {
+        if (!isResizing) return;
+
+        isResizing = false;
+        shell.classList.remove('resizing');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    };
+
+    // 添加全局事件監聽
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    // 初始化手柄可見性
+    updateHandleVisibility();
+
+    // 清理函數（如果需要）
+    messageInput.__resizeDragCleanup = () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        inputObserver.disconnect();
+        resizeHandle.remove();
+    };
+}
+
+/**
  * 初始化消息输入组件
  * @param {Object} config - 配置对象
  * @param {HTMLElement} config.messageInput - 消息输入框元素
@@ -541,6 +653,9 @@ export function initMessageInput(config) {
 
     // 初始化时同步一次，避免输入栏高度变化导致底部消息被遮挡
     initAnimatedFakeCaret(messageInput);
+
+    // 初始化拖拽調整高度功能
+    initResizeDrag(messageInput, uiConfig);
 
     // 初始化 has-content 状态
     updateHasContentState();
