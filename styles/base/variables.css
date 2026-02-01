@@ -21,7 +21,8 @@
     --cerebr-highlight-border-color: rgba(0, 122, 255, 0.5);
     --cerebr-button-hover-bg: rgba(0, 0, 0, 0.1);
     --cerebr-focus-border-color: rgba(0, 122, 255, 0.3);
-    --cerebr-inline-code-bg: rgba(175, 184, 193, 0.2);
+    --cerebr-inline-code-bg: rgba(41, 33, 29, 0.4);
+    --cerebr-inline-code-color: #d73a49;
     --cerebr-popup-shadow: rgba(0, 0, 0, 0.2);
     --cerebr-modal-overlay-bg: rgba(0, 0, 0, 0.8);
     --cerebr-close-button-bg: rgba(0, 0, 0, 0.6);
@@ -65,7 +66,8 @@
     --cerebr-highlight-border-color: rgba(0, 122, 255, 0.5);
     --cerebr-button-hover-bg: rgba(0, 0, 0, 0.25);
     --cerebr-focus-border-color: rgba(0, 122, 255, 0.3);
-    --cerebr-inline-code-bg: rgba(99, 110, 123, 0.4);
+    --cerebr-inline-code-bg: rgba(41, 33, 29, 0.4);
+    --cerebr-inline-code-color: #e5936b;
     --cerebr-popup-shadow: rgba(0, 0, 0, 0.3);
     --cerebr-modal-overlay-bg: rgba(0, 0, 0, 0.8);
     --cerebr-close-button-bg: rgba(0, 0, 0, 0.6);
@@ -112,7 +114,8 @@
         --cerebr-highlight-border-color: rgba(0, 122, 255, 0.5);
         --cerebr-button-hover-bg: rgba(0, 0, 0, 0.25);
         --cerebr-focus-border-color: rgba(0, 122, 255, 0.3);
-        --cerebr-inline-code-bg: rgba(99, 110, 123, 0.4);
+        --cerebr-inline-code-bg: rgba(41, 33, 29, 0.4);
+        --cerebr-inline-code-color: #e5936b;
         --cerebr-popup-shadow: rgba(0, 0, 0, 0.3);
         --cerebr-modal-overlay-bg: rgba(0, 0, 0, 0.8);
         --cerebr-close-button-bg: rgba(0, 0, 0, 0.6);

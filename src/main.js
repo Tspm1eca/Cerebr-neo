@@ -1027,8 +1027,7 @@ let exaApiUrl = '';
         });
     }
 
-    // 主题切换
-    const themeSwitch = document.getElementById('theme-switch');
+    // 传送网页开关
     const sendWebpageSwitch = document.getElementById('send-webpage-switch');
     const webSearchSwitch = document.getElementById('web-search-switch');
     const searchProviderSwitch = document.getElementById('search-provider-switch');
@@ -1081,42 +1080,20 @@ let exaApiUrl = '';
         });
     }
 
-    // 创建主题配置对象
+    // 创建主题配置对象（固定使用深色主题）
     const themeConfig = {
         root: document.documentElement,
-        themeSwitch,
-        saveTheme: async (theme) => await syncStorageAdapter.set({ theme })
+        themeSwitch: null,
+        saveTheme: null
     };
 
-    // 初始化主题
-    async function initTheme() {
-        try {
-            const result = await syncStorageAdapter.get('theme');
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            const isDark = result.theme === 'dark' || (!result.theme && prefersDark);
-            setTheme(isDark, themeConfig);
-        } catch (error) {
-            console.error('初始化主题失败:', error);
-            // 如果出错，使用系统主题
-            setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches, themeConfig);
-        }
+    // 初始化主题（固定深色）
+    function initTheme() {
+        setTheme(true, themeConfig);
     }
 
-    // 监听主题切换
-    themeSwitch.addEventListener('change', () => {
-        setTheme(themeSwitch.checked, themeConfig);
-    });
-
-    // 监听系统主题变化
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', async (e) => {
-        const data = await syncStorageAdapter.get('theme');
-        if (!data.theme) {  // 只有在用户没有手动设置主题时才跟随系统
-            setTheme(e.matches, themeConfig);
-        }
-    });
-
     // 初始化主题
-    await initTheme();
+    initTheme();
 
     // 初始化“传送网页”开关
     async function initSendWebpageSwitch() {
