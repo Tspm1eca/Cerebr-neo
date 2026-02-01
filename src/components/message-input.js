@@ -21,16 +21,15 @@ function initAnimatedFakeCaret(messageInput) {
     shell.classList.add('fake-caret-enabled');
 
     let rafId = 0;
-    let pendingForceScrollIntoView = false;
+    let pendingForceScroll = false;
 
     const scheduleUpdate = (options) => {
-        if (options?.forceScrollIntoView) pendingForceScrollIntoView = true;
+        pendingForceScroll ||= options?.forceScrollIntoView;
         if (rafId) return;
         rafId = requestAnimationFrame(() => {
             rafId = 0;
-            const shouldForceScrollIntoView = pendingForceScrollIntoView;
-            pendingForceScrollIntoView = false;
-            update({ forceScrollIntoView: shouldForceScrollIntoView });
+            update({ forceScrollIntoView: pendingForceScroll });
+            pendingForceScroll = false;
         });
     };
 
@@ -59,6 +58,15 @@ function initAnimatedFakeCaret(messageInput) {
         const paddingBottom = parseFloat(style.paddingBottom) || 0;
         const fontSize = parseFloat(style.fontSize) || 14;
         const lineHeight = parseFloat(style.lineHeight) || fontSize * 1.5;
+
+        // 統一計算視窗邊界
+        const viewport = {
+            top: inputRect.top + paddingTop,
+            bottom: inputRect.bottom - paddingBottom,
+            left: inputRect.left + paddingLeft,
+            right: inputRect.right - paddingRight
+        };
+        viewport.height = viewport.bottom - viewport.top;
 
         const getRangeRect = () => {
             try {
@@ -118,8 +126,8 @@ function initAnimatedFakeCaret(messageInput) {
         let caretYOffset;
 
         if (isEmptyInput) {
-            viewportX = inputRect.left + paddingLeft;
-            viewportY = inputRect.top + paddingTop;
+            viewportX = viewport.left;
+            viewportY = viewport.top;
             caretH = lineHeight;
         } else if (!rect || (!rect.width && !rect.height)) {
             shell.classList.remove('fake-caret-visible');
@@ -136,22 +144,17 @@ function initAnimatedFakeCaret(messageInput) {
         caretYOffset = Math.max(0, (caretH - caretVisualH) / 2);
         viewportY += caretYOffset;
 
-        const viewportTop = inputRect.top + paddingTop;
-        const viewportBottom = inputRect.bottom - paddingBottom;
         const caretTop = viewportY;
         const caretBottom = viewportY + caretVisualH;
 
         if (forceScrollIntoView && messageInput.scrollHeight > messageInput.clientHeight + 1) {
             const desiredMargin = Math.min(12, Math.max(4, Math.round(fontSize * 0.4)));
-            const viewportHeight = viewportBottom - viewportTop;
-            const effectiveMargin = Math.max(0, Math.min(desiredMargin, (viewportHeight - caretVisualH) / 2));
-            let delta = 0;
+            const effectiveMargin = Math.max(0, Math.min(desiredMargin, (viewport.height - caretVisualH) / 2));
 
-            if (caretTop < viewportTop + effectiveMargin) {
-                delta = caretTop - (viewportTop + effectiveMargin);
-            } else if (caretBottom > viewportBottom - effectiveMargin) {
-                delta = caretBottom - (viewportBottom - effectiveMargin);
-            }
+            const delta =
+                caretTop < viewport.top + effectiveMargin ? caretTop - (viewport.top + effectiveMargin) :
+                caretBottom > viewport.bottom - effectiveMargin ? caretBottom - (viewport.bottom - effectiveMargin) :
+                0;
 
             if (Math.abs(delta) >= 1) {
                 const prevScrollTop = messageInput.scrollTop;
@@ -164,15 +167,12 @@ function initAnimatedFakeCaret(messageInput) {
         }
 
         const viewportTolerance = 1;
-        if (caretTop < viewportTop - viewportTolerance || caretBottom > viewportBottom + viewportTolerance) {
+        if (caretTop < viewport.top - viewportTolerance || caretBottom > viewport.bottom + viewportTolerance) {
             shell.classList.remove('fake-caret-visible');
             return;
         }
 
-        const minX = inputRect.left + paddingLeft;
-        const maxX = inputRect.right - paddingRight;
-
-        const clampedViewportX = Math.max(minX, Math.min(viewportX, maxX));
+        const clampedViewportX = Math.max(viewport.left, Math.min(viewportX, viewport.right));
         const clampedViewportY = viewportY;
 
         const x = clampedViewportX - shellRect.left;
@@ -194,27 +194,20 @@ function initAnimatedFakeCaret(messageInput) {
         'Home', 'End', 'PageUp', 'PageDown'
     ]);
 
-    // 用戶主動操作時，強制將光標滾動到可視範圍內
-    messageInput.addEventListener('focus', () => scheduleUpdate({ forceScrollIntoView: true }));
-    messageInput.addEventListener('input', () => scheduleUpdate({ forceScrollIntoView: true }));
-    messageInput.addEventListener('mousedown', () => scheduleUpdate({ forceScrollIntoView: true }));
-    messageInput.addEventListener('mouseup', () => scheduleUpdate({ forceScrollIntoView: true }));
-    messageInput.addEventListener('compositionend', () => scheduleUpdate({ forceScrollIntoView: true }));
-
-    messageInput.addEventListener('keydown', (e) => {
-        // 導航按鍵需要強制滾動
-        if (navigationKeys.has(e?.key)) {
-            scheduleUpdate({ forceScrollIntoView: true });
-        } else {
-            scheduleUpdate();
-        }
+    // 批次註冊需要強制滾動的事件
+    ['focus', 'input', 'mousedown', 'mouseup', 'compositionend'].forEach(event => {
+        messageInput.addEventListener(event, () => scheduleUpdate({ forceScrollIntoView: true }));
     });
 
-    // 被動更新：只更新光標位置，不強制滾動（超出範圍會自動隱藏）
-    messageInput.addEventListener('blur', scheduleUpdate);
-    messageInput.addEventListener('scroll', scheduleUpdate);
-    messageInput.addEventListener('keyup', scheduleUpdate);
-    messageInput.addEventListener('compositionstart', scheduleUpdate);
+    // 鍵盤事件：根據按鍵類型決定是否強制滾動
+    messageInput.addEventListener('keydown', (e) => {
+        scheduleUpdate({ forceScrollIntoView: navigationKeys.has(e?.key) });
+    });
+
+    // 批次註冊被動更新事件（只更新光標位置，不強制滾動）
+    ['blur', 'scroll', 'keyup', 'compositionstart'].forEach(event => {
+        messageInput.addEventListener(event, scheduleUpdate);
+    });
 
     scheduleUpdate();
 }
