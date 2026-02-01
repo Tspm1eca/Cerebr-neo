@@ -260,7 +260,8 @@ export function initChatContainer({
                 const editInput = document.createElement('div');
                 editInput.className = 'message-edit-input';
                 editInput.contentEditable = 'true';
-                editInput.textContent = originalText;
+                // 使用 innerText 來保留換行符
+                editInput.innerText = originalText;
 
                 const editActions = document.createElement('div');
                 editActions.className = 'message-edit-actions';
@@ -324,7 +325,8 @@ export function initChatContainer({
                 saveButton.addEventListener('click', async (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    const newText = editInput.textContent.trim();
+                    // 使用 innerText 來保留換行符
+                    const newText = editInput.innerText.trim();
                     if (newText && newText !== originalText) {
                         // 更新消息元素
                         messageElementToEdit.innerHTML = '';
@@ -379,7 +381,8 @@ export function initChatContainer({
                 saveAndResendButton.addEventListener('click', async (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    const newText = editInput.textContent.trim();
+                    // 使用 innerText 來保留換行符
+                    const newText = editInput.innerText.trim();
                     if (newText) {
                         // 更新消息元素
                         messageElementToEdit.innerHTML = '';
