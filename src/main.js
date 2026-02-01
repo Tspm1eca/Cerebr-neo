@@ -508,13 +508,13 @@ let exaApiUrl = '';
         if (abortControllerRef) abortControllerRef.pendingAbort = false;
 
         // 获取格式化后的消息内容
-        const { message, imageTags } = getFormattedMessageContent(messageInput);
+        const { message, imageTags, previewImages } = getFormattedMessageContent(messageInput);
 
-        if (!message.trim() && imageTags.length === 0) return;
+        if (!message.trim() && imageTags.length === 0 && previewImages.length === 0) return;
 
         try {
             // 构建消息内容
-            const content = buildMessageContent(message, imageTags);
+            const content = buildMessageContent(message, imageTags, previewImages);
 
             // 构建用户消息
             const userMessage = {

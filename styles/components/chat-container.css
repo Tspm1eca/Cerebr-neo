@@ -40,3 +40,12 @@
 .keyboard-visible #chat-container {
     padding-bottom: calc(120px + env(safe-area-inset-bottom) + var(--keyboard-height, 0px));
 }
+
+/* 当有图片预览时，增加底部 padding 以避免遮挡 */
+#chat-container.has-image-preview {
+    padding-bottom: calc(180px + env(safe-area-inset-bottom));
+}
+
+.keyboard-visible #chat-container.has-image-preview {
+    padding-bottom: calc(200px + env(safe-area-inset-bottom) + var(--keyboard-height, 0px));
+}

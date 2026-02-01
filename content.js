@@ -306,6 +306,7 @@ class CerebrSidebar {
 
     // 存储最后一次设置的图片数据
     let lastImageData = null;
+    let isDraggingImage = false;
 
     // 检查是否在侧边栏范围内的函数
     const isInSidebarBounds = (x, y) => {
@@ -319,11 +320,31 @@ class CerebrSidebar {
       );
     };
 
+    // 检查 dataTransfer 是否包含图片
+    const hasImageInDataTransfer = (dataTransfer) => {
+      if (!dataTransfer) return false;
+      // 检查是否有图片文件
+      if (dataTransfer.files && dataTransfer.files.length > 0) {
+        for (const file of dataTransfer.files) {
+          if (file.type.startsWith('image/')) {
+            return true;
+          }
+        }
+      }
+      // 检查 types 是否包含图片相关类型
+      const types = dataTransfer.types || [];
+      return types.includes('Files') ||
+             types.includes('text/uri-list') ||
+             types.includes('text/html') ||
+             types.includes('application/x-cerebr-image');
+    };
+
     // 监听页面上的所有图片
     document.addEventListener('dragstart', (e) => {
       console.log('拖动开始，目标元素:', e.target.tagName);
       const img = e.target;
       if (img.tagName === 'IMG') {
+        isDraggingImage = true;
         console.log('检测到图片拖动，图片src:', img.src);
         // 尝试直接获取图片的 src
         try {
@@ -382,6 +403,186 @@ class CerebrSidebar {
       }
     });
 
+    // 监听 dragenter 事件，检测外部拖入
+    document.addEventListener('dragenter', (e) => {
+      if (!this.isVisible) return;
+
+      // 检测是否可能是图片拖入（来自外部）
+      if (hasImageInDataTransfer(e.dataTransfer)) {
+        isDraggingImage = true;
+      }
+    });
+
+    // 监听 dragover 事件，允许在侧边栏上放置
+    document.addEventListener('dragover', (e) => {
+      if (!this.isVisible) return;
+
+      // 检测是否可能是图片拖入
+      if (hasImageInDataTransfer(e.dataTransfer)) {
+        isDraggingImage = true;
+      }
+
+      if (!isDraggingImage) return;
+
+      const inSidebar = isInSidebarBounds(e.clientX, e.clientY);
+      if (inSidebar) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    });
+
+    // 监听 drop 事件
+    document.addEventListener('drop', async (e) => {
+      if (!this.isVisible) return;
+
+      const inSidebar = isInSidebarBounds(e.clientX, e.clientY);
+      if (!inSidebar) {
+        isDraggingImage = false;
+        lastImageData = null;
+        return;
+      }
+
+      e.preventDefault();
+
+      const iframe = this.sidebar?.querySelector('.cerebr-sidebar__iframe');
+      if (!iframe) {
+        isDraggingImage = false;
+        lastImageData = null;
+        return;
+      }
+
+      // 如果已经有 lastImageData（来自同页面拖动），直接使用
+      if (lastImageData) {
+        console.log('使用已缓存的图片数据');
+        iframe.contentWindow.postMessage({
+          type: 'DROP_IMAGE',
+          imageData: lastImageData
+        }, '*');
+        isDraggingImage = false;
+        lastImageData = null;
+        return;
+      }
+
+      // 处理外部拖入的图片
+      console.log('处理外部拖入的图片');
+
+      // 尝试从 dataTransfer 获取图片
+      const dataTransfer = e.dataTransfer;
+
+      // 1. 首先尝试获取文件
+      if (dataTransfer.files && dataTransfer.files.length > 0) {
+        for (const file of dataTransfer.files) {
+          if (file.type.startsWith('image/')) {
+            console.log('从文件获取图片:', file.name);
+            const reader = new FileReader();
+            reader.onload = () => {
+              iframe.contentWindow.postMessage({
+                type: 'DROP_IMAGE',
+                imageData: {
+                  type: 'image',
+                  data: reader.result,
+                  name: file.name || '拖放图片'
+                }
+              }, '*');
+            };
+            reader.readAsDataURL(file);
+            isDraggingImage = false;
+            return;
+          }
+        }
+      }
+
+      // 2. 尝试从 text/html 获取图片 URL
+      const html = dataTransfer.getData('text/html');
+      if (html) {
+        const imgMatch = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+        if (imgMatch && imgMatch[1]) {
+          const imgUrl = imgMatch[1];
+          console.log('从 HTML 获取图片 URL:', imgUrl);
+          try {
+            const response = await fetch(imgUrl);
+            const blob = await response.blob();
+            const reader = new FileReader();
+            reader.onload = () => {
+              iframe.contentWindow.postMessage({
+                type: 'DROP_IMAGE',
+                imageData: {
+                  type: 'image',
+                  data: reader.result,
+                  name: '拖放图片'
+                }
+              }, '*');
+            };
+            reader.readAsDataURL(blob);
+            isDraggingImage = false;
+            return;
+          } catch (error) {
+            console.error('从 URL 获取图片失败:', error);
+          }
+        }
+      }
+
+      // 3. 尝试从 text/uri-list 获取图片 URL
+      const uriList = dataTransfer.getData('text/uri-list');
+      if (uriList) {
+        const urls = uriList.split('\n').filter(url => url && !url.startsWith('#'));
+        for (const url of urls) {
+          if (url.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/i)) {
+            console.log('从 URI 列表获取图片 URL:', url);
+            try {
+              const response = await fetch(url);
+              const blob = await response.blob();
+              const reader = new FileReader();
+              reader.onload = () => {
+                iframe.contentWindow.postMessage({
+                  type: 'DROP_IMAGE',
+                  imageData: {
+                    type: 'image',
+                    data: reader.result,
+                    name: '拖放图片'
+                  }
+                }, '*');
+              };
+              reader.readAsDataURL(blob);
+              isDraggingImage = false;
+              return;
+            } catch (error) {
+              console.error('从 URL 获取图片失败:', error);
+            }
+          }
+        }
+      }
+
+      // 4. 尝试从 text/plain 获取图片 URL
+      const plainText = dataTransfer.getData('text/plain');
+      if (plainText && plainText.match(/^https?:\/\/.+\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/i)) {
+        console.log('从纯文本获取图片 URL:', plainText);
+        try {
+          const response = await fetch(plainText);
+          const blob = await response.blob();
+          const reader = new FileReader();
+          reader.onload = () => {
+            iframe.contentWindow.postMessage({
+              type: 'DROP_IMAGE',
+              imageData: {
+                type: 'image',
+                data: reader.result,
+                name: '拖放图片'
+              }
+            }, '*');
+          };
+          reader.readAsDataURL(blob);
+          isDraggingImage = false;
+          return;
+        } catch (error) {
+          console.error('从 URL 获取图片失败:', error);
+        }
+      }
+
+      console.log('无法从 dataTransfer 获取图片数据');
+      isDraggingImage = false;
+    });
+
     // 监听拖动结束事件
     document.addEventListener('dragend', (e) => {
       const inSidebar = isInSidebarBounds(e.clientX, e.clientY);
@@ -397,6 +598,20 @@ class CerebrSidebar {
       }
       // 重置状态
       lastImageData = null;
+      isDraggingImage = false;
+    });
+
+    // 监听 dragleave 事件，重置状态
+    document.addEventListener('dragleave', (e) => {
+      // 只有当离开文档时才重置
+      if (e.relatedTarget === null) {
+        // 延迟重置，以防是进入 iframe
+        setTimeout(() => {
+          if (!isInSidebarBounds(e.clientX, e.clientY)) {
+            // isDraggingImage = false;
+          }
+        }, 100);
+      }
     });
   }
 }

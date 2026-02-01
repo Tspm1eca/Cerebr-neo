@@ -1,18 +1,22 @@
+import { addImageToPreview } from './ui.js';
+
 /**
  * 处理图片拖放的通用函数
  * @param {DragEvent} e - 拖放事件对象
  * @param {Object} config - 配置对象
  * @param {HTMLElement} config.messageInput - 消息输入框元素
- * @param {Function} config.createImageTag - 创建图片标签的函数
+ * @param {Function} config.createImageTag - 创建图片标签的函数（保留兼容性）
  * @param {Function} config.onSuccess - 成功处理后的回调函数
  * @param {Function} config.onError - 错误处理的回调函数
+ * @param {Function} [config.onImageClick] - 图片点击回调
  */
 export function handleImageDrop(e, config) {
     const {
         messageInput,
         createImageTag,
         onSuccess = () => {},
-        onError = (error) => console.error('处理拖放事件失败:', error)
+        onError = (error) => console.error('处理拖放事件失败:', error),
+        onImageClick
     } = config;
 
     e.preventDefault();
@@ -26,14 +30,23 @@ export function handleImageDrop(e, config) {
                 const reader = new FileReader();
                 reader.onload = () => {
                     try {
-                        insertImageToInput({
-                            messageInput,
-                            createImageTag,
-                            imageData: {
-                                base64Data: reader.result,
-                                fileName: file.name
+                        // 使用新的预览区域显示图片
+                        addImageToPreview({
+                            base64Data: reader.result,
+                            fileName: file.name,
+                            onImageClick,
+                            onDelete: () => {
+                                // 触发输入事件以更新状态
+                                messageInput.dispatchEvent(new Event('input'));
                             }
                         });
+                        // 展开 input-container
+                        const inputContainer = document.getElementById('input-container');
+                        if (inputContainer) {
+                            inputContainer.classList.remove('collapsed');
+                        }
+                        // 聚焦输入框
+                        messageInput.focus();
                         onSuccess();
                     } catch (error) {
                         onError(error);
@@ -50,14 +63,23 @@ export function handleImageDrop(e, config) {
             try {
                 const imageData = JSON.parse(data);
                 if (imageData.type === 'image') {
-                    insertImageToInput({
-                        messageInput,
-                        createImageTag,
-                        imageData: {
-                            base64Data: imageData.data,
-                            fileName: imageData.name
+                    // 使用新的预览区域显示图片
+                    addImageToPreview({
+                        base64Data: imageData.data,
+                        fileName: imageData.name,
+                        onImageClick,
+                        onDelete: () => {
+                            // 触发输入事件以更新状态
+                            messageInput.dispatchEvent(new Event('input'));
                         }
                     });
+                    // 展开 input-container
+                    const inputContainer = document.getElementById('input-container');
+                    if (inputContainer) {
+                        inputContainer.classList.remove('collapsed');
+                    }
+                    // 聚焦输入框
+                    messageInput.focus();
                     onSuccess();
                 }
             } catch (error) {
@@ -70,7 +92,7 @@ export function handleImageDrop(e, config) {
 }
 
 /**
- * 在输入框中插入图片
+ * 在输入框中插入图片（保留用于粘贴功能）
  * @param {Object} params - 参数对象
  * @param {HTMLElement} params.messageInput - 消息输入框元素
  * @param {Function} params.createImageTag - 创建图片标签的函数
@@ -78,7 +100,7 @@ export function handleImageDrop(e, config) {
  * @param {string} params.imageData.base64Data - 图片的base64数据
  * @param {string} params.imageData.fileName - 图片文件名
  */
-function insertImageToInput({ messageInput, createImageTag, imageData }) {
+export function insertImageToInput({ messageInput, createImageTag, imageData }) {
     const imageTag = createImageTag({
         base64Data: imageData.base64Data,
         fileName: imageData.fileName

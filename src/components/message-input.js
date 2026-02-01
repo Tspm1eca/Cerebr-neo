@@ -3,7 +3,7 @@
  * 处理用户输入、粘贴、拖放图片等交互
  */
 
-import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePreview } from '../utils/ui.js';
+import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePreview, addImageToPreview, clearImagePreview, getPreviewImages, updatePreviewVisibility } from '../utils/ui.js';
 import { handleImageDrop } from '../utils/image.js';
 
 // 跟踪输入法状态
@@ -231,7 +231,9 @@ export function initMessageInput(config) {
     const updateHasContentState = () => {
         // 过滤掉零宽空格等不可见字符
         const text = messageInput.textContent.replace(/[\u200b\u200c\u200d\uFEFF]/g, '').trim();
-        const hasContent = text !== '' || messageInput.querySelector('.image-tag');
+        // 检查输入框内的图片标签和预览区域的图片
+        const previewImages = getPreviewImages();
+        const hasContent = text !== '' || messageInput.querySelector('.image-tag') || previewImages.length > 0;
         if (shell) {
             if (hasContent) {
                 shell.classList.add('has-content');
@@ -331,7 +333,8 @@ export function initMessageInput(config) {
             e.preventDefault();
             // 过滤掉零宽空格等不可见字符
             const text = this.textContent.replace(/[\u200b\u200c\u200d\uFEFF]/g, '').trim();
-            if (text || this.querySelector('.image-tag')) {  // 检查是否有文本或图片
+            const previewImages = getPreviewImages();
+            if (text || this.querySelector('.image-tag') || previewImages.length > 0) {  // 检查是否有文本或图片（包括预览区域）
                 sendMessage();
             }
         } else if (e.key === 'Escape') {
@@ -389,38 +392,34 @@ export function initMessageInput(config) {
         const imageItem = items.find(item => item.type.startsWith('image/'));
 
         if (imageItem) {
-            // 处理图片粘贴
+            // 处理图片粘贴 - 使用新的预览区域
             const file = imageItem.getAsFile();
             const reader = new FileReader();
 
             reader.onload = async () => {
                 const base64Data = reader.result;
-                const imageTag = createImageTag({
+
+                // 添加到预览区域
+                addImageToPreview({
                     base64Data,
                     fileName: file.name,
-                    config: uiConfig.imageTag
-                });
-
-                // 在光标位置插入图片标签
-                const selection = window.getSelection();
-                const range = selection.getRangeAt(0);
-                range.deleteContents();
-                range.insertNode(imageTag);
-
-                // 移动光标到图片标签后面，并确保不会插入额外的换行
-                const newRange = document.createRange();
-                newRange.setStartAfter(imageTag);
-                newRange.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(newRange);
-
-                // 移除可能存在的多余行
-                const brElements = messageInput.getElementsByTagName('br');
-                Array.from(brElements).forEach(br => {
-                    if (br.previousSibling && br.previousSibling.classList && br.previousSibling.classList.contains('image-tag')) {
-                        br.remove();
+                    onImageClick: (data) => {
+                        showImagePreview({
+                            base64Data: data,
+                            config: uiConfig.imagePreview
+                        });
+                    },
+                    onDelete: () => {
+                        // 触发输入事件以更新状态
+                        messageInput.dispatchEvent(new Event('input'));
                     }
                 });
+
+                // 展开 input-container
+                const inputContainer = document.getElementById('input-container');
+                if (inputContainer) {
+                    inputContainer.classList.remove('collapsed');
+                }
 
                 // 触发输入事件以调整高度
                 messageInput.dispatchEvent(new Event('input'));
@@ -449,6 +448,12 @@ export function initMessageInput(config) {
         handleImageDrop(e, {
             messageInput,
             createImageTag,
+            onImageClick: (base64Data) => {
+                showImagePreview({
+                    base64Data,
+                    config: uiConfig.imagePreview
+                });
+            },
             onSuccess: () => {
                 // 成功处理后的回调
             },
@@ -507,7 +512,7 @@ export function updatePermanentPlaceholder(messageInput, modelName) {
 /**
  * 获取格式化后的消息内容（处理HTML转义和图片）
  * @param {HTMLElement} messageInput - 消息输入框元素
- * @returns {Object} 格式化后的内容和图片标签
+ * @returns {Object} 格式化后的内容和图片标签以及预览区域图片
  */
 export function getFormattedMessageContent(messageInput) {
     // 使用innerHTML获取内容，并将<br>转换为\n
@@ -523,20 +528,26 @@ export function getFormattedMessageContent(messageInput) {
     tempDiv.innerHTML = message;
     message = tempDiv.textContent;
 
-    // 获取图片标签
+    // 获取输入框内的图片标签
     const imageTags = messageInput.querySelectorAll('.image-tag');
 
-    return { message, imageTags };
+    // 获取预览区域的图片
+    const previewImages = getPreviewImages();
+
+    return { message, imageTags, previewImages };
 }
 
 /**
  * 构建消息内容对象（文本+图片）
  * @param {string} message - 消息文本
  * @param {NodeList} imageTags - 图片标签节点列表
+ * @param {Array} [previewImages] - 预览区域的图片数组
  * @returns {string|Array} 格式化后的消息内容
  */
-export function buildMessageContent(message, imageTags) {
-    if (imageTags.length > 0) {
+export function buildMessageContent(message, imageTags, previewImages = []) {
+    const hasImages = imageTags.length > 0 || previewImages.length > 0;
+
+    if (hasImages) {
         const content = [];
         if (message.trim()) {
             content.push({
@@ -544,6 +555,7 @@ export function buildMessageContent(message, imageTags) {
                 text: message
             });
         }
+        // 添加输入框内的图片
         imageTags.forEach(tag => {
             const base64Data = tag.getAttribute('data-image');
             if (base64Data) {
@@ -551,6 +563,17 @@ export function buildMessageContent(message, imageTags) {
                     type: "image_url",
                     image_url: {
                         url: base64Data
+                    }
+                });
+            }
+        });
+        // 添加预览区域的图片
+        previewImages.forEach(img => {
+            if (img.base64Data) {
+                content.push({
+                    type: "image_url",
+                    image_url: {
+                        url: img.base64Data
                     }
                 });
             }
@@ -571,6 +594,9 @@ export function clearMessageInput(messageInput, config) {
     // 重置高度和 overflow
     messageInput.style.height = '';
     messageInput.style.overflowY = '';
+
+    // 清空预览区域
+    clearImagePreview();
 
     // 清空后移除 has-content 状态
     const shell = messageInput.closest('.message-input-shell');
@@ -605,42 +631,31 @@ export function handleWindowMessage(event, config) {
         if (imageData && imageData.data) {
             // 确保base64数据格式正确
             const base64Data = imageData.data.startsWith('data:') ? imageData.data : `data:image/png;base64,${imageData.data}`;
-            const imageTag = createImageTag({
+
+            // 使用新的预览区域显示图片
+            addImageToPreview({
                 base64Data: base64Data,
                 fileName: imageData.name,
-                config: uiConfig.imageTag
+                onImageClick: (data) => {
+                    showImagePreview({
+                        base64Data: data,
+                        config: uiConfig.imagePreview
+                    });
+                },
+                onDelete: () => {
+                    // 触发输入事件以更新状态
+                    messageInput.dispatchEvent(new Event('input'));
+                }
             });
+
+            // 展开 input-container
+            const inputContainer = document.getElementById('input-container');
+            if (inputContainer) {
+                inputContainer.classList.remove('collapsed');
+            }
 
             // 确保输入框有焦点
             messageInput.focus();
-
-            // 获取或创建选区
-            const selection = window.getSelection();
-            let range;
-
-            // 检查是否有现有选区
-            if (selection.rangeCount > 0) {
-                range = selection.getRangeAt(0);
-            } else {
-                // 创建新的选区
-                range = document.createRange();
-                // 将选区设置到输入框的末尾
-                range.selectNodeContents(messageInput);
-                range.collapse(false);
-                selection.removeAllRanges();
-                selection.addRange(range);
-            }
-
-            // 插入图片标签
-            range.deleteContents();
-            range.insertNode(imageTag);
-
-            // 移动光标到图片标签后面
-            const newRange = document.createRange();
-            newRange.setStartAfter(imageTag);
-            newRange.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(newRange);
 
             // 触发输入事件以调整高度
             messageInput.dispatchEvent(new Event('input'));
