@@ -3,7 +3,7 @@ import { storageAdapter, browserAdapter, isExtensionEnvironment } from '../utils
 import { toggleQuickChatOptions } from './quick-chat.js';
 
 // 渲染历史
-export function renderChatList(chatManager, chatCards, searchTerm = '') {
+export async function renderChatList(chatManager, chatCards, searchTerm = '') {
     const template = chatCards.querySelector('.chat-card.template');
     const lowerCaseSearchTerm = searchTerm.toLowerCase();
 
@@ -16,6 +16,17 @@ export function renderChatList(chatManager, chatCards, searchTerm = '') {
 
     // 获取当前对话ID
     const currentChatId = chatManager.getCurrentChat()?.id;
+
+    // 获取当前网页的 URL
+    let currentPageUrl = null;
+    try {
+        const currentTab = await browserAdapter.getCurrentTab();
+        if (currentTab && currentTab.url) {
+            currentPageUrl = currentTab.url;
+        }
+    } catch (error) {
+        console.warn('無法獲取當前網頁 URL:', error);
+    }
 
     // 获取所有对话
     const allChats = chatManager.getAllChats();
@@ -63,6 +74,11 @@ export function renderChatList(chatManager, chatCards, searchTerm = '') {
                 // A more advanced implementation could show a dropdown.
                 window.open(chat.webpageUrls[0], '_blank');
             });
+
+            // 檢查是否與當前網頁 URL 匹配
+            if (currentPageUrl && chat.webpageUrls.includes(currentPageUrl)) {
+                card.classList.add('current-page-match');
+            }
         }
 
         chatCards.appendChild(card);

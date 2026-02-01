@@ -52,6 +52,18 @@
     box-shadow: 0 0 0 1px var(--cerebr-highlight-border-color);
 }
 
+/* 當前網頁匹配的卡片樣式 */
+.chat-card.current-page-match {
+    border-color: rgba(255, 193, 37, 0.6);
+    box-shadow: 0 0 0 1px rgba(255, 193, 37, 0.4);
+}
+
+.chat-card.current-page-match:hover,
+.chat-card.current-page-match:focus {
+    border-color: rgba(255, 193, 37, 0.7);
+    box-shadow: 0 4px 12px rgba(255, 193, 37, 0.3);
+}
+
 .chat-card .card-content {
     display: flex;
     justify-content: space-between;

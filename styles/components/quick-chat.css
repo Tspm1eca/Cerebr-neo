@@ -282,12 +282,6 @@
     padding: 15px;
     margin-bottom: 12px;
     position: relative;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.quick-chat-option-item:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px var(--cerebr-card-border-color);
 }
 
 .quick-chat-option-header {
