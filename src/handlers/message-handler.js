@@ -293,6 +293,7 @@ export function markWaitingMessageAsSearchUsed(chatContainer) {
  * @param {string} params.text.content - 主要消息内容
  * @param {string|null} params.text.reasoning_content - 深度思考内容
  * @param {HTMLElement} params.chatContainer - 聊天容器元素
+ * @param {Function} [params.addCopyButtonToCodeBlocks] - 可选的添加复制按钮函数
  * @returns {Promise<boolean>} 返回是否成功更新了消息
  */
 // 等待动画的特殊标记
@@ -300,7 +301,8 @@ const WAITING_ANIMATION_MARKER = '{{WAITING_ANIMATION}}';
 
 export async function updateAIMessage({
     text,
-    chatContainer
+    chatContainer,
+    addCopyButtonToCodeBlocks
 }) {
     // 处理文本内容
     let textContent = typeof text === 'string' ? text : text.content;
@@ -621,8 +623,8 @@ export async function updateAIMessage({
             });
 
             // 为新渲染的代码块添加复制按钮
-            if (window.addCopyButtonToCodeBlocks) {
-                window.addCopyButtonToCodeBlocks(mainContent);
+            if (addCopyButtonToCodeBlocks) {
+                addCopyButtonToCodeBlocks(mainContent);
             }
 
             // 内容更新完毕，处理尺寸过渡动画

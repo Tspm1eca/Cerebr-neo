@@ -1500,11 +1500,6 @@ let exaApiUrl = '';
       }
   }
 
-  // 兼容旧版本的函数别名
-  async function loadTavilyApiKey() {
-      await loadSearchSettings();
-  }
-
    function showToast(message, type = 'success') {
        const toast = document.createElement('div');
        toast.className = type === 'success' ? 'success-toast' : 'error-toast';
@@ -1673,7 +1668,7 @@ let exaApiUrl = '';
         // await loadWebpageSwitch();
         // 同步API配置（传入 skipInit=true 避免重复绑定事件）
         await loadAPIConfigs(true);
-        await loadTavilyApiKey();
+        await loadSearchSettings();
 
         // 同步历史
         await chatManager.initialize();
@@ -1706,7 +1701,7 @@ let exaApiUrl = '';
 
     // 等待 DOM 加载完成后再初始化
     await loadAPIConfigs();
-    await loadTavilyApiKey();
+    await loadSearchSettings();
 
     // 监听标题更新事件
     document.addEventListener('chat-title-updated', (e) => {

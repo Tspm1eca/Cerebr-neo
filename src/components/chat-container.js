@@ -225,7 +225,8 @@ export function initChatContainer({
         if (currentChat && currentChat.id === updatedChatId) {
             await updateAIMessage({
                 text: message,
-                chatContainer
+                chatContainer,
+                addCopyButtonToCodeBlocks
             });
         }
     };
@@ -347,9 +348,7 @@ export function initChatContainer({
                         }
 
                         // 为代码块添加复制按钮
-                        if (window.addCopyButtonToCodeBlocks) {
-                            window.addCopyButtonToCodeBlocks(mainContent);
-                        }
+                        addCopyButtonToCodeBlocks(mainContent);
 
                         // 更新 data-original-text 属性
                         messageElementToEdit.setAttribute('data-original-text', newText);
@@ -403,9 +402,7 @@ export function initChatContainer({
                         }
 
                         // 为代码块添加复制按钮
-                        if (window.addCopyButtonToCodeBlocks) {
-                            window.addCopyButtonToCodeBlocks(mainContent);
-                        }
+                        addCopyButtonToCodeBlocks(mainContent);
 
                         // 更新 data-original-text 属性
                         messageElementToEdit.setAttribute('data-original-text', newText);
@@ -881,7 +878,6 @@ export function initChatContainer({
          setupGlobalEvents();
          initializeUserQuestions();
          addCopyButtonToCodeBlocks(chatContainer); // 为已存在的代码块添加按钮
-         window.addCopyButtonToCodeBlocks = addCopyButtonToCodeBlocks;
      }
 
      // 立即执行初始化
@@ -927,6 +923,7 @@ export function initChatContainer({
     return {
         syncMessage,
         setupButtonHandlers,
-        initializeUserQuestions
+        initializeUserQuestions,
+        addCopyButtonToCodeBlocks
     };
 }

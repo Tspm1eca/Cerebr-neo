@@ -23,18 +23,6 @@ self.addEventListener('activate', (event) => {
 // 添加启动日志
 // console.log('Background script loaded at:', new Date().toISOString());
 
-function checkCustomShortcut(callback) {
-  chrome.commands.getAll((commands) => {
-      const toggleCommand = commands.find(command => command.name === '_execute_action' || command.name === '_execute_browser_action');
-      if (toggleCommand && toggleCommand.shortcut) {
-          console.log('当前设置的快捷键:', toggleCommand.shortcut);
-          // 直接获取最后一个字符并转换为小写
-          const lastLetter = toggleCommand.shortcut.charAt(toggleCommand.shortcut.length - 1).toLowerCase();
-          callback(lastLetter);
-      }
-  });
-}
-
 // 重新注入 content script 并等待连接
 async function reinjectContentScript(tabId) {
   console.log('标签页未连接，尝试重新注入 content script...');
@@ -372,14 +360,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
         chrome.storage.local.set({ webpageSwitchDomains: domains });
     }
 });
-
-// 简化Service Worker活跃保持
-const HEARTBEAT_INTERVAL = 20000;
-const keepAliveInterval = setInterval(() => {
-    // console.log('Service Worker 心跳:', new Date().toISOString());
-}, HEARTBEAT_INTERVAL);
-
-self.addEventListener('beforeunload', () => clearInterval(keepAliveInterval));
 
 // 简化初始化检查
 chrome.runtime.onInstalled.addListener(() => {
