@@ -13,6 +13,23 @@ const WEBDAV_LOCAL_HASH_KEY = 'webdav_local_hash';
 const WEBDAV_LAST_SYNC_TIMESTAMP_KEY = 'webdav_last_sync_timestamp';
 const CHATS_KEY = 'cerebr_chats';
 
+// HTTP 狀態碼常量
+const HTTP_STATUS = {
+    OK: 200,
+    CREATED: 201,
+    NO_CONTENT: 204,
+    MULTI_STATUS: 207,
+    MOVED_PERMANENTLY: 301,
+    UNAUTHORIZED: 401,
+    NOT_FOUND: 404,
+    METHOD_NOT_ALLOWED: 405,
+    CONFLICT: 409,
+    FAILED_DEPENDENCY: 424
+};
+
+// 默認請求超時時間（毫秒）
+const DEFAULT_TIMEOUT = 30000;
+
 // 默認配置
 const DEFAULT_CONFIG = {
     serverUrl: '',
@@ -60,6 +77,48 @@ class WebDAVClient {
     }
 
     /**
+     * 帶超時的 fetch 請求
+     * @param {string} url - 請求 URL
+     * @param {Object} options - fetch 選項
+     * @param {number} timeout - 超時時間（毫秒），默認 30000
+     * @returns {Promise<Response>}
+     */
+    async fetchWithTimeout(url, options, timeout = DEFAULT_TIMEOUT) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        try {
+            const response = await fetch(url, { ...options, signal: controller.signal });
+            return response;
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error(`請求超時（${timeout / 1000}秒）`);
+            }
+            throw error;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
+    /**
+     * 帶目錄重試的操作包裝器
+     * @param {Function} operation - 要執行的操作
+     * @param {string} operationName - 操作名稱（用於日誌）
+     * @returns {Promise<any>}
+     */
+    async withDirectoryRetry(operation, operationName) {
+        try {
+            return await operation();
+        } catch (error) {
+            if (error.status === HTTP_STATUS.FAILED_DEPENDENCY || error.status === HTTP_STATUS.CONFLICT) {
+                console.warn(`[WebDAV] ${operationName} 遇到目錄問題，嘗試創建後重試`);
+                await this.createDirectory();
+                return await operation();
+            }
+            throw error;
+        }
+    }
+
+    /**
      * 測試連接
      */
     async testConnection() {
@@ -69,7 +128,7 @@ class WebDAVClient {
 
         try {
             // 嘗試 PROPFIND 請求來測試連接
-            const response = await fetch(this.getFullUrl(), {
+            const response = await this.fetchWithTimeout(this.getFullUrl(), {
                 method: 'PROPFIND',
                 headers: {
                     ...this.getAuthHeaders(),
@@ -77,7 +136,7 @@ class WebDAVClient {
                 }
             });
 
-            if (response.status === 404) {
+            if (response.status === HTTP_STATUS.NOT_FOUND) {
                 // 目錄不存在，嘗試創建
                 const result = await this.createDirectory();
                 if (result.error) {
@@ -87,11 +146,11 @@ class WebDAVClient {
                 return { success: true, message: '連接成功' };
             }
 
-            if (response.status === 207 || response.status === 200) {
+            if (response.status === HTTP_STATUS.MULTI_STATUS || response.status === HTTP_STATUS.OK) {
                 return { success: true, message: '連接成功' };
             }
 
-            if (response.status === 401) {
+            if (response.status === HTTP_STATUS.UNAUTHORIZED) {
                 throw new Error('認證失敗，請檢查用戶名和密碼');
             }
 
@@ -110,23 +169,23 @@ class WebDAVClient {
      */
     async createDirectory() {
         try {
-            const response = await fetch(this.getFullUrl(), {
+            const response = await this.fetchWithTimeout(this.getFullUrl(), {
                 method: 'MKCOL',
                 headers: this.getAuthHeaders()
             });
 
-            if (response.status === 201) {
+            if (response.status === HTTP_STATUS.CREATED) {
                 // 成功創建
                 return { created: true, error: null };
             }
 
-            if (response.status === 405 || response.status === 301) {
+            if (response.status === HTTP_STATUS.METHOD_NOT_ALLOWED || response.status === HTTP_STATUS.MOVED_PERMANENTLY) {
                 // 405: 目錄已存在
                 // 301: 某些 WebDAV 伺服器對已存在目錄的回應
                 return { created: false, error: null };
             }
 
-            if (response.status === 409 || response.status === 424) {
+            if (response.status === HTTP_STATUS.CONFLICT || response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
                 // 409 Conflict: 父目錄不存在，需要遞迴創建
                 // 424 Failed Dependency: 某些 WebDAV 伺服器在父目錄不存在時返回此狀態碼
                 const parentCreated = await this.createParentDirectories();
@@ -158,17 +217,17 @@ class WebDAVClient {
             const url = `${baseUrl}${currentPath}`;
 
             try {
-                const response = await fetch(url, {
+                const response = await this.fetchWithTimeout(url, {
                     method: 'MKCOL',
                     headers: this.getAuthHeaders()
                 });
 
                 // 201: 創建成功, 405/301: 已存在
                 // 注意：某些伺服器可能返回 409 或 424，這裡我們繼續嘗試下一層
-                if (response.status !== 201 && response.status !== 405 &&
-                    response.status !== 301 && response.status !== 409) {
+                if (response.status !== HTTP_STATUS.CREATED && response.status !== HTTP_STATUS.METHOD_NOT_ALLOWED &&
+                    response.status !== HTTP_STATUS.MOVED_PERMANENTLY && response.status !== HTTP_STATUS.CONFLICT) {
                     // 424 表示依賴失敗，可能是更深層的父目錄問題，繼續嘗試
-                    if (response.status !== 424) {
+                    if (response.status !== HTTP_STATUS.FAILED_DEPENDENCY) {
                         console.warn(`[WebDAV] 創建目錄 ${currentPath} 失敗: HTTP ${response.status}`);
                         return false;
                     }
@@ -185,73 +244,78 @@ class WebDAVClient {
      * 上傳數據到 WebDAV
      * @param {string} filename - 文件名
      * @param {Object} data - 要上傳的數據
-     * @param {boolean} isRetry - 是否為重試請求（內部使用）
      */
-    async uploadData(filename, data, isRetry = false) {
+    async uploadData(filename, data) {
         const url = this.getFullUrl(filename);
-        let response = await fetch(url, {
-            method: 'PUT',
-            headers: this.getAuthHeaders(),
-            body: JSON.stringify(data)
-        });
 
-        // 處理 424 Failed Dependency 或 409 Conflict - 目錄可能不存在
-        if ((response.status === 424 || response.status === 409) && !isRetry) {
-            console.warn(`[WebDAV] 上傳遇到 HTTP ${response.status}，嘗試創建目錄後重試`);
-            const dirResult = await this.createDirectory();
-            if (!dirResult.error) {
-                // 重試上傳（標記為重試以避免無限循環）
-                return await this.uploadData(filename, data, true);
-            } else {
-                throw new Error(`上傳失敗: 無法創建目錄 - ${dirResult.error}`);
+        const doUpload = async () => {
+            const response = await this.fetchWithTimeout(url, {
+                method: 'PUT',
+                headers: this.getAuthHeaders(),
+                body: JSON.stringify(data)
+            });
+
+            // 處理 424 Failed Dependency 或 409 Conflict - 目錄可能不存在
+            if (response.status === HTTP_STATUS.FAILED_DEPENDENCY || response.status === HTTP_STATUS.CONFLICT) {
+                const error = new Error(`上傳失敗: HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
             }
-        }
 
-        if (!response.ok && response.status !== 201 && response.status !== 204) {
-            throw new Error(`上傳失敗: HTTP ${response.status}`);
-        }
+            if (!response.ok && response.status !== HTTP_STATUS.CREATED && response.status !== HTTP_STATUS.NO_CONTENT) {
+                throw new Error(`上傳失敗: HTTP ${response.status}`);
+            }
 
-        return true;
+            return true;
+        };
+
+        return await this.withDirectoryRetry(doUpload, '上傳數據');
     }
 
     /**
      * 從 WebDAV 下載數據
      * @param {string} filename - 文件名
-     * @param {boolean} isRetry - 是否為重試請求（內部使用）
      */
-    async downloadData(filename, isRetry = false) {
+    async downloadData(filename) {
         const url = this.getFullUrl(filename);
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: this.getAuthHeaders()
-        });
 
-        if (response.status === 404) {
-            return null; // 文件不存在
-        }
+        const doDownload = async () => {
+            const response = await this.fetchWithTimeout(url, {
+                method: 'GET',
+                headers: this.getAuthHeaders()
+            });
 
-        // 處理 424 Failed Dependency - 目錄可能不存在
-        // 當用戶初次配置 WebDAV 但未點擊「測試連接」就直接下載時會觸發
-        if (response.status === 424 && !isRetry) {
-            console.warn(`[WebDAV] 下載遇到 HTTP 424，嘗試創建目錄後重試`);
-            const dirResult = await this.createDirectory();
-            if (!dirResult.error) {
-                // 重試下載（標記為重試以避免無限循環）
-                return await this.downloadData(filename, true);
+            if (response.status === HTTP_STATUS.NOT_FOUND) {
+                return null; // 文件不存在
             }
-            // 目錄創建成功但文件仍不存在，返回 null
-            return null;
-        }
 
-        if (!response.ok) {
-            throw new Error(`下載失敗: HTTP ${response.status}`);
-        }
+            // 處理 424 Failed Dependency - 目錄可能不存在
+            if (response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
+                const error = new Error(`下載失敗: HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
 
-        const text = await response.text();
+            if (!response.ok) {
+                throw new Error(`下載失敗: HTTP ${response.status}`);
+            }
+
+            const text = await response.text();
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                throw new Error('數據格式錯誤');
+            }
+        };
+
         try {
-            return JSON.parse(text);
-        } catch (e) {
-            throw new Error('數據格式錯誤');
+            return await this.withDirectoryRetry(doDownload, '下載數據');
+        } catch (error) {
+            // 如果重試後仍然是目錄問題，返回 null（文件不存在）
+            if (error.status === HTTP_STATUS.FAILED_DEPENDENCY) {
+                return null;
+            }
+            throw error;
         }
     }
 
@@ -260,12 +324,12 @@ class WebDAVClient {
      */
     async deleteFile(filename) {
         const url = this.getFullUrl(filename);
-        const response = await fetch(url, {
+        const response = await this.fetchWithTimeout(url, {
             method: 'DELETE',
             headers: this.getAuthHeaders()
         });
 
-        if (!response.ok && response.status !== 404) {
+        if (!response.ok && response.status !== HTTP_STATUS.NOT_FOUND) {
             throw new Error(`刪除失敗: HTTP ${response.status}`);
         }
 
@@ -275,46 +339,52 @@ class WebDAVClient {
     /**
      * 獲取遠端文件的 ETag（輕量級 HEAD 請求）
      * @param {string} filename - 文件名
-     * @param {boolean} isRetry - 是否為重試請求（內部使用）
      * @returns {Promise<string|null>} ETag 或 Last-Modified 值，文件不存在時返回 null
      */
-    async getRemoteETag(filename, isRetry = false) {
+    async getRemoteETag(filename) {
         const url = this.getFullUrl(filename);
-        const response = await fetch(url, {
-            method: 'HEAD',
-            headers: this.getAuthHeaders()
-        });
 
-        if (response.status === 404) {
-            return null; // 文件不存在
-        }
+        const doGetETag = async () => {
+            const response = await this.fetchWithTimeout(url, {
+                method: 'HEAD',
+                headers: this.getAuthHeaders()
+            });
 
-        // 處理 424 Failed Dependency - 目錄可能不存在
-        // 當用戶初次配置 WebDAV 但未點擊「測試連接」就刷新頁面，下次開啟時會觸發
-        if (response.status === 424 && !isRetry) {
-            console.warn(`[WebDAV] 獲取 ETag 遇到 HTTP 424，嘗試創建目錄後重試`);
-            const dirResult = await this.createDirectory();
-            if (!dirResult.error) {
-                // 重試獲取 ETag（標記為重試以避免無限循環）
-                return await this.getRemoteETag(filename, true);
+            if (response.status === HTTP_STATUS.NOT_FOUND) {
+                return null; // 文件不存在
             }
-            // 目錄創建成功但文件仍不存在，返回 null
-            return null;
-        }
 
-        if (!response.ok) {
-            throw new Error(`獲取 ETag 失敗: HTTP ${response.status}`);
-        }
+            // 處理 424 Failed Dependency - 目錄可能不存在
+            if (response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
+                const error = new Error(`獲取 ETag 失敗: HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
 
-        // 優先使用 ETag，若無則使用 Last-Modified
-        return response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
+            if (!response.ok) {
+                throw new Error(`獲取 ETag 失敗: HTTP ${response.status}`);
+            }
+
+            // 優先使用 ETag，若無則使用 Last-Modified
+            return response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
+        };
+
+        try {
+            return await this.withDirectoryRetry(doGetETag, '獲取 ETag');
+        } catch (error) {
+            // 如果重試後仍然是目錄問題，返回 null（文件不存在）
+            if (error.status === HTTP_STATUS.FAILED_DEPENDENCY) {
+                return null;
+            }
+            throw error;
+        }
     }
 
     /**
      * 獲取遠端文件列表
      */
     async listFiles() {
-        const response = await fetch(this.getFullUrl(), {
+        const response = await this.fetchWithTimeout(this.getFullUrl(), {
             method: 'PROPFIND',
             headers: {
                 ...this.getAuthHeaders(),
@@ -322,7 +392,7 @@ class WebDAVClient {
             }
         });
 
-        if (!response.ok && response.status !== 207) {
+        if (!response.ok && response.status !== HTTP_STATUS.MULTI_STATUS) {
             throw new Error(`獲取文件列表失敗: HTTP ${response.status}`);
         }
 
@@ -756,10 +826,10 @@ class WebDAVSyncManager {
     }
 
     /**
-     * 解決衝突 - 使用時間戳優先策略
-     * @returns {Promise<string>} 'upload' 或 'download'
+     * 獲取衝突信息 - 返回本地和遠端的時間戳信息供用戶選擇
+     * @returns {Promise<Object>} { localTimestamp, remoteTimestamp, recommendation }
      */
-    async resolveConflict() {
+    async getConflictInfo() {
         try {
             // 獲取本地最後同步時間戳
             const localResult = await syncStorageAdapter.get(WEBDAV_LAST_SYNC_TIMESTAMP_KEY);
@@ -769,50 +839,51 @@ class WebDAVSyncManager {
             const remoteData = await this.client.downloadData('cerebr.json');
             const remoteTimestamp = remoteData?.timestamp;
 
-            if (!localTimestamp && !remoteTimestamp) {
-                // 都沒有時間戳，默認上傳
-                console.log('[WebDAV] 衝突解決：無時間戳記錄，默認上傳');
-                return 'upload';
+            // 計算推薦方向
+            let recommendation = 'upload';
+            if (!localTimestamp && remoteTimestamp) {
+                recommendation = 'download';
+            } else if (localTimestamp && remoteTimestamp) {
+                const localTime = new Date(localTimestamp).getTime();
+                const remoteTime = new Date(remoteTimestamp).getTime();
+                recommendation = localTime >= remoteTime ? 'upload' : 'download';
             }
 
-            if (!localTimestamp) {
-                // 本地沒有時間戳，使用遠端
-                console.log('[WebDAV] 衝突解決：本地無時間戳，下載遠端');
-                return 'download';
-            }
-
-            if (!remoteTimestamp) {
-                // 遠端沒有時間戳，使用本地
-                console.log('[WebDAV] 衝突解決：遠端無時間戳，上傳本地');
-                return 'upload';
-            }
-
-            // 比較時間戳
-            const localTime = new Date(localTimestamp).getTime();
-            const remoteTime = new Date(remoteTimestamp).getTime();
-
-            if (localTime >= remoteTime) {
-                console.log(`[WebDAV] 衝突解決：本地較新 (${localTimestamp} >= ${remoteTimestamp})，上傳`);
-                return 'upload';
-            } else {
-                console.log(`[WebDAV] 衝突解決：遠端較新 (${remoteTimestamp} > ${localTimestamp})，下載`);
-                return 'download';
-            }
+            return {
+                localTimestamp,
+                remoteTimestamp,
+                recommendation
+            };
         } catch (error) {
-            console.error('[WebDAV] 衝突解決失敗:', error);
-            // 失敗時默認上傳
-            return 'upload';
+            console.error('[WebDAV] 獲取衝突信息失敗:', error);
+            return {
+                localTimestamp: null,
+                remoteTimestamp: null,
+                recommendation: 'upload'
+            };
         }
     }
 
     /**
-     * 插件開啟時執行同步（使用 ETag 和 Hash 預檢查優化，支援雙向同步）
-     * @returns {Promise<Object>} 同步結果 { synced: boolean, direction: string|null, result: Object|null, error: string|null }
+     * 解決衝突 - 使用時間戳優先策略（自動模式）
+     * @returns {Promise<string>} 'upload' 或 'download'
      */
-    async syncOnOpen() {
+    async resolveConflict() {
+        const conflictInfo = await this.getConflictInfo();
+        console.log(`[WebDAV] 衝突自動解決：推薦 ${conflictInfo.recommendation}`);
+        return conflictInfo.recommendation;
+    }
+
+    /**
+     * 插件開啟時執行同步（使用 ETag 和 Hash 預檢查優化，支援雙向同步）
+     * @param {Object} options - 選項
+     * @param {Function} options.onConflict - 衝突時的回調函數，返回 Promise<'upload'|'download'>
+     * @returns {Promise<Object>} 同步結果 { synced: boolean, direction: string|null, result: Object|null, error: string|null, conflict: Object|null }
+     */
+    async syncOnOpen(options = {}) {
         if (!this.config.enabled) {
             console.log('[WebDAV] 開啟同步：WebDAV 未啟用');
-            return { synced: false, direction: null, result: null, error: null };
+            return { synced: false, direction: null, result: null, error: null, conflict: null };
         }
 
         try {
@@ -821,24 +892,39 @@ class WebDAVSyncManager {
 
             if (!status.needsSync) {
                 console.log('[WebDAV] 開啟同步檢查：無需同步 -', status.reason);
-                return { synced: false, direction: null, result: null, error: null };
+                return { synced: false, direction: null, result: null, error: null, conflict: null };
             }
 
             console.log('[WebDAV] 開啟同步檢查：需要同步 -', status.reason);
 
             let direction = status.direction;
 
-            // 如果是衝突，使用時間戳優先策略解決
+            // 如果是衝突，檢查是否有用戶選擇回調
             if (direction === 'conflict') {
-                direction = await this.resolveConflict();
-                console.log('[WebDAV] 衝突已解決，同步方向:', direction);
+                const conflictInfo = await this.getConflictInfo();
+
+                if (options.onConflict && typeof options.onConflict === 'function') {
+                    // 返回衝突信息，讓調用者處理
+                    console.log('[WebDAV] 檢測到衝突，等待用戶選擇');
+                    return {
+                        synced: false,
+                        direction: 'conflict',
+                        result: null,
+                        error: null,
+                        conflict: conflictInfo
+                    };
+                } else {
+                    // 沒有回調，使用自動解決
+                    direction = conflictInfo.recommendation;
+                    console.log('[WebDAV] 衝突自動解決，同步方向:', direction);
+                }
             }
 
             // 根據方向執行同步
             if (direction === 'upload') {
                 const result = await this.syncToRemote();
                 console.log('[WebDAV] 開啟同步完成：已上傳到遠端');
-                return { synced: true, direction: 'upload', result, error: null };
+                return { synced: true, direction: 'upload', result, error: null, conflict: null };
             } else if (direction === 'download') {
                 const result = await this.syncFromRemote();
                 console.log('[WebDAV] 開啟同步完成：已從遠端下載');
@@ -846,13 +932,13 @@ class WebDAVSyncManager {
                 if (result.needsReload) {
                     this.notifyListeners('sync-reload-required', { reason: '開啟同步下載了新數據' });
                 }
-                return { synced: true, direction: 'download', result, error: null };
+                return { synced: true, direction: 'download', result, error: null, conflict: null };
             }
 
-            return { synced: false, direction: null, result: null, error: null };
+            return { synced: false, direction: null, result: null, error: null, conflict: null };
         } catch (error) {
             console.error('[WebDAV] 開啟同步失敗:', error);
-            return { synced: false, direction: null, result: null, error: error.message };
+            return { synced: false, direction: null, result: null, error: error.message, conflict: null };
         }
     }
 
@@ -864,7 +950,7 @@ class WebDAVSyncManager {
     }
 
     /**
-     * 移除事件監聯器
+     * 移除事件監聽器
      */
     removeListener(callback) {
         this.listeners.delete(callback);

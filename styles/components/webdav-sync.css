@@ -323,3 +323,117 @@
     opacity: 1;
     pointer-events: auto;
 }
+
+/* ==================== 衝突解決對話框樣式 ==================== */
+.webdav-conflict-content {
+    max-width: 360px;
+}
+
+.conflict-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    color: #f59e0b;
+}
+
+.conflict-header svg {
+    flex-shrink: 0;
+}
+
+.conflict-header span {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--cerebr-text-color);
+}
+
+.conflict-message {
+    font-size: 14px;
+    color: var(--cerebr-text-color);
+    opacity: 0.8;
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+.conflict-info {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.conflict-option {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    background: var(--cerebr-input-bg);
+    border: 1px solid var(--cerebr-border-color);
+    border-radius: 8px;
+}
+
+.conflict-option-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--cerebr-text-color);
+}
+
+.conflict-option-header svg {
+    opacity: 0.7;
+}
+
+.conflict-option-time {
+    font-size: 12px;
+    color: var(--cerebr-text-color);
+    opacity: 0.6;
+    padding-left: 24px;
+}
+
+.conflict-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.conflict-btn-local,
+.conflict-btn-remote {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.conflict-btn-local {
+    background-color: var(--cerebr-highlight-border-color);
+    color: #fff;
+    border: none;
+}
+
+.conflict-btn-local:hover {
+    opacity: 0.9;
+}
+
+.conflict-btn-remote {
+    background-color: var(--cerebr-message-user-bg);
+    color: var(--cerebr-text-color);
+    border: 1px solid var(--cerebr-border-color);
+}
+
+.conflict-btn-remote:hover {
+    background-color: var(--cerebr-button-hover-bg);
+    border-color: var(--cerebr-highlight-border-color);
+}
+
+.conflict-btn-local svg,
+.conflict-btn-remote svg {
+    flex-shrink: 0;
+}

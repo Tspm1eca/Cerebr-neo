@@ -512,6 +512,61 @@
         </div>
     </div>
 
+    <!-- WebDAV Conflict Resolution Modal -->
+    <div id="webdav-conflict-modal" class="confirm-modal" style="display: none;">
+        <div class="confirm-modal-content webdav-conflict-content">
+            <div class="conflict-header">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                <span>同步冲突</span>
+            </div>
+            <p class="conflict-message">本地和云端数据都有更改，请选择要保留的版本：</p>
+            <div class="conflict-info">
+                <div class="conflict-option" id="conflict-local-info">
+                    <div class="conflict-option-header">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                        </svg>
+                        <span>本地数据</span>
+                    </div>
+                    <div class="conflict-option-time" id="conflict-local-time">--</div>
+                </div>
+                <div class="conflict-option" id="conflict-remote-info">
+                    <div class="conflict-option-header">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+                        </svg>
+                        <span>云端数据</span>
+                    </div>
+                    <div class="conflict-option-time" id="conflict-remote-time">--</div>
+                </div>
+            </div>
+            <div class="confirm-modal-actions conflict-actions">
+                <button id="conflict-use-local" class="modal-button conflict-btn-local">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    使用本地
+                </button>
+                <button id="conflict-use-remote" class="modal-button conflict-btn-remote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    使用云端
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- System Prompt Expand Modal -->
     <div id="system-prompt-modal" class="system-prompt-modal" style="display: none;">
         <div class="system-prompt-modal-content">
