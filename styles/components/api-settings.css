@@ -206,6 +206,18 @@
     height: 16px;
 }
 
+/* 測試連接成功狀態 - 綠色勾 */
+.test-connection-btn.success {
+    color: #4caf50;
+    opacity: 1;
+}
+
+/* 測試連接失敗狀態 - 紅色叉 */
+.test-connection-btn.error {
+    color: #f44336;
+    opacity: 1;
+}
+
 /* 動畫定義已移至 @/styles/utils/animations.css */
 
 .spin {
@@ -238,53 +250,6 @@
 .model-list-item:hover,
 .model-list-item.highlighted {
     background-color: var(--cerebr-button-hover-bg);
-}
-.advanced-settings {
-    margin-top: 0px;
-}
-
-.advanced-settings-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
-    background-color: var(--cerebr-message-ai-bg);
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-    user-select: none;
-}
-
-.advanced-settings-header:hover {
-    background-color: var(--cerebr-button-hover-bg);
-}
-
-.advanced-settings-header .toggle-icon {
-    transition: transform 0.3s ease;
-    font-size: 12px;
-    color: var(--cerebr-text-color);
-    opacity: 0.7;
-}
-
-.advanced-settings-content {
-    overflow: hidden;
-    transition: all 0.3s ease;
-    max-height: 0;
-    opacity: 0;
-}
-
-.advanced-settings-content.visible {
-    max-height: 200px;
-    opacity: 1;
-}
-
-.advanced-settings-content.expanding {
-    animation: expandDown 0.3s ease-out forwards;
-    display: block;
-}
-
-.advanced-settings-content.collapsing {
-    animation: collapseUp 0.3s ease-out forwards;
 }
 
 .setting-item {
@@ -346,12 +311,6 @@
     outline: none;
     border-color: var(--cerebr-highlight-border-color);
     box-shadow: 0 0 0 1px var(--cerebr-highlight-border-color);
-}
-
-/* 限制 advanced-settings-content 的最大高度 */
-.advanced-settings-content.visible {
-    max-height: calc(100vh - 400px);
-    overflow-y: auto;
 }
 
 /* Profile Selector Styles */
@@ -681,6 +640,20 @@
 .test-exa-btn svg {
     width: 16px;
     height: 16px;
+}
+
+/* Tavily/Exa 測試連接成功狀態 - 綠色勾 */
+.test-tavily-btn.success,
+.test-exa-btn.success {
+    color: #4caf50;
+    opacity: 1;
+}
+
+/* Tavily/Exa 測試連接失敗狀態 - 紅色叉 */
+.test-tavily-btn.error,
+.test-exa-btn.error {
+    color: #f44336;
+    opacity: 1;
 }
 
 /* URL 输入框样式 */

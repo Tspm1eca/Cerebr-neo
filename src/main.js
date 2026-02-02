@@ -18,6 +18,7 @@ import {
 } from './components/chat-list.js';
 import { initWebpageMenu, getEnabledTabsContent } from './components/webpage-menu.js';
 import { initQuickChat, toggleQuickChatOptions } from './components/quick-chat.js';
+import { webdavSyncManager } from './services/webdav-sync.js';
 
 // 存储用户的问题历史
 let userQuestions = [];
@@ -136,7 +137,7 @@ let exaApiUrl = '';
     });
 
     // 初始化常用聊天選項
-    initQuickChat({
+    const quickChatController = await initQuickChat({
         quickChatContainer,
         messageInput,
         settingsPage: quickChatSettingsPage,
@@ -208,6 +209,11 @@ let exaApiUrl = '';
             const currentChat = chatManager.getCurrentChat();
             const hasMessages = currentChat && currentChat.messages && currentChat.messages.length > 0;
             toggleQuickChatOptions(!hasMessages);
+        }
+
+        // 當用戶通過 Alt+Z 開啟插件時觸發 WebDAV 同步
+        if (event.data.type === 'FOCUS_INPUT') {
+            performWebDAVSyncOnOpen();
         }
     });
 
@@ -1409,6 +1415,7 @@ let exaApiUrl = '';
               throw new Error(errorMsg);
           }
 
+          button.classList.add('success');
           button.innerHTML = `
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M20 6L9 17l-5-5"/>
@@ -1418,6 +1425,7 @@ let exaApiUrl = '';
       } catch (error) {
           console.error('Tavily test connection error:', error);
           showToast(`Tavily 连接失败: ${error.message}`, 'error');
+          button.classList.add('error');
           button.innerHTML = `
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -1427,6 +1435,7 @@ let exaApiUrl = '';
       } finally {
           setTimeout(() => {
               button.disabled = false;
+              button.classList.remove('success', 'error');
               button.innerHTML = originalBtnContent;
           }, 3000);
       }
@@ -1477,6 +1486,7 @@ let exaApiUrl = '';
               throw new Error(errorMsg);
           }
 
+          button.classList.add('success');
           button.innerHTML = `
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M20 6L9 17l-5-5"/>
@@ -1486,6 +1496,7 @@ let exaApiUrl = '';
       } catch (error) {
           console.error('Exa test connection error:', error);
           showToast(`Exa 连接失败: ${error.message}`, 'error');
+          button.classList.add('error');
           button.innerHTML = `
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -1495,6 +1506,7 @@ let exaApiUrl = '';
       } finally {
           setTimeout(() => {
               button.disabled = false;
+              button.classList.remove('success', 'error');
               button.innerHTML = originalBtnContent;
           }, 3000);
       }
@@ -1633,8 +1645,8 @@ let exaApiUrl = '';
             if (!skipInit) {
                 initAPICardWithCallbacks();
             } else if (apiCardController) {
-                // 标签页切换时只更新 UI，不重新绑定事件
-                apiCardController.setSelectedIndex(selectedConfigIndex);
+                // 标签页切换或 WebDAV 同步后更新配置和 UI，不重新绑定事件
+                apiCardController.updateConfigs(apiConfigs, selectedConfigIndex);
             }
             updatePlaceholderWithCurrentModel();
             chatManager.setApiConfig(apiConfigs[selectedConfigIndex]); // 初始化时设置API配置
@@ -1655,7 +1667,7 @@ let exaApiUrl = '';
             if (!skipInit) {
                 initAPICardWithCallbacks();
             } else if (apiCardController) {
-                apiCardController.setSelectedIndex(selectedConfigIndex);
+                apiCardController.updateConfigs(apiConfigs, selectedConfigIndex);
             }
             updatePlaceholderWithCurrentModel();
             chatManager.setApiConfig(apiConfigs[selectedConfigIndex]); // 初始化时设置API配置
@@ -1702,6 +1714,274 @@ let exaApiUrl = '';
     // 等待 DOM 加载完成后再初始化
     await loadAPIConfigs();
     await loadSearchSettings();
+
+    // ==================== WebDAV 同步設置 ====================
+    // WebDAV 設置元素
+    const webdavEnabledSwitch = document.getElementById('webdav-enabled-switch');
+    const webdavServerUrl = document.getElementById('webdav-server-url');
+    const webdavUsername = document.getElementById('webdav-username');
+    const webdavPassword = document.getElementById('webdav-password');
+    const webdavTogglePassword = document.getElementById('webdav-toggle-password');
+    const webdavSyncPath = document.getElementById('webdav-sync-path');
+    const webdavTestConnection = document.getElementById('webdav-test-connection');
+    const webdavSyncApiSwitch = document.getElementById('webdav-sync-api-switch');
+    const webdavSyncUpload = document.getElementById('webdav-sync-upload');
+    const webdavSyncDownload = document.getElementById('webdav-sync-download');
+    const webdavLastSyncTime = document.getElementById('webdav-last-sync-time');
+    const webdavForm = document.querySelector('.webdav-form');
+
+    // 初始化 WebDAV 同步管理器
+    await webdavSyncManager.initialize();
+
+    // WebDAV 同步函數 - 當用戶通過 Alt+Z 開啟插件時調用
+    async function performWebDAVSyncOnOpen() {
+        try {
+            const syncResult = await webdavSyncManager.syncOnOpen();
+            if (syncResult.synced) {
+                console.log(`[WebDAV] 開啟同步完成: ${syncResult.direction}`);
+                // 如果是下載，需要重新載入數據
+                if (syncResult.direction === 'download' && syncResult.result?.needsReload) {
+                    await chatManager.initialize();
+                    const chatCards = chatListPage.querySelector('.chat-cards');
+                    await renderChatList(chatManager, chatCards);
+
+                    const currentChat = chatManager.getCurrentChat();
+                    if (currentChat) {
+                        await loadChatContent(currentChat, chatContainer);
+                    }
+
+                    // 如果 API 配置被同步，重新加載 API 配置和搜索設置
+                    if (syncResult.result?.apiConfigSynced) {
+                        await loadAPIConfigs(true);
+                        await loadSearchSettings();
+                    }
+
+                    // 重新載入快速選項
+                    await quickChatController.loadQuickChatOptions();
+                }
+            }
+        } catch (error) {
+            console.error('[WebDAV] 開啟同步失敗:', error);
+        }
+    }
+
+    // 加載 WebDAV 設置到 UI
+    async function loadWebDAVSettings() {
+        const config = webdavSyncManager.getConfig();
+
+        webdavEnabledSwitch.checked = config.enabled;
+        webdavServerUrl.value = config.serverUrl || '';
+        webdavUsername.value = config.username || '';
+        webdavPassword.value = config.password || '';
+        webdavSyncPath.value = config.syncPath || '/cerebr-sync/';
+        webdavSyncApiSwitch.checked = config.syncApiConfig || false;
+
+        // 更新表單禁用狀態
+        updateWebDAVFormState(config.enabled);
+
+        // 更新最後同步時間
+        await updateLastSyncTimeDisplay();
+    }
+
+    // 更新表單禁用狀態
+    function updateWebDAVFormState(enabled) {
+        if (webdavForm) {
+            if (enabled) {
+                webdavForm.classList.remove('disabled');
+            } else {
+                webdavForm.classList.add('disabled');
+            }
+        }
+    }
+
+    // 更新最後同步時間顯示
+    async function updateLastSyncTimeDisplay() {
+        const lastSync = await webdavSyncManager.getLastSyncTime();
+        if (lastSync) {
+            const date = new Date(lastSync);
+            webdavLastSyncTime.textContent = date.toLocaleString();
+        } else {
+            webdavLastSyncTime.textContent = '从未同步';
+        }
+    }
+
+    // 保存 WebDAV 設置
+    async function saveWebDAVSettings() {
+        const config = {
+            enabled: webdavEnabledSwitch.checked,
+            serverUrl: webdavServerUrl.value.trim(),
+            username: webdavUsername.value.trim(),
+            password: webdavPassword.value,
+            syncPath: webdavSyncPath.value.trim() || '/cerebr-sync/',
+            syncApiConfig: webdavSyncApiSwitch.checked
+        };
+        await webdavSyncManager.saveConfig(config);
+        updateWebDAVFormState(config.enabled);
+    }
+
+    // 啟用開關事件
+    webdavEnabledSwitch.addEventListener('change', async () => {
+        await saveWebDAVSettings();
+    });
+
+    // 伺服器地址輸入事件
+    webdavServerUrl.addEventListener('change', saveWebDAVSettings);
+    webdavServerUrl.addEventListener('click', (e) => e.stopPropagation());
+
+    // 用戶名輸入事件
+    webdavUsername.addEventListener('change', saveWebDAVSettings);
+    webdavUsername.addEventListener('click', (e) => e.stopPropagation());
+
+    // 密碼輸入事件
+    webdavPassword.addEventListener('change', saveWebDAVSettings);
+    webdavPassword.addEventListener('click', (e) => e.stopPropagation());
+
+    // 密碼顯示/隱藏切換
+    webdavTogglePassword.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const eyeIcon = webdavTogglePassword.querySelector('.eye-icon');
+        const eyeOffIcon = webdavTogglePassword.querySelector('.eye-off-icon');
+
+        if (webdavPassword.type === 'password') {
+            webdavPassword.type = 'text';
+            eyeIcon.style.display = 'none';
+            eyeOffIcon.style.display = 'block';
+        } else {
+            webdavPassword.type = 'password';
+            eyeIcon.style.display = 'block';
+            eyeOffIcon.style.display = 'none';
+        }
+    });
+
+    // 同步路徑輸入事件
+    webdavSyncPath.addEventListener('change', saveWebDAVSettings);
+    webdavSyncPath.addEventListener('click', (e) => e.stopPropagation());
+
+    // 同步 API 配置開關事件
+    webdavSyncApiSwitch.addEventListener('change', saveWebDAVSettings);
+
+    // 測試連接按鈕事件
+    webdavTestConnection.addEventListener('click', async (e) => {
+        e.stopPropagation();
+
+        // 先保存當前設置
+        await saveWebDAVSettings();
+
+        const originalBtnContent = webdavTestConnection.innerHTML;
+        webdavTestConnection.disabled = true;
+        webdavTestConnection.classList.add('testing');
+        webdavTestConnection.innerHTML = `
+            <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+            </svg>
+        `;
+
+        try {
+            await webdavSyncManager.testConnection();
+            webdavTestConnection.classList.add('success');
+            webdavTestConnection.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 6L9 17l-5-5"/>
+                </svg>
+            `;
+        } catch (error) {
+            showToast(`WebDAV 连接失败: ${error.message}`, 'error');
+            webdavTestConnection.classList.add('error');
+            webdavTestConnection.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            `;
+        } finally {
+            webdavTestConnection.classList.remove('testing');
+            setTimeout(() => {
+                webdavTestConnection.disabled = false;
+                webdavTestConnection.classList.remove('success', 'error');
+                webdavTestConnection.innerHTML = originalBtnContent;
+            }, 3000);
+        }
+    });
+
+    // 上傳到雲端按鈕事件
+    webdavSyncUpload.addEventListener('click', async (e) => {
+        e.stopPropagation();
+
+        if (!webdavEnabledSwitch.checked) {
+            showToast('请先启用 WebDAV', 'error');
+            return;
+        }
+
+        webdavSyncUpload.classList.add('syncing');
+        webdavSyncUpload.disabled = true;
+
+        try {
+            const result = await webdavSyncManager.syncToRemote();
+            showToast(result.message, 'success');
+            await updateLastSyncTimeDisplay();
+        } catch (error) {
+            showToast('上传失败: ' + error.message, 'error');
+        } finally {
+            webdavSyncUpload.classList.remove('syncing');
+            webdavSyncUpload.disabled = false;
+        }
+    });
+
+    // 從雲端下載按鈕事件
+    webdavSyncDownload.addEventListener('click', async (e) => {
+        e.stopPropagation();
+
+        if (!webdavEnabledSwitch.checked) {
+            showToast('请先启用 WebDAV 同步', 'error');
+            return;
+        }
+
+        webdavSyncDownload.classList.add('syncing');
+        webdavSyncDownload.disabled = true;
+
+        try {
+            const result = await webdavSyncManager.syncFromRemote();
+            showToast(result.message, 'success');
+            await updateLastSyncTimeDisplay();
+
+            // 如果需要重新加載，刷新聊天列表和當前對話
+            if (result.needsReload) {
+                await chatManager.initialize();
+                const chatCards = chatListPage.querySelector('.chat-cards');
+                await renderChatList(chatManager, chatCards);
+
+                const currentChat = chatManager.getCurrentChat();
+                if (currentChat) {
+                    await loadChatContent(currentChat, chatContainer);
+                }
+            }
+
+            // 如果 API 配置被同步，重新加載 API 配置和搜索設置
+            if (result.apiConfigSynced) {
+                await loadAPIConfigs(true);
+                await loadSearchSettings();
+            }
+
+            // 重新載入快速選項
+            await quickChatController.loadQuickChatOptions();
+        } catch (error) {
+            showToast('下载失败: ' + error.message, 'error');
+        } finally {
+            webdavSyncDownload.classList.remove('syncing');
+            webdavSyncDownload.disabled = false;
+        }
+    });
+
+    // 監聽 WebDAV 同步事件
+    webdavSyncManager.addListener((event, data) => {
+        if (event === 'sync-complete') {
+            updateLastSyncTimeDisplay();
+        }
+    });
+
+    // 加載 WebDAV 設置
+    await loadWebDAVSettings();
+    // ==================== WebDAV 同步設置結束 ====================
 
     // 监听标题更新事件
     document.addEventListener('chat-title-updated', (e) => {

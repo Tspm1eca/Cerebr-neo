@@ -247,6 +247,7 @@
         <div class="settings-tabs">
             <button class="tab-button active" data-tab="quick-chat-tab">快速选项</button>
             <button class="tab-button" data-tab="api-settings-tab">API 设置</button>
+            <button class="tab-button" data-tab="webdav-sync-tab">WebDAV</button>
         </div>
         <div class="settings-content">
             <div id="quick-chat-tab" class="tab-content active">
@@ -388,32 +389,120 @@
                                         <div class="model-list-dropdown"></div>
                                     </div>
                                 </div>
-                                <div class="advanced-settings">
-                                    <div class="advanced-settings-header" tabindex="0">
-                                        <span>高级设置</span>
-                                        <span class="toggle-icon">▼</span>
-                                    </div>
-                                    <div class="advanced-settings-content" style="display: none;">
-                                        <div class="setting-item system-prompt-item">
-                                            <div class="setting-header">
-                                                <label for="system-prompt">系统提示</label>
-                                                <div class="system-prompt-actions">
-                                                    <button class="expand-prompt-btn" title="展开编辑">
-                                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                                            <path d="M2 6V2H6M14 6V2H10M2 10V14H6M14 10V14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                                                        </svg>
-                                                    </button>
-                                                    <button class="reset-prompt-btn" title="还原默认提示词">
-                                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                                            <path d="M2 8C2 4.68629 4.68629 2 8 2C9.29583 2 10.4934 2.41098 11.4704 3.11604L13 1.5M13 5.5H9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                                                            <path d="M14 8C14 11.3137 11.3137 14 8 14C6.70417 14 5.50659 13.589 4.52962 12.884L3 14.5M3 10.5H7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                                                        </svg>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <textarea id="system-prompt" class="system-prompt" rows="4" placeholder="输入系统提示词..."></textarea>
+                                <div class="setting-item system-prompt-item">
+                                    <div class="setting-header">
+                                        <label for="system-prompt">系统提示</label>
+                                        <div class="system-prompt-actions">
+                                            <button class="expand-prompt-btn" title="展开编辑">
+                                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M2 6V2H6M14 6V2H10M2 10V14H6M14 10V14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                </svg>
+                                            </button>
+                                            <button class="reset-prompt-btn" title="还原默认提示词">
+                                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M2 8C2 4.68629 4.68629 2 8 2C9.29583 2 10.4934 2.41098 11.4704 3.11604L13 1.5M13 5.5H9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                    <path d="M14 8C14 11.3137 11.3137 14 8 14C6.70417 14 5.50659 13.589 4.52962 12.884L3 14.5M3 10.5H7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                </svg>
+                                            </button>
                                         </div>
                                     </div>
+                                    <textarea id="system-prompt" class="system-prompt" rows="4" placeholder="输入系统提示词..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="webdav-sync-tab" class="tab-content">
+                <div class="webdav-sync-content">
+                    <div class="webdav-card">
+                        <div class="card-content">
+                            <div class="webdav-form">
+                                <!-- 啟用開關 -->
+                                <div class="form-group webdav-enable-group">
+                                    <label>启用 WebDAV</label>
+                                    <label class="switch">
+                                        <input type="checkbox" id="webdav-enabled-switch">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+
+                                <!-- 伺服器設置 -->
+                                <div class="form-group">
+                                    <label>服务器地址</label>
+                                    <div class="webdav-server-container">
+                                        <input type="text" id="webdav-server-url" class="webdav-input" placeholder="https://dav.example.com">
+                                        <button type="button" id="webdav-test-connection" class="test-connection-btn" title="测试连接">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>用户名</label>
+                                    <input type="text" id="webdav-username" class="webdav-input" placeholder="输入用户名">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>密码</label>
+                                    <div class="webdav-password-container">
+                                        <input type="password" id="webdav-password" class="webdav-input" placeholder="输入密码">
+                                        <button type="button" id="webdav-toggle-password" class="toggle-password-btn" title="显示/隐藏密码">
+                                            <svg class="eye-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                                <circle cx="12" cy="12" r="3"></circle>
+                                            </svg>
+                                            <svg class="eye-off-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+                                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                                                <line x1="1" y1="1" x2="23" y2="23"></line>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>同步路径 <span class="optional-label">(可选)</span></label>
+                                    <input type="text" id="webdav-sync-path" class="webdav-input" placeholder="/cerebr-sync/">
+                                </div>
+
+                                <!-- 同步 API 配置選項 -->
+                                <div class="webdav-sync-api-section">
+                                    <div class="form-group webdav-sync-api-group">
+                                        <label>API 同步</label>
+                                        <label class="switch">
+                                            <input type="checkbox" id="webdav-sync-api-switch">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- 同步操作按鈕 -->
+                                <div class="webdav-sync-actions">
+                                    <button type="button" id="webdav-sync-upload" class="webdav-action-btn webdav-upload-btn">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                            <polyline points="17 8 12 3 7 8"></polyline>
+                                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                                        </svg>
+                                        上传到云端
+                                    </button>
+                                    <button type="button" id="webdav-sync-download" class="webdav-action-btn webdav-download-btn">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                            <polyline points="7 10 12 15 17 10"></polyline>
+                                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                                        </svg>
+                                        从云端下载
+                                    </button>
+                                </div>
+
+                                <!-- 最後同步時間 -->
+                                <div class="webdav-last-sync">
+                                    <span class="webdav-last-sync-label">上次同步：</span>
+                                    <span id="webdav-last-sync-time" class="webdav-last-sync-time">从未同步</span>
                                 </div>
                             </div>
                         </div>

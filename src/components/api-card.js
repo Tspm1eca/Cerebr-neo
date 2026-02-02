@@ -53,9 +53,6 @@ export function initAPICard({
     const systemPromptInput = card.querySelector('.system-prompt');
     const resetPromptBtn = card.querySelector('.reset-prompt-btn');
     const expandPromptBtn = card.querySelector('.expand-prompt-btn');
-    const advancedSettingsHeader = card.querySelector('.advanced-settings-header');
-    const advancedSettingsContent = card.querySelector('.advanced-settings-content');
-    const toggleIcon = card.querySelector('.toggle-icon');
 
     // 系统提示模态框
     const systemPromptModal = document.getElementById('system-prompt-modal');
@@ -91,17 +88,6 @@ export function initAPICard({
         modelNameInput.value = config.modelName || '';
         titleModelNameInput.value = config.titleModelName || '';
         systemPromptInput.value = config.advancedSettings?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
-
-        // 设置高级设置的展开/折叠状态
-        const isExpanded = config.advancedSettings?.isExpanded || false;
-        if (isExpanded) {
-            advancedSettingsContent.style.display = 'block';
-            advancedSettingsContent.classList.add('visible');
-        } else {
-            advancedSettingsContent.style.display = 'none';
-            advancedSettingsContent.classList.remove('visible');
-        }
-        toggleIcon.style.transform = isExpanded ? 'rotate(180deg)' : '';
     }
 
     // 获取当前配置
@@ -202,44 +188,6 @@ export function initAPICard({
             updateProfileSelector();
             updateFormContent(getCurrentConfig());
             onProfileDelete(deletedIndex, selectedIndex);
-        }
-    });
-
-    // 高级设置展开/折叠
-    advancedSettingsHeader.addEventListener('click', (e) => {
-        e.stopPropagation();
-
-        const isCurrentlyExpanded = advancedSettingsContent.classList.contains('visible');
-
-        if (isCurrentlyExpanded) {
-            advancedSettingsContent.classList.remove('visible');
-            advancedSettingsContent.classList.add('collapsing');
-            toggleIcon.style.transform = '';
-
-            setTimeout(() => {
-                advancedSettingsContent.classList.remove('collapsing');
-                advancedSettingsContent.style.display = 'none';
-            }, 300);
-        } else {
-            advancedSettingsContent.style.display = 'block';
-            advancedSettingsContent.offsetHeight;
-            advancedSettingsContent.classList.add('expanding');
-            toggleIcon.style.transform = 'rotate(180deg)';
-
-            setTimeout(() => {
-                advancedSettingsContent.classList.remove('expanding');
-                advancedSettingsContent.classList.add('visible');
-            }, 300);
-        }
-
-        // 更新配置
-        const config = getCurrentConfig();
-        if (config) {
-            config.advancedSettings = {
-                ...config.advancedSettings,
-                isExpanded: !isCurrentlyExpanded
-            };
-            onConfigChange(selectedIndex, config);
         }
     });
 
@@ -464,6 +412,7 @@ export function initAPICard({
                 throw new Error(errorMsg);
             }
 
+            button.classList.add('success');
             button.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M20 6L9 17l-5-5"/>
@@ -473,6 +422,7 @@ export function initAPICard({
         } catch (error) {
             console.error('Test connection error:', error);
             showToast(`连接失败: ${error.message}`, 'error');
+            button.classList.add('error');
             button.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -482,6 +432,7 @@ export function initAPICard({
         } finally {
             setTimeout(() => {
                 button.disabled = false;
+                button.classList.remove('success', 'error');
                 button.innerHTML = originalBtnContent;
             }, 3000);
         }
@@ -587,6 +538,15 @@ export function initAPICard({
         updateFormContent,
         setSelectedIndex: (index) => {
             selectedIndex = index;
+            updateProfileSelector();
+            updateFormContent(getCurrentConfig());
+        },
+        // 更新配置列表（用於 WebDAV 同步後刷新）
+        updateConfigs: (newConfigs, newSelectedIndex) => {
+            // 清空並重新填充 apiConfigs 陣列，保持引用不變
+            apiConfigs.length = 0;
+            newConfigs.forEach(config => apiConfigs.push(config));
+            selectedIndex = newSelectedIndex;
             updateProfileSelector();
             updateFormContent(getCurrentConfig());
         }

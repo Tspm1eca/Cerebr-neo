@@ -11,19 +11,19 @@ const DEFAULT_QUICK_CHAT_OPTIONS = [
     {
         id: 'option-1',
         title: '列點總結',
-        prompt: '```\n# 角色\n你是一位資深的內容分析師與研究員。你的專長是快速閱讀、分析和歸納各種專業文章，並以客觀、中立、精煉的語言，為他人提供高品質的摘要與重點整理。\n\n# 任務\n請你處理下方提供的文章，並嚴格遵循以下指示與格式，用繁體中文輸出結果。\n\n## 指示\n1.  **總結部分**：撰寫一段約 100 字的精煉總結。內容必須準確捕捉文章的核心論點、關鍵證據與最終結論，避免任何不必要的細節或個人評論。\n2.  **結論部分**：撰寫一段約 200 字的深度結論。請說明文章背後希望傳達的核心訊息、潛在影響或作者的最終呼籲，幫助讀者理解「為什麼這篇文章很重要」以及它帶來的啟示。\n3.  **觀點部分**：以條列式清單，深入淺出地列出文章中最多10個的主要觀點。每個觀點都應自成一體、邏輯清晰，確保完整傳達作者的意圖。每個觀點上限100字。\n4.  **名詞部分**：當遇到人、公司、国家名時，使用格式`中文翻释（原文）`。\n\n## 輸出格式\n請嚴格依照以下格式輸出，不要添加任何說明文字或額外格式：\n🟣 **總結：**\n* <此處填寫總結內容>\n🔵 **結論：**\n* <此處填寫約100字的結論與核心訊息>\n🟢 **觀點：**\n* **<觀點標題>：** <觀點內容><引用內容>\n* **<觀點標題>：** <觀點內容><引用內容>\n<依此類推>\n```',
+        prompt: '```plaintext\n# 角色\n你是一位資深的內容分析師與研究員。你的專長是快速閱讀、分析和歸納各種專業文章，並以客觀、中立、精煉的語言，為他人提供高品質的摘要與重點整理。\n\n# 任務\n請你處理下方提供的文章，並嚴格遵循以下指示與格式，用繁體中文輸出結果。\n\n## 指示\n1.  **總結部分**：撰寫一段約 100 字的精煉總結。內容必須準確捕捉文章的核心論點、關鍵證據與最終結論，避免任何不必要的細節或個人評論。\n2.  **結論部分**：撰寫一段約 200 字的深度結論。請說明文章背後希望傳達的核心訊息、潛在影響或作者的最終呼籲，幫助讀者理解「為什麼這篇文章很重要」以及它帶來的啟示。\n3.  **觀點部分**：以條列式清單，深入淺出地列出文章中最多10個的主要觀點。每個觀點都應自成一體、邏輯清晰，確保完整傳達作者的意圖。每個觀點上限100字。\n4.  **名詞部分**：當遇到人、公司、国家名時，使用格式`中文翻释（原文）`。\n\n## 輸出格式\n請嚴格依照以下格式輸出，不要添加任何說明文字或額外格式：\n🟣 **總結：**\n* <此處填寫總結內容>\n🔵 **結論：**\n* <此處填寫約100字的結論與核心訊息>\n🟢 **觀點：**\n* **<觀點標題>：** <觀點內容><引用內容>\n* **<觀點標題>：** <觀點內容><引用內容>\n<依此類推>\n```',
         icon: '📝'
     },
     {
         id: 'option-2',
         title: '200字總結',
-        prompt: '```\n用約200字總結網頁內容，不需要引用內容。\n```',
+        prompt: '```plaintext\n用約200字總結網頁內容，不需要引用內容。\n```',
         icon: '✨'
     },
     {
         id: 'option-3',
         title: '列出新聞',
-        prompt: '```\n**你的任務**\n以表格方式列出不少於20條最重要的新聞。\n*   表格標題必須是：「中文標題」、「原文標題」。\n*   在「中文標題」欄中，附上至少一個從該新聞摘要或內文中提取的引用內容。\n*   在「原文標題」欄中，使用 `URLREF` 格式創建指向原文的連結。\n\n**表格範例格式**\n| 中文標題 | 原文標題 |\n| :--- | :--- |\n| 這是第一則新聞的中文標題 [1](cite:This is a direct quote from the first news article.) | [Original Title of First News](URLREF1) |\n| 這是第二則新聞的中文標題 [2](cite:This is a quote from the second article.) [3](cite:This is another quote from the second article.) | [Original Title of Second News](URLREF2) |\n```',
+        prompt: '```plaintext\n**你的任務**\n以表格方式列出不少於20條最重要的新聞。\n*   表格標題必須是：「中文標題」、「原文標題」。\n*   在「中文標題」欄中，附上至少一個從該新聞摘要或內文中提取的引用內容。\n*   在「原文標題」欄中，使用 `URLREF` 格式創建指向原文的連結。\n\n**表格範例格式**\n| 中文標題 | 原文標題 |\n| :--- | :--- |\n| 這是第一則新聞的中文標題 [1](cite:This is a direct quote from the first news article.) | [Original Title of First News](URLREF1) |\n| 這是第二則新聞的中文標題 [2](cite:This is a quote from the second article.) [3](cite:This is another quote from the second article.) | [Original Title of Second News](URLREF2) |\n```',
         icon: '📰'
     }
 ];
@@ -54,6 +54,10 @@ export async function initQuickChat({
     let quickChatOptions = [];
     const quickChatOptionsElement = document.getElementById('quick-chat-options');
 
+    // 設置頁面渲染函數引用（用於外部調用）
+    let renderSettingsOptionsRef = null;
+    let updateAddButtonStateRef = null;
+
     // 加載常用選項配置
     async function loadQuickChatOptions() {
         try {
@@ -64,6 +68,13 @@ export async function initQuickChat({
             quickChatOptions = DEFAULT_QUICK_CHAT_OPTIONS;
         }
         renderQuickChatOptions();
+        // 同時更新設置頁面中的選項列表（如果已初始化）
+        if (renderSettingsOptionsRef) {
+            renderSettingsOptionsRef();
+        }
+        if (updateAddButtonStateRef) {
+            updateAddButtonStateRef();
+        }
     }
 
     // 保存常用選項配置
@@ -445,6 +456,10 @@ export async function initQuickChat({
                 addButton.style.cursor = 'pointer';
             }
         }
+
+        // 保存函數引用到外部變量，以便 loadQuickChatOptions 可以調用
+        renderSettingsOptionsRef = renderSettingsOptions;
+        updateAddButtonStateRef = updateAddButtonState;
 
         // 初始渲染
         renderSettingsOptions();

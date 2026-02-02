@@ -20,6 +20,7 @@
 @import './components/webpage-menu.css';
 @import './components/chat-container.css';
 @import './components/quick-chat.css';
+@import './components/webdav-sync.css';
 
 @import '../htmd/styles/math.css';
 @import '../htmd/styles/table.css';

@@ -1,0 +1,325 @@
+/* WebDAV 同步設置樣式 */
+
+.webdav-sync-content {
+    padding: 12px;
+}
+
+.webdav-card {
+    background: var(--cerebr-message-ai-bg);
+    border-radius: 12px;
+    border: 1px solid var(--cerebr-border-color);
+}
+
+.webdav-card .card-content {
+    padding: 16px;
+}
+
+.webdav-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.webdav-form .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.webdav-form .form-group label {
+    font-size: 13px;
+    color: var(--cerebr-text-color);
+    opacity: 0.9;
+}
+
+.webdav-form .optional-label {
+    font-size: 11px;
+    opacity: 0.6;
+}
+
+.webdav-input {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    color: var(--cerebr-text-color);
+    background-color: var(--cerebr-input-bg);
+    border: 1px solid var(--cerebr-border-color);
+    border-radius: 8px;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.webdav-input:focus {
+    border-color: var(--cerebr-highlight-border-color);
+    box-shadow: 0 0 0 1px var(--cerebr-highlight-border-color);
+}
+
+.webdav-input::placeholder {
+    color: var(--cerebr-text-color);
+    opacity: 0.4;
+}
+
+/* 啟用開關組 */
+.webdav-enable-group {
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--cerebr-border-color);
+    margin-bottom: 4px;
+}
+
+.webdav-enable-group label:first-child {
+    font-weight: 500;
+}
+
+/* 伺服器地址容器 - 與 API 設置的 model-name-container 風格一致 */
+.webdav-server-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.webdav-server-container .webdav-input {
+    flex-grow: 1;
+    padding-right: 35px; /* 為測試按鈕留出空間 */
+}
+
+/* WebDAV 測試連接按鈕 - 使用與 API 設置相同的 test-connection-btn 樣式 */
+.webdav-server-container .test-connection-btn {
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--cerebr-text-color);
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+}
+
+.webdav-server-container .test-connection-btn:hover {
+    opacity: 1;
+}
+
+.webdav-server-container .test-connection-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
+.webdav-server-container .test-connection-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.webdav-server-container .test-connection-btn.testing svg {
+    animation: spin 1s linear infinite;
+}
+
+/* WebDAV 測試連接成功狀態 - 綠色勾 */
+.webdav-server-container .test-connection-btn.success {
+    color: #4caf50;
+    opacity: 1;
+}
+
+/* WebDAV 測試連接失敗狀態 - 紅色叉 */
+.webdav-server-container .test-connection-btn.error {
+    color: #f44336;
+    opacity: 1;
+}
+
+/* 密碼輸入框容器 */
+.webdav-password-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.webdav-password-container .webdav-input {
+    padding-right: 40px;
+}
+
+.toggle-password-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--cerebr-text-color);
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+}
+
+.toggle-password-btn:hover {
+    opacity: 1;
+}
+
+/* 自動同步區域 */
+.webdav-auto-sync-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    /* background: var(--cerebr-input-bg); */
+    border-radius: 8px;
+    margin-top: 4px;
+    border: 1px solid var(--cerebr-border-color);
+}
+
+/* 同步 API 配置區域 */
+.webdav-sync-api-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 4px;
+    border: 1px solid var(--cerebr-border-color);
+}
+
+.webdav-sync-api-group {
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.webdav-auto-sync-group {
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.webdav-interval-group {
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.webdav-interval-input {
+    width: 60px !important;
+    text-align: center;
+}
+
+/* 同步操作按鈕 */
+.webdav-sync-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.webdav-action-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.webdav-action-btn:active {
+    transform: scale(0.98);
+}
+
+.webdav-action-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.webdav-action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.webdav-upload-btn {
+    background-color: var(--cerebr-highlight-border-color);
+    color: #fff;
+}
+
+.webdav-upload-btn:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.webdav-download-btn {
+    background-color: var(--cerebr-message-user-bg);
+    color: var(--cerebr-text-color);
+    border: 1px solid var(--cerebr-border-color);
+}
+
+.webdav-download-btn:hover:not(:disabled) {
+    background-color: var(--cerebr-button-hover-bg);
+    border-color: var(--cerebr-highlight-border-color);
+}
+
+/* 同步中狀態 */
+.webdav-action-btn.syncing {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.webdav-action-btn.syncing svg {
+    animation: spin 1s linear infinite;
+}
+
+/* 最後同步時間 */
+.webdav-last-sync {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 12px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--cerebr-text-color);
+    opacity: 0.7;
+    border-top: 1px solid var(--cerebr-border-color);
+}
+
+.webdav-last-sync-label {
+    opacity: 0.8;
+}
+
+.webdav-last-sync-time {
+    font-weight: 500;
+}
+
+/* 旋轉動畫 */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 禁用狀態 */
+.webdav-form.disabled .webdav-input,
+.webdav-form.disabled .webdav-test-btn,
+.webdav-form.disabled .webdav-action-btn,
+.webdav-form.disabled .switch input {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.webdav-form.disabled .webdav-enable-group .switch input {
+    opacity: 1;
+    pointer-events: auto;
+}
