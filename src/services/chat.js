@@ -53,25 +53,7 @@ const WEB_SEARCH_TOOL = {
     type: "function",
     function: {
         name: "web_search",
-        description: `You MUST call this tool to perform a web search in ANY of the following situations:
-
-1. Time-sensitive information: User asks about "today", "latest", "recent", "now", "current", or any time-related questions
-2. News and events: Any questions about news, events, or what happened
-3. Real-time data: Weather, stock prices, exchange rates, sports scores, prices, or any data that requires real-time updates
-4. People updates: What someone recently did, said, or published
-5. Product information: Latest versions, release dates, update contents
-6. Uncertain facts: Information you are unsure about or might be outdated
-
-Examples that REQUIRE search:
-- "What's in the news today?" → MUST search
-- "Latest news about XXX" → MUST search
-- "What time is it now?" → MUST search
-- "How's the weather?" → MUST search
-- "XXX stock price" → MUST search
-
-Examples that do NOT require search:
-- "What is machine learning?" → No search needed (general knowledge)
-- "How to write a loop in Python?" → No search needed (programming knowledge)`,
+        description: `You MUST call this tool to perform a web search in ANY of the following situations:\n\n1. Time-sensitive information: User asks about "today", "latest", "recent", "now", "current", or any time-related questions\n2. News and events: Any questions about news, events, or what happened\n3. Real-time data: Weather, stock prices, exchange rates, sports scores, prices, or any data that requires real-time updates\n4. People updates: What someone recently did, said, or published\n5. Product information: Latest versions, release dates, update contents\n6. Uncertain facts: Information you are unsure about or might be outdated\n\nExamples that REQUIRE search:\n- "What's in the news today?" → MUST search\n- "Latest news about XXX" → MUST search\n- "What time is it now?" → MUST search\n- "How's the weather?" → MUST search\n- "XXX stock price" → MUST search\n\nExamples that do NOT require search:\n- "What is machine learning?" → No search needed (general knowledge)\n- "How to write a loop in Python?" → No search needed (programming knowledge)`,
         parameters: {
             type: "object",
             properties: {
