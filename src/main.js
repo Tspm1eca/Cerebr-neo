@@ -1666,6 +1666,9 @@ let exaApiUrl = '';
         await loadAPIConfigs(true);
         await loadSearchSettings();
 
+        // 同步快速選項配置
+        await quickChatController.loadQuickChatOptions();
+
         // 同步历史
         await chatManager.initialize();
         await renderChatList(
