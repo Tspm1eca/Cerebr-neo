@@ -12,7 +12,7 @@
     z-index: 10000;
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     /* backdrop-filter: blur(20px); */
     /* -webkit-backdrop-filter: blur(20px); */
 }
@@ -29,12 +29,38 @@
     border-radius: 8px;
     overflow: hidden;
     box-shadow: 0 4px 20px var(--cerebr-popup-shadow);
+    cursor: pointer; /* 點擊圖片可關閉預覽 */
+    /* 動畫相關 */
+    transform-origin: center center;
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+                opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 初始狀態：縮小並隱藏 */
+.image-preview-modal:not(.visible) .image-preview-content {
+    transform: scale(0.3);
+    opacity: 0;
+}
+
+/* 顯示狀態：正常大小 */
+.image-preview-modal.visible .image-preview-content {
+    transform: scale(1);
+    opacity: 1;
+}
+
+/* 從特定位置展開的動畫 */
+.image-preview-modal.animating-from-source .image-preview-content {
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+                opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                top 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+                left 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .image-preview-content img {
     max-width: 100%;
     max-height: 90vh;
     display: block;
+    border-radius: 8px;
 }
 
 .image-preview-close {

@@ -78,10 +78,11 @@ let exaApiUrl = '';
             previewImage
         },
         imageTag: {
-            onImageClick: (base64Data) => {
+            onImageClick: (base64Data, sourceElement) => {
                 showImagePreview({
                     base64Data,
-                    config: uiConfig.imagePreview
+                    config: uiConfig.imagePreview,
+                    sourceElement
                 });
             },
             onDeleteClick: (container) => {
@@ -1898,7 +1899,8 @@ let exaApiUrl = '';
     });
 
     previewModal.addEventListener('click', (e) => {
-        if (e.target === previewModal) {
+        // 點擊模態框背景或圖片內容區域都會關閉預覽
+        if (e.target === previewModal || e.target.closest('.image-preview-content')) {
             hideImagePreview({ config: uiConfig.imagePreview });
         }
     });

@@ -31,6 +31,37 @@
     border-radius: 18px;
 }
 
+/* 消息中的圖片容器樣式 */
+.message .message-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.message .message-images:last-child {
+    margin-bottom: 0;
+    margin-top: 8px;
+}
+
+/* 圖片容器中的 image-tag 樣式調整 */
+.message .message-images .image-tag {
+    width: 48px;
+    height: 48px;
+    margin: 0;
+}
+
+.message .message-images .image-tag img {
+    width: 48px !important;
+    height: 48px !important;
+    min-width: 48px !important;
+    min-height: 48px !important;
+    max-width: 48px !important;
+    max-height: 48px !important;
+    margin: 0 !important;
+    border-radius: 8px !important;
+}
+
 /* 添加更新中的消息样式 */
 .message.updating {
     backface-visibility: hidden;

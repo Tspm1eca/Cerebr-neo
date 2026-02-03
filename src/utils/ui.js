@@ -40,13 +40,67 @@ export function adjustTextareaHeight({
  * 显示图片预览
  * @param {Object} params - 参数对象
  * @param {string} params.base64Data - 图片base64数据
+ * @param {HTMLElement} [params.sourceElement] - 來源元素（用於動畫起始位置）
  */
 export function showImagePreview({
     base64Data,
-    config
+    config,
+    sourceElement
 }) {
-    config.previewImage.src = base64Data;
-    config.previewModal.classList.add('visible');
+    const { previewModal, previewImage } = config;
+    const previewContent = previewModal.querySelector('.image-preview-content');
+
+    // 設置圖片來源
+    previewImage.src = base64Data;
+
+    if (sourceElement && previewContent) {
+        // 獲取來源元素的位置
+        const sourceRect = sourceElement.getBoundingClientRect();
+        const sourceCenterX = sourceRect.left + sourceRect.width / 2;
+        const sourceCenterY = sourceRect.top + sourceRect.height / 2;
+
+        // 計算視窗中心
+        const viewportCenterX = window.innerWidth / 2;
+        const viewportCenterY = window.innerHeight / 2;
+
+        // 計算偏移量
+        const translateX = sourceCenterX - viewportCenterX;
+        const translateY = sourceCenterY - viewportCenterY;
+
+        // 計算縮放比例（基於來源元素大小）
+        const scale = Math.min(sourceRect.width, sourceRect.height) / 300;
+
+        // 設置初始變換（從來源位置開始）
+        previewContent.style.transition = 'none';
+        previewContent.style.transform = `translate(${translateX}px, ${translateY}px) scale(${Math.max(scale, 0.1)})`;
+        previewContent.style.opacity = '0';
+
+        // 強制重繪
+        previewContent.offsetHeight;
+
+        // 添加動畫類
+        previewModal.classList.add('animating-from-source');
+
+        // 啟用過渡並移動到最終位置
+        previewContent.style.transition = '';
+        previewContent.style.transform = 'translate(0, 0) scale(1)';
+        previewContent.style.opacity = '1';
+
+        // 顯示模態框
+        previewModal.classList.add('visible');
+
+        // 動畫結束後清理
+        const cleanup = () => {
+            previewModal.classList.remove('animating-from-source');
+            previewContent.style.transform = '';
+            previewContent.style.opacity = '';
+            previewContent.removeEventListener('transitionend', cleanup);
+        };
+        previewContent.addEventListener('transitionend', cleanup);
+    } else {
+        // 沒有來源元素時，使用預設動畫
+        previewModal.classList.add('visible');
+    }
 }
 
 /**
@@ -105,7 +159,7 @@ export function createImageTag({
         e.preventDefault();
         e.stopPropagation();
         if (config.onImageClick) {
-            config.onImageClick(base64Data);
+            config.onImageClick(base64Data, thumbnail);
         }
     });
 
@@ -149,7 +203,7 @@ export function addImageToPreview({
         e.preventDefault();
         e.stopPropagation();
         if (onImageClick) {
-            onImageClick(base64Data);
+            onImageClick(base64Data, img);
         }
     });
 

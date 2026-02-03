@@ -41,6 +41,15 @@
     background: var(--cerebr-input-bg);
     border: 1px solid var(--cerebr-border-color);
     flex-shrink: 0;
+    /* 入場動畫 */
+    animation: preview-image-drop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 減少動畫偏好設置 */
+@media (prefers-reduced-motion: reduce) {
+    .input-image-preview .preview-image-item {
+        animation: none;
+    }
 }
 
 .input-image-preview .preview-image-item img {
@@ -79,8 +88,12 @@
 .input-image-preview .preview-image-item .preview-delete-btn svg {
     width: 10px;
     height: 10px;
-    stroke: white;
+    stroke: white !important;
     stroke-width: 2;
+}
+
+.input-image-preview .preview-image-item .preview-delete-btn svg path {
+    stroke: white !important;
 }
 
 .input-image-preview .preview-image-item .preview-delete-btn:hover {

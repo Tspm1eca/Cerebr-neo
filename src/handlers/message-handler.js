@@ -80,6 +80,7 @@ export async function appendMessage({
     const messageInput = document.getElementById('message-input');
 
     let messageHtml = '';
+    let imagesHtml = '';  // 單獨存放圖片 HTML
     if (Array.isArray(textContent)) {
         textContent.forEach(item => {
             if (item.type === "text") {
@@ -89,13 +90,14 @@ export async function appendMessage({
                 const imageTag = createImageTag({
                     base64Data: item.image_url.url,
                     config: {
-                        onImageClick: (base64Data) => {
+                        onImageClick: (base64Data, sourceElement) => {
                             showImagePreview({
                                 base64Data,
                                 config: {
                                     previewModal,
                                     previewImage
-                                }
+                                },
+                                sourceElement
                             });
                         },
                         onDeleteClick: (container) => {
@@ -104,7 +106,7 @@ export async function appendMessage({
                         }
                     }
                 });
-                messageHtml += imageTag.outerHTML;
+                imagesHtml += imageTag.outerHTML;  // 圖片單獨收集
             }
         });
     } else {
@@ -150,11 +152,27 @@ export async function appendMessage({
         messageDiv.appendChild(reasoningWrapper);
     }
 
+    // 如果有圖片，先添加圖片容器（用戶消息時圖片在文字上方）
+    if (imagesHtml && sender === 'user') {
+        const imagesContainer = document.createElement('div');
+        imagesContainer.className = 'message-images';
+        imagesContainer.innerHTML = imagesHtml;
+        messageDiv.appendChild(imagesContainer);
+    }
+
     // 添加主要内容
     const mainContent = document.createElement('div');
     mainContent.className = 'main-content';
     mainContent.innerHTML = processMathAndMarkdown(messageHtml);
     messageDiv.appendChild(mainContent);
+
+    // 如果是 AI 消息且有圖片，圖片放在文字下方
+    if (imagesHtml && sender === 'ai') {
+        const imagesContainer = document.createElement('div');
+        imagesContainer.className = 'message-images';
+        imagesContainer.innerHTML = imagesHtml;
+        messageDiv.appendChild(imagesContainer);
+    }
 
     // 渲染 LaTeX 公式
     try {
@@ -211,7 +229,8 @@ export async function appendMessage({
                     config: {
                         previewModal,
                         previewImage
-                    }
+                    },
+                    sourceElement: img
                 });
             });
         }

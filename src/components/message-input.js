@@ -591,10 +591,11 @@ export function initMessageInput(config) {
                 addImageToPreview({
                     base64Data,
                     fileName: file.name,
-                    onImageClick: (data) => {
+                    onImageClick: (data, sourceElement) => {
                         showImagePreview({
                             base64Data: data,
-                            config: uiConfig.imagePreview
+                            config: uiConfig.imagePreview,
+                            sourceElement
                         });
                     },
                     onDelete: () => {
@@ -636,10 +637,11 @@ export function initMessageInput(config) {
         handleImageDrop(e, {
             messageInput,
             createImageTag,
-            onImageClick: (base64Data) => {
+            onImageClick: (base64Data, sourceElement) => {
                 showImagePreview({
                     base64Data,
-                    config: uiConfig.imagePreview
+                    config: uiConfig.imagePreview,
+                    sourceElement
                 });
             },
             onSuccess: () => {
@@ -827,10 +829,11 @@ export function handleWindowMessage(event, config) {
             addImageToPreview({
                 base64Data: base64Data,
                 fileName: imageData.name,
-                onImageClick: (data) => {
+                onImageClick: (data, sourceElement) => {
                     showImagePreview({
                         base64Data: data,
-                        config: uiConfig.imagePreview
+                        config: uiConfig.imagePreview,
+                        sourceElement
                     });
                 },
                 onDelete: () => {

@@ -1,60 +1,82 @@
 /* 图片组件样式 */
 .image-tag {
     display: inline-flex;
-    align-items: center;
-    background: var(--cerebr-image-tag-bg);
-    border: 1px solid var(--cerebr-image-tag-border-color);
+    align-items: flex-end;
+    justify-content: center;
+    position: relative;
+    background: transparent;
+    border: none;
     border-radius: 6px;
-    padding: 4px 6px;
+    padding: 0;
     margin: 0 4px;
-    height: 24px;
+    width: 32px;
+    height: 32px;
     cursor: pointer;
     user-select: none;
-    vertical-align: middle;
+    vertical-align: bottom;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    gap: 6px;
     line-height: 1;
     box-sizing: border-box;
-    box-shadow: 0 1px 2px var(--cerebr-image-tag-shadow);
 }
 
 .image-tag:hover {
-    background: var(--cerebr-image-tag-hover-bg);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px var(--cerebr-button-hover-bg);
+    transform: scale(1.05);
 }
 
 .image-tag:active {
-    transform: translateY(0);
-    box-shadow: 0 1px 2px var(--cerebr-image-tag-shadow);
+    transform: scale(0.98);
 }
 
 .image-tag img {
-    width: 16px;
-    height: 16px;
-    object-fit: cover;
-    border-radius: 4px;
-    margin: 0;
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    min-height: 32px !important;
+    max-width: 32px !important;
+    max-height: 32px !important;
+    object-fit: cover !important;
+    object-position: center !important;
+    aspect-ratio: 1 / 1 !important;
+    border-radius: 6px !important;
+    margin: 0 !important;
+    border: 1px solid var(--cerebr-image-tag-border-color) !important;
+    box-shadow: 0 1px 3px var(--cerebr-image-tag-shadow);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.image-tag:hover img {
+    filter: brightness(0.7);
 }
 
 .image-tag .delete-btn {
-    width: 16px;
-    height: 16px;
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 18px;
+    height: 18px;
     display: flex;
     align-items: center;
     justify-content: center;
     border: none;
-    background: none;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 50%;
     padding: 0;
     margin: 0;
     cursor: pointer;
-    color: var(--cerebr-text-color);
-    opacity: 0.6;
+    color: #fff;
+    opacity: 0;
+    visibility: hidden;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1;
+}
+
+.image-tag:hover .delete-btn {
+    opacity: 1;
+    visibility: visible;
 }
 
 .image-tag .delete-btn:hover {
-    opacity: 1;
+    background: rgba(220, 53, 69, 0.9);
     transform: scale(1.1);
 }
 
@@ -63,8 +85,8 @@
 }
 
 .image-tag .delete-btn svg {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     stroke: currentColor;
-    stroke-width: 2;
+    stroke-width: 2.5;
 }
