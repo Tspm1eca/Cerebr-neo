@@ -269,7 +269,13 @@ class WebDAVSettingsController {
         const lastSync = await webdavSyncManager.getLastSyncTime();
         if (lastSync) {
             const date = new Date(lastSync);
-            lastSyncTime.textContent = date.toLocaleString();
+            // 格式化為 YYYY/MM/DD HH:mm
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            lastSyncTime.textContent = `${year}/${month}/${day} ${hours}:${minutes}`;
         } else {
             lastSyncTime.textContent = '从未同步';
         }
@@ -414,6 +420,13 @@ class WebDAVSettingsController {
                 onConflict: () => true // 標記我們想要處理衝突
             });
 
+            // 如果有錯誤，顯示 Toast 提示
+            if (syncResult.error) {
+                console.error('[WebDAV] 開啟同步失敗:', syncResult.error);
+                showToast(`WebDAV 同步失敗: ${syncResult.error}`, 'error');
+                return syncResult;
+            }
+
             // 如果檢測到衝突，顯示對話框讓用戶選擇
             if (syncResult.direction === 'conflict' && syncResult.conflict) {
                 console.log('[WebDAV] 檢測到衝突，顯示選擇對話框');
@@ -450,6 +463,7 @@ class WebDAVSettingsController {
             return syncResult;
         } catch (error) {
             console.error('[WebDAV] 開啟同步失敗:', error);
+            showToast(`WebDAV 同步失敗: ${error.message}`, 'error');
             return { synced: false, direction: null, result: null, error: error.message };
         }
     }

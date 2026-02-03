@@ -1,56 +1,60 @@
 /* WebDAV 同步設置樣式 */
+/* 樣式統一以 API 設置頁面為基準 */
 
 .webdav-sync-content {
-    padding: 12px;
+    padding: 16px 8px;
 }
 
 .webdav-card {
     background: var(--cerebr-message-ai-bg);
-    border-radius: 12px;
-    border: 1px solid var(--cerebr-border-color);
+    border-radius: 18px;
+    border: 1px solid var(--cerebr-card-border-color);
 }
 
 .webdav-card .card-content {
-    padding: 16px;
+    padding: 15px;
 }
 
 .webdav-form {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    width: 100%;
 }
 
 .webdav-form .form-group {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
+    width: 100%;
 }
 
 .webdav-form .form-group label {
-    font-size: 13px;
-    color: var(--cerebr-text-color);
-    opacity: 0.9;
+    font-size: 12px;
+    opacity: 0.8;
 }
 
 .webdav-form .optional-label {
     font-size: 11px;
     opacity: 0.6;
+    font-weight: normal;
 }
 
 .webdav-input {
     width: 100%;
-    padding: 10px 12px;
+    padding: 8px;
     font-size: 14px;
     color: var(--cerebr-text-color);
-    background-color: var(--cerebr-input-bg);
-    border: 1px solid var(--cerebr-border-color);
-    border-radius: 8px;
+    background: var(--cerebr-message-ai-bg);
+    border: 1px solid var(--cerebr-card-border-color);
+    border-radius: 4px;
     outline: none;
     box-sizing: border-box;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: border-color 0.2s ease;
 }
 
 .webdav-input:focus {
+    outline: none;
     border-color: var(--cerebr-highlight-border-color);
     box-shadow: 0 0 0 1px var(--cerebr-highlight-border-color);
 }
@@ -65,9 +69,10 @@
     flex-direction: row !important;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--cerebr-border-color);
-    margin-bottom: 4px;
+    padding: 2px;
+    background-color: var(--cerebr-message-ai-bg);
+    border-radius: 6px;
+    margin-bottom: 6px;
 }
 
 .webdav-enable-group label:first-child {
@@ -83,7 +88,7 @@
 
 .webdav-server-container .webdav-input {
     flex-grow: 1;
-    padding-right: 35px; /* 為測試按鈕留出空間 */
+    padding-right: 30px; /* 為測試按鈕留出空間 */
 }
 
 /* WebDAV 測試連接按鈕 - 使用與 API 設置相同的 test-connection-btn 樣式 */
@@ -171,11 +176,10 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 12px;
-    /* background: var(--cerebr-input-bg); */
-    border-radius: 8px;
-    margin-top: 4px;
-    border: 1px solid var(--cerebr-border-color);
+    padding: 8px;
+    background-color: var(--cerebr-message-ai-bg);
+    border-radius: 6px;
+    margin-top: 2px;
 }
 
 /* 同步 API 配置區域 */
@@ -183,10 +187,10 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 12px;
-    border-radius: 8px;
-    margin-top: 4px;
-    border: 1px solid var(--cerebr-border-color);
+    padding: 2px;
+    background-color: var(--cerebr-message-ai-bg);
+    border-radius: 6px;
+    margin-top: 2px;
 }
 
 .webdav-sync-api-group {
@@ -215,7 +219,7 @@
 /* 同步操作按鈕 */
 .webdav-sync-actions {
     display: flex;
-    gap: 12px;
+    gap: 8px;
     margin-top: 8px;
 }
 
@@ -224,12 +228,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 12px 16px;
+    gap: 6px;
+    padding: 8px 12px;
     font-size: 14px;
     font-weight: 500;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s ease;
 }
@@ -258,14 +262,13 @@
 }
 
 .webdav-download-btn {
-    background-color: var(--cerebr-message-user-bg);
+    background-color: var(--cerebr-message-ai-bg);
     color: var(--cerebr-text-color);
-    border: 1px solid var(--cerebr-border-color);
+    border: 1px solid var(--cerebr-card-border-color);
 }
 
 .webdav-download-btn:hover:not(:disabled) {
     background-color: var(--cerebr-button-hover-bg);
-    border-color: var(--cerebr-highlight-border-color);
 }
 
 /* 同步中狀態 */
@@ -284,12 +287,12 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 12px;
+    padding: 8px;
+    padding-bottom: 0px;
     margin-top: 8px;
     font-size: 12px;
     color: var(--cerebr-text-color);
-    opacity: 0.7;
-    border-top: 1px solid var(--cerebr-border-color);
+    opacity: 0.8;
 }
 
 .webdav-last-sync-label {
@@ -312,7 +315,7 @@
 
 /* 禁用狀態 */
 .webdav-form.disabled .webdav-input,
-.webdav-form.disabled .webdav-test-btn,
+.webdav-form.disabled .test-connection-btn,
 .webdav-form.disabled .webdav-action-btn,
 .webdav-form.disabled .switch input {
     opacity: 0.5;
@@ -358,18 +361,18 @@
 .conflict-info {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    margin-bottom: 20px;
+    gap: 8px;
+    margin-bottom: 16px;
 }
 
 .conflict-option {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 12px;
-    background: var(--cerebr-input-bg);
-    border: 1px solid var(--cerebr-border-color);
-    border-radius: 8px;
+    gap: 4px;
+    padding: 8px;
+    background: var(--cerebr-message-ai-bg);
+    border: 1px solid var(--cerebr-card-border-color);
+    border-radius: 6px;
 }
 
 .conflict-option-header {
@@ -394,7 +397,7 @@
 
 .conflict-actions {
     display: flex;
-    gap: 10px;
+    gap: 8px;
 }
 
 .conflict-btn-local,
@@ -404,10 +407,10 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 10px 16px;
+    padding: 8px 12px;
     font-size: 14px;
     font-weight: 500;
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s ease;
 }
@@ -423,14 +426,13 @@
 }
 
 .conflict-btn-remote {
-    background-color: var(--cerebr-message-user-bg);
+    background-color: var(--cerebr-message-ai-bg);
     color: var(--cerebr-text-color);
-    border: 1px solid var(--cerebr-border-color);
+    border: 1px solid var(--cerebr-card-border-color);
 }
 
 .conflict-btn-remote:hover {
     background-color: var(--cerebr-button-hover-bg);
-    border-color: var(--cerebr-highlight-border-color);
 }
 
 .conflict-btn-local svg,
