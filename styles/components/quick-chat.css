@@ -320,6 +320,9 @@
     border: 1px solid var(--cerebr-card-border-color);
     border-radius: 4px;
     background-color: var(--cerebr-message-ai-bg);
+    background-image: var(--cerebr-resize-icon);
+    background-repeat: no-repeat;
+    background-position: right 4px bottom 4px;
     color: var(--cerebr-text-color);
     font-size: 14px;
     resize: vertical;

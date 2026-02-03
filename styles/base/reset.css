@@ -19,3 +19,19 @@ body {
     right: 0;
     bottom: 0;
 }
+
+/* 全局 textarea 樣式 - 修復深色主題下的 resize handle 反白問題 */
+textarea::-webkit-resizer {
+    display: none;
+}
+
+textarea::-webkit-scrollbar-corner {
+    background-color: transparent;
+}
+
+/* 為可拉伸的 textarea 添加自訂拉伸提示圖示 */
+textarea.resizable {
+    background-image: var(--cerebr-resize-icon);
+    background-repeat: no-repeat;
+    background-position: right 4px bottom 4px;
+}

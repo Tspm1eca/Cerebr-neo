@@ -43,4 +43,6 @@
     --cerebr-primary-color: #0a84ff;
     --cerebr-primary-hover-color: #409cff;
     --cerebr-card-bg-color: #3E4451;
+    /* Textarea 拉伸提示圖示 */
+    --cerebr-resize-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Ccircle cx='8' cy='8' r='1.5' fill='%23abb2bf' opacity='0.4'/%3E%3Ccircle cx='4' cy='8' r='1.5' fill='%23abb2bf' opacity='0.4'/%3E%3Ccircle cx='8' cy='4' r='1.5' fill='%23abb2bf' opacity='0.4'/%3E%3C/svg%3E");
 }
