@@ -398,12 +398,34 @@ export async function initQuickChat({
 
             // 刪除按鈕事件
             deleteButton.addEventListener('click', () => {
-                if (confirm('确定要删除这个选项吗？')) {
-                    quickChatOptions.splice(index, 1);
-                    saveQuickChatOptions();
-                    renderQuickChatOptions();
-                    renderSettingsOptions();
-                    updateAddButtonState(); // 更新添加按钮状态
+                const deleteModal = document.getElementById('delete-quick-chat-option-modal');
+                const cancelBtn = document.getElementById('cancel-delete-quick-chat-option');
+                const confirmBtn = document.getElementById('confirm-delete-quick-chat-option');
+
+                if (deleteModal && cancelBtn && confirmBtn) {
+                    // 顯示模態框
+                    deleteModal.style.display = 'flex';
+
+                    // 移除舊的事件監聽器（避免重複綁定）
+                    const newCancelBtn = cancelBtn.cloneNode(true);
+                    const newConfirmBtn = confirmBtn.cloneNode(true);
+                    cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+                    confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+                    // 取消按鈕事件
+                    newCancelBtn.addEventListener('click', () => {
+                        deleteModal.style.display = 'none';
+                    });
+
+                    // 確認按鈕事件
+                    newConfirmBtn.addEventListener('click', () => {
+                        deleteModal.style.display = 'none';
+                        quickChatOptions.splice(index, 1);
+                        saveQuickChatOptions();
+                        renderQuickChatOptions();
+                        renderSettingsOptions();
+                        updateAddButtonState(); // 更新添加按钮状态
+                    });
                 }
             });
 
