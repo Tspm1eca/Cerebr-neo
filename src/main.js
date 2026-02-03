@@ -211,10 +211,6 @@ let exaApiUrl = '';
             toggleQuickChatOptions(!hasMessages);
         }
 
-        // 當用戶通過 Alt+Z 開啟插件時觸發 WebDAV 同步
-        if (event.data.type === 'FOCUS_INPUT') {
-            performWebDAVSyncOnOpen();
-        }
     });
 
     // 新增：带重试逻辑的API调用函数
@@ -1735,6 +1731,43 @@ let exaApiUrl = '';
     async function performWebDAVSyncOnOpen() {
         await webdavSettingsController.performSyncOnOpen();
     }
+
+    // WebDAV 同步函數 - 當程序關閉時調用
+    async function performWebDAVSyncOnClose() {
+        await webdavSettingsController.performSyncOnClose();
+    }
+
+    // 監聽頁面關閉事件，執行 WebDAV 同步
+    window.addEventListener('beforeunload', (event) => {
+        // 使用 navigator.sendBeacon 或同步方式確保數據能夠發送
+        // 由於 beforeunload 中無法可靠地執行異步操作，
+        // 我們使用 visibilitychange 事件作為主要的關閉檢測方式
+    });
+
+    // 使用 visibilitychange 事件來檢測頁面即將關閉
+    // 這比 beforeunload 更可靠，因為它在頁面隱藏時觸發
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'hidden') {
+            // 頁面被隱藏（可能是關閉、切換標籤頁或最小化）
+            // 執行同步操作
+            console.log('[WebDAV] 頁面隱藏，嘗試執行關閉同步...');
+            await performWebDAVSyncOnClose();
+        }
+    });
+
+    // 監聯頁面卸載事件（作為備用方案）
+    window.addEventListener('pagehide', async (event) => {
+        // pagehide 事件在頁面被卸載時觸發
+        // persisted 為 true 表示頁面可能被緩存（bfcache）
+        if (!event.persisted) {
+            console.log('[WebDAV] 頁面卸載，嘗試執行關閉同步...');
+            await performWebDAVSyncOnClose();
+        }
+    });
+
+    // 網頁載入時執行 WebDAV 同步
+    console.log('[WebDAV] 網頁載入，執行開啟同步...');
+    performWebDAVSyncOnOpen();
     // ==================== WebDAV 同步設置結束 ====================
 
     // 监听标题更新事件

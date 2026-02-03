@@ -467,6 +467,30 @@ class WebDAVSettingsController {
             return { synced: false, direction: null, result: null, error: error.message };
         }
     }
+
+    /**
+     * 執行關閉時同步（僅上傳本地變更）
+     * @returns {Promise<Object>} 同步結果
+     */
+    async performSyncOnClose() {
+        try {
+            const syncResult = await webdavSyncManager.syncOnClose();
+
+            if (syncResult.error) {
+                console.error('[WebDAV] 關閉同步失敗:', syncResult.error);
+                // 關閉時不顯示 Toast，因為頁面可能已經關閉
+            }
+
+            if (syncResult.synced) {
+                console.log('[WebDAV] 關閉同步完成');
+            }
+
+            return syncResult;
+        } catch (error) {
+            console.error('[WebDAV] 關閉同步失敗:', error);
+            return { synced: false, result: null, error: error.message };
+        }
+    }
 }
 
 /**

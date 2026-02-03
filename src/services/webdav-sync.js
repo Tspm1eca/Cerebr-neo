@@ -943,6 +943,36 @@ class WebDAVSyncManager {
     }
 
     /**
+     * 插件關閉時執行同步（僅上傳本地數據到遠端）
+     * @returns {Promise<Object>} 同步結果 { synced: boolean, result: Object|null, error: string|null }
+     */
+    async syncOnClose() {
+        if (!this.config.enabled) {
+            console.log('[WebDAV] 關閉同步：WebDAV 未啟用');
+            return { synced: false, result: null, error: null };
+        }
+
+        try {
+            // 檢查本地是否有變更
+            const status = await this.checkSyncStatus();
+
+            // 只有當本地有變更時才上傳
+            if (status.needsSync && (status.direction === 'upload' || status.direction === 'conflict')) {
+                console.log('[WebDAV] 關閉同步：檢測到本地變更，正在上傳...');
+                const result = await this.syncToRemote();
+                console.log('[WebDAV] 關閉同步完成：已上傳到遠端');
+                return { synced: true, result, error: null };
+            }
+
+            console.log('[WebDAV] 關閉同步：無需同步 -', status.reason);
+            return { synced: false, result: null, error: null };
+        } catch (error) {
+            console.error('[WebDAV] 關閉同步失敗:', error);
+            return { synced: false, result: null, error: error.message };
+        }
+    }
+
+    /**
      * 添加事件監聽器
      */
     addListener(callback) {

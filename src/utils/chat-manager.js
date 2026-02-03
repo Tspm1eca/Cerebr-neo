@@ -21,6 +21,10 @@ export class ChatManager {
         // 加载所有对话
         const result = await this.storage.get(CHATS_KEY);
         const savedChats = result[CHATS_KEY] || [];
+
+        // 清空現有的對話 Map，確保刪除的對話不會殘留
+        this.chats.clear();
+
         if (Array.isArray(savedChats)) {
             savedChats.forEach(chat => {
                 this.chats.set(chat.id, chat);
