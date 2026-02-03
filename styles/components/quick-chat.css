@@ -396,35 +396,46 @@
 
 .quick-chat-settings-actions {
     display: flex;
-    gap: 12px;
+    gap: 30px;
     justify-content: center;
-    padding: 16px 0;
+    margin-top: 8px;
 }
 
 .add-button, .reset-button {
-    padding: 12px 24px;
-    border: 1px solid var(--cerebr-card-border-color);
-    border-radius: 18px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
+    width: 140px;
+    height: 40px;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-weight: 500;
+    border: none;
+    border-radius: 18px;
+    cursor: pointer;
     transition: all 0.2s ease;
     background-color: var(--cerebr-message-ai-bg);
     color: var(--cerebr-text-color);
+    border: 1px solid var(--cerebr-card-border-color);
 }
 
-.add-button:hover, .reset-button:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px var(--cerebr-card-border-color);
+.add-button:active, .reset-button:active {
+    transform: scale(0.98);
 }
 
-.add-button:focus, .reset-button:focus {
-    outline: none;
-    border-color: var(--cerebr-focus-border-color);
-    box-shadow: 0 0 0 1px var(--cerebr-focus-border-color);
+.add-button:hover:not(:disabled), .reset-button:hover:not(:disabled) {
+    background-color: var(--cerebr-button-hover-bg);
+}
+
+.add-button:disabled, .reset-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.add-button svg, .reset-button svg {
+    width: 16px;
+    height: 16px;
 }
 
 /* 空狀態提示 */
