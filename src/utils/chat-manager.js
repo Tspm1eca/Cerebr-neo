@@ -100,6 +100,14 @@ export class ChatManager {
             );
     }
 
+    /**
+     * 獲取歷史紀錄數量
+     * @returns {number} 歷史紀錄的數量
+     */
+    getChatCount() {
+        return this.getAllChats().length;
+    }
+
     async addMessageToCurrentChat(message, webpageInfo) {
         const currentChat = this.getCurrentChat();
         if (!currentChat) {

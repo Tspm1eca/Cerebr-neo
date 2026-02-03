@@ -426,6 +426,19 @@ class WebDAVSyncManager {
         this.client = null;
         this.config = { ...DEFAULT_CONFIG };
         this.listeners = new Set();
+        // 快取：用於避免重複計算
+        this._cachedLocalData = null;
+        this._cachedLocalHash = null;
+        this._cacheTimestamp = 0;
+    }
+
+    /**
+     * 清除本地數據快取
+     */
+    clearCache() {
+        this._cachedLocalData = null;
+        this._cachedLocalHash = null;
+        this._cacheTimestamp = 0;
     }
 
     /**
@@ -483,8 +496,10 @@ class WebDAVSyncManager {
 
     /**
      * 執行同步 - 上傳本地數據到遠端
+     * @param {Object} options - 選項
+     * @param {string} options.cachedHash - 已計算的本地 hash（可選，避免重複計算）
      */
-    async syncToRemote() {
+    async syncToRemote(options = {}) {
         if (!this.config.enabled) {
             throw new Error('WebDAV未啟用');
         }
@@ -497,44 +512,19 @@ class WebDAVSyncManager {
         this.notifyListeners('sync-start', { direction: 'upload' });
 
         try {
-            // 獲取本地聊天數據
-            const result = await storageAdapter.get(CHATS_KEY);
-            const chats = result[CHATS_KEY] || [];
+            // 使用快取的本地數據，避免重複讀取和序列化
+            const { data: localData, hash: localHash } = await this.getLocalSyncData();
 
-            // 獲取快速選項數據（默認同步）
-            const quickChatResult = await syncStorageAdapter.get('quickChatOptions');
-            const quickChatOptions = quickChatResult.quickChatOptions || [];
+            if (!localData) {
+                throw new Error('無法獲取本地數據');
+            }
 
-            // 創建同步數據包
+            // 創建同步數據包（添加版本和時間戳）
             const syncData = {
                 version: 1,
                 timestamp: new Date().toISOString(),
-                chats: chats,
-                quickChatOptions: quickChatOptions
+                ...localData
             };
-
-            // 如果啟用了同步 API 配置，則包含 API 相關設置
-            if (this.config.syncApiConfig) {
-                const apiConfigResult = await syncStorageAdapter.get([
-                    'apiConfigs',
-                    'selectedConfigIndex',
-                    'searchProvider',
-                    'tavilyApiKey',
-                    'tavilyApiUrl',
-                    'exaApiKey',
-                    'exaApiUrl'
-                ]);
-
-                syncData.apiSettings = {
-                    apiConfigs: apiConfigResult.apiConfigs || [],
-                    selectedConfigIndex: apiConfigResult.selectedConfigIndex ?? 0,
-                    searchProvider: apiConfigResult.searchProvider || 'tavily',
-                    tavilyApiKey: apiConfigResult.tavilyApiKey || '',
-                    tavilyApiUrl: apiConfigResult.tavilyApiUrl || '',
-                    exaApiKey: apiConfigResult.exaApiKey || '',
-                    exaApiUrl: apiConfigResult.exaApiUrl || ''
-                };
-            }
 
             // 上傳到 WebDAV
             await this.client.uploadData('cerebr.json', syncData);
@@ -549,14 +539,14 @@ class WebDAVSyncManager {
                 console.warn('[WebDAV] 獲取上傳後 ETag 失敗:', etagError);
             }
 
-            // 計算並儲存本地 Hash（用於下次同步檢查）
-            try {
-                const localHash = await this.calculateLocalHash();
-                if (localHash) {
-                    await syncStorageAdapter.set({ [WEBDAV_LOCAL_HASH_KEY]: localHash });
+            // 使用已計算的 hash 或快取的 hash，避免重複計算
+            const hashToSave = options.cachedHash || localHash;
+            if (hashToSave) {
+                try {
+                    await syncStorageAdapter.set({ [WEBDAV_LOCAL_HASH_KEY]: hashToSave });
+                } catch (hashError) {
+                    console.warn('[WebDAV] 儲存本地 Hash 失敗:', hashError);
                 }
-            } catch (hashError) {
-                console.warn('[WebDAV] 儲存本地 Hash 失敗:', hashError);
             }
 
             // 記錄最後同步時間和時間戳
@@ -566,6 +556,7 @@ class WebDAVSyncManager {
                 [WEBDAV_LAST_SYNC_TIMESTAMP_KEY]: syncData.timestamp
             });
 
+            const chats = localData.chats || [];
             this.notifyListeners('sync-complete', {
                 direction: 'upload',
                 timestamp: lastSync,
@@ -577,6 +568,9 @@ class WebDAVSyncManager {
             if (this.config.syncApiConfig) {
                 message += '（含 API 配置）';
             }
+
+            // 清除快取，因為同步完成後數據狀態已確定
+            this.clearCache();
 
             return { success: true, message, timestamp: lastSync };
         } catch (error) {
@@ -640,6 +634,9 @@ class WebDAVSyncManager {
                 apiConfigSynced = true;
             }
 
+            // 清除快取，因為本地數據已更新
+            this.clearCache();
+
             // 獲取並儲存新的 ETag（用於下次同步檢查）
             try {
                 const newETag = await this.client.getRemoteETag('cerebr.json');
@@ -650,9 +647,9 @@ class WebDAVSyncManager {
                 console.warn('[WebDAV] 獲取下載後 ETag 失敗:', etagError);
             }
 
-            // 計算並儲存本地 Hash（下載後本地數據已更新，需要重新計算）
+            // 計算並儲存本地 Hash（下載後本地數據已更新，強制重新計算）
             try {
-                const localHash = await this.calculateLocalHash();
+                const localHash = await this.calculateLocalHash(true);
                 if (localHash) {
                     await syncStorageAdapter.set({ [WEBDAV_LOCAL_HASH_KEY]: localHash });
                 }
@@ -707,10 +704,17 @@ class WebDAVSyncManager {
     }
 
     /**
-     * 計算本地數據的 Hash（使用簡單的字符串 hash）
-     * @returns {Promise<string>} 本地數據的 hash 值
+     * 獲取本地同步數據（帶快取）
+     * @param {boolean} forceRefresh - 是否強制刷新快取
+     * @returns {Promise<Object>} { data: Object, hash: string }
      */
-    async calculateLocalHash() {
+    async getLocalSyncData(forceRefresh = false) {
+        // 檢查快取是否有效（5秒內的快取視為有效）
+        const now = Date.now();
+        if (!forceRefresh && this._cachedLocalData && this._cachedLocalHash && (now - this._cacheTimestamp) < 5000) {
+            return { data: this._cachedLocalData, hash: this._cachedLocalHash };
+        }
+
         try {
             // 獲取本地聊天數據
             const result = await storageAdapter.get(CHATS_KEY);
@@ -720,13 +724,13 @@ class WebDAVSyncManager {
             const quickChatResult = await syncStorageAdapter.get('quickChatOptions');
             const quickChatOptions = quickChatResult.quickChatOptions || [];
 
-            // 創建用於 hash 的數據對象（不包含 timestamp）
-            const dataForHash = {
+            // 創建同步數據對象
+            const syncData = {
                 chats: chats,
                 quickChatOptions: quickChatOptions
             };
 
-            // 如果啟用了同步 API 配置，也包含在 hash 計算中
+            // 如果啟用了同步 API 配置，也包含在數據中
             if (this.config.syncApiConfig) {
                 const apiConfigResult = await syncStorageAdapter.get([
                     'apiConfigs',
@@ -737,7 +741,7 @@ class WebDAVSyncManager {
                     'exaApiKey',
                     'exaApiUrl'
                 ]);
-                dataForHash.apiSettings = {
+                syncData.apiSettings = {
                     apiConfigs: apiConfigResult.apiConfigs || [],
                     selectedConfigIndex: apiConfigResult.selectedConfigIndex ?? 0,
                     searchProvider: apiConfigResult.searchProvider || 'tavily',
@@ -748,31 +752,48 @@ class WebDAVSyncManager {
                 };
             }
 
-            // 使用簡單的字符串 hash（djb2 算法）
-            const jsonString = JSON.stringify(dataForHash);
+            // 計算 hash（使用 djb2 算法）
+            const jsonString = JSON.stringify(syncData);
             let hash = 5381;
             for (let i = 0; i < jsonString.length; i++) {
                 hash = ((hash << 5) + hash) + jsonString.charCodeAt(i);
                 hash = hash & hash; // 轉換為 32 位整數
             }
-            return Math.abs(hash).toString(16);
+            const hashString = Math.abs(hash).toString(16);
+
+            // 更新快取
+            this._cachedLocalData = syncData;
+            this._cachedLocalHash = hashString;
+            this._cacheTimestamp = now;
+
+            return { data: syncData, hash: hashString };
         } catch (error) {
-            console.error('[WebDAV] 計算本地 hash 失敗:', error);
-            return null;
+            console.error('[WebDAV] 獲取本地同步數據失敗:', error);
+            return { data: null, hash: null };
         }
     }
 
     /**
+     * 計算本地數據的 Hash（使用簡單的字符串 hash）
+     * @param {boolean} forceRefresh - 是否強制刷新快取
+     * @returns {Promise<string>} 本地數據的 hash 值
+     */
+    async calculateLocalHash(forceRefresh = false) {
+        const { hash } = await this.getLocalSyncData(forceRefresh);
+        return hash;
+    }
+
+    /**
      * 檢查同步狀態 - 使用 ETag 和本地 Hash 實現雙向檢測
-     * @returns {Promise<Object>} { needsSync: boolean, direction: 'upload'|'download'|'conflict'|null, reason: string }
+     * @returns {Promise<Object>} { needsSync: boolean, direction: 'upload'|'download'|'conflict'|null, reason: string, cachedHash: string|null }
      */
     async checkSyncStatus() {
         try {
             if (!this.client) {
-                return { needsSync: true, direction: 'upload', reason: '客戶端未初始化' };
+                return { needsSync: true, direction: 'upload', reason: '客戶端未初始化', cachedHash: null };
             }
 
-            // 1. 計算當前本地數據的 hash
+            // 1. 計算當前本地數據的 hash（使用快取）
             const currentLocalHash = await this.calculateLocalHash();
 
             // 2. 獲取上次同步時儲存的本地 hash
@@ -794,34 +815,34 @@ class WebDAVSyncManager {
 
             // 7. 如果遠端文件不存在，需要上傳
             if (remoteETag === null) {
-                return { needsSync: true, direction: 'upload', reason: '遠端文件不存在，需要上傳' };
+                return { needsSync: true, direction: 'upload', reason: '遠端文件不存在，需要上傳', cachedHash: currentLocalHash };
             }
 
             // 8. 如果沒有上次的記錄，執行同步以建立基準
             if (!lastRemoteETag || !lastLocalHash) {
-                return { needsSync: true, direction: 'download', reason: '首次同步檢查，需要建立基準' };
+                return { needsSync: true, direction: 'download', reason: '首次同步檢查，需要建立基準', cachedHash: currentLocalHash };
             }
 
             // 9. 根據變更情況決定同步方向
             if (!localChanged && !remoteChanged) {
-                return { needsSync: false, direction: null, reason: '本地和遠端均無變化' };
+                return { needsSync: false, direction: null, reason: '本地和遠端均無變化', cachedHash: currentLocalHash };
             }
 
             if (localChanged && !remoteChanged) {
-                return { needsSync: true, direction: 'upload', reason: '本地有新變更，需要上傳' };
+                return { needsSync: true, direction: 'upload', reason: '本地有新變更，需要上傳', cachedHash: currentLocalHash };
             }
 
             if (!localChanged && remoteChanged) {
-                return { needsSync: true, direction: 'download', reason: '遠端有新變更，需要下載' };
+                return { needsSync: true, direction: 'download', reason: '遠端有新變更，需要下載', cachedHash: currentLocalHash };
             }
 
             // 10. 雙方都有變更 - 使用時間戳優先策略
-            return { needsSync: true, direction: 'conflict', reason: '本地和遠端都有變更，需要比較時間戳' };
+            return { needsSync: true, direction: 'conflict', reason: '本地和遠端都有變更，需要比較時間戳', cachedHash: currentLocalHash };
 
         } catch (error) {
             console.error('[WebDAV] 同步檢查失敗:', error);
             // 檢查失敗時，保守起見執行上傳
-            return { needsSync: true, direction: 'upload', reason: `檢查失敗: ${error.message}` };
+            return { needsSync: true, direction: 'upload', reason: `檢查失敗: ${error.message}`, cachedHash: null };
         }
     }
 
@@ -885,15 +906,15 @@ class WebDAVSyncManager {
         }
 
         try {
-            // 先執行輕量級檢查
+            // 先執行輕量級檢查（會快取 hash）
             const status = await this.checkSyncStatus();
 
             if (!status.needsSync) {
                 return { synced: false, direction: null, result: null, error: null, conflict: null };
             }
 
-
             let direction = status.direction;
+            const cachedHash = status.cachedHash;
 
             // 如果是衝突，檢查是否有用戶選擇回調
             if (direction === 'conflict') {
@@ -914,13 +935,13 @@ class WebDAVSyncManager {
                 }
             }
 
-            // 根據方向執行同步
+            // 根據方向執行同步，傳遞快取的 hash
             if (direction === 'upload') {
-                const result = await this.syncToRemote();
+                const result = await this.syncToRemote({ cachedHash });
                 return { synced: true, direction: 'upload', result, error: null, conflict: null };
             } else if (direction === 'download') {
                 const result = await this.syncFromRemote();
-                // 如果需要重新載入，通知監聽器
+                // 如果需要重新載入，通知監聯器
                 if (result.needsReload) {
                     this.notifyListeners('sync-reload-required', { reason: '開啟同步下載了新數據' });
                 }
@@ -944,12 +965,12 @@ class WebDAVSyncManager {
         }
 
         try {
-            // 檢查本地是否有變更
+            // 檢查本地是否有變更（會快取 hash）
             const status = await this.checkSyncStatus();
 
-            // 只有當本地有變更時才上傳
+            // 只有當本地有變更時才上傳，傳遞快取的 hash
             if (status.needsSync && (status.direction === 'upload' || status.direction === 'conflict')) {
-                const result = await this.syncToRemote();
+                const result = await this.syncToRemote({ cachedHash: status.cachedHash });
                 return { synced: true, result, error: null };
             }
 

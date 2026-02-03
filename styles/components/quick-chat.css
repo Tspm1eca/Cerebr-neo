@@ -582,3 +582,61 @@
     opacity: 0.9;
 }
 
+/* ==================== 歷史紀錄限制警告對話框樣式 ==================== */
+.history-limit-modal {
+    z-index: 1200;
+}
+
+.history-limit-content {
+    max-width: 380px;
+}
+
+.history-limit-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    color: #f59e0b;
+}
+
+.history-limit-header svg {
+    flex-shrink: 0;
+}
+
+.history-limit-header span {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--cerebr-text-color);
+}
+
+.history-limit-message {
+    font-size: 14px;
+    color: var(--cerebr-text-color);
+    margin-bottom: 8px;
+    line-height: 1.5;
+}
+
+.history-limit-message strong {
+    color: #f59e0b;
+    font-weight: 600;
+}
+
+.history-limit-content small {
+    font-size: 13px;
+    color: var(--cerebr-text-color);
+    opacity: 0.7;
+    display: block;
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+.modal-button.history-manage {
+    background-color: var(--cerebr-highlight-border-color);
+    color: #fff;
+}
+
+.modal-button.history-manage:hover {
+    opacity: 0.9;
+    background-color: var(--cerebr-highlight-border-color);
+}
+
