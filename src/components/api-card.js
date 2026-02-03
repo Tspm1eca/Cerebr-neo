@@ -153,19 +153,87 @@ export function initAPICard({
         onProfileAdd(newConfig, selectedIndex);
     });
 
+    // 重命名配置模态框元素
+    const renameProfileModal = document.getElementById('rename-profile-modal');
+    const renameProfileInput = document.getElementById('rename-profile-input');
+    const renameProfileCancel = document.getElementById('rename-profile-cancel');
+    const renameProfileConfirm = document.getElementById('rename-profile-confirm');
+    const renameProfileClose = renameProfileModal?.querySelector('.input-modal-close');
+
     // 重命名配置按钮
     renameProfileBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         const config = getCurrentConfig();
         const currentName = config.profileName || `配置 ${selectedIndex + 1}`;
-        const newName = prompt('请输入新的配置名称：', currentName);
 
-        if (newName !== null && newName.trim() !== '') {
-            config.profileName = newName.trim();
-            updateProfileSelector();
-            onConfigChange(selectedIndex, config);
+        if (renameProfileModal && renameProfileInput) {
+            renameProfileInput.value = currentName;
+            renameProfileModal.style.display = 'flex';
+            renameProfileInput.focus();
+            renameProfileInput.select();
         }
     });
+
+    // 重命名模态框事件处理
+    if (renameProfileModal) {
+        const handleRenameConfirm = () => {
+            const newName = renameProfileInput.value.trim();
+            if (newName !== '') {
+                const config = getCurrentConfig();
+                config.profileName = newName;
+                updateProfileSelector();
+                onConfigChange(selectedIndex, config);
+            }
+            renameProfileModal.style.display = 'none';
+        };
+
+        const handleRenameCancel = () => {
+            renameProfileModal.style.display = 'none';
+        };
+
+        renameProfileConfirm?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleRenameConfirm();
+        });
+
+        renameProfileCancel?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleRenameCancel();
+        });
+
+        renameProfileClose?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleRenameCancel();
+        });
+
+        // 点击模态框背景关闭
+        renameProfileModal.addEventListener('click', (e) => {
+            if (e.target === renameProfileModal) {
+                handleRenameCancel();
+            }
+        });
+
+        // 输入框回车确认
+        renameProfileInput?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleRenameConfirm();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                handleRenameCancel();
+            }
+        });
+
+        // 阻止输入框事件冒泡
+        renameProfileInput?.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+    }
+
+    // 删除配置模态框元素
+    const deleteProfileModal = document.getElementById('delete-profile-confirm-modal');
+    const cancelDeleteProfile = document.getElementById('cancel-delete-profile');
+    const confirmDeleteProfile = document.getElementById('confirm-delete-profile');
 
     // 删除配置按钮
     deleteProfileBtn.addEventListener('click', (e) => {
@@ -176,7 +244,14 @@ export function initAPICard({
             return;
         }
 
-        if (confirm('确定要删除当前配置吗？此操作无法撤销。')) {
+        if (deleteProfileModal) {
+            deleteProfileModal.style.display = 'flex';
+        }
+    });
+
+    // 删除配置模态框事件处理
+    if (deleteProfileModal) {
+        const handleDeleteConfirm = () => {
             const deletedIndex = selectedIndex;
             apiConfigs.splice(deletedIndex, 1);
 
@@ -188,21 +263,77 @@ export function initAPICard({
             updateProfileSelector();
             updateFormContent(getCurrentConfig());
             onProfileDelete(deletedIndex, selectedIndex);
-        }
-    });
+            deleteProfileModal.style.display = 'none';
+        };
+
+        const handleDeleteCancel = () => {
+            deleteProfileModal.style.display = 'none';
+        };
+
+        confirmDeleteProfile?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleDeleteConfirm();
+        });
+
+        cancelDeleteProfile?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleDeleteCancel();
+        });
+
+        // 点击模态框背景关闭
+        deleteProfileModal.addEventListener('click', (e) => {
+            if (e.target === deleteProfileModal) {
+                handleDeleteCancel();
+            }
+        });
+    }
 
     // 系统提示变更
     systemPromptInput.addEventListener('change', () => {
         saveCurrentForm();
     });
 
+    // 还原系统提示模态框元素
+    const resetPromptModal = document.getElementById('reset-prompt-confirm-modal');
+    const cancelResetPrompt = document.getElementById('cancel-reset-prompt');
+    const confirmResetPrompt = document.getElementById('confirm-reset-prompt');
+
     // 还原系统提示按钮
     if (resetPromptBtn) {
         resetPromptBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (confirm('确定要还原系统提示为默认值吗？此操作无法撤销。')) {
-                systemPromptInput.value = DEFAULT_SYSTEM_PROMPT;
-                saveCurrentForm();
+            if (resetPromptModal) {
+                resetPromptModal.style.display = 'flex';
+            }
+        });
+    }
+
+    // 还原系统提示模态框事件处理
+    if (resetPromptModal) {
+        const handleResetConfirm = () => {
+            systemPromptInput.value = DEFAULT_SYSTEM_PROMPT;
+            saveCurrentForm();
+            resetPromptModal.style.display = 'none';
+        };
+
+        const handleResetCancel = () => {
+            resetPromptModal.style.display = 'none';
+        };
+
+        confirmResetPrompt?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleResetConfirm();
+        });
+
+        cancelResetPrompt?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleResetCancel();
+        });
+
+        // 点击模态框背景关闭
+        resetPromptModal.addEventListener('click', (e) => {
+            if (e.target === resetPromptModal) {
+                handleResetCancel();
             }
         });
     }

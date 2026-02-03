@@ -637,6 +637,52 @@
         </div>
     </div>
 
+    <!-- Rename Profile Input Modal -->
+    <div id="rename-profile-modal" class="input-modal" style="display: none;">
+        <div class="input-modal-content">
+            <div class="input-modal-header">
+                <span class="input-modal-title">重命名配置</span>
+                <button class="input-modal-close">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="input-modal-body">
+                <label for="rename-profile-input">请输入新的配置名称：</label>
+                <input type="text" id="rename-profile-input" class="input-modal-input" placeholder="配置名称">
+            </div>
+            <div class="input-modal-actions">
+                <button id="rename-profile-cancel" class="modal-button cancel">取消</button>
+                <button id="rename-profile-confirm" class="modal-button confirm">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Profile Confirmation Modal -->
+    <div id="delete-profile-confirm-modal" class="confirm-modal" style="display: none;">
+        <div class="confirm-modal-content">
+            <p>确定要删除当前配置吗？</p>
+            <small>此操作无法撤销。</small>
+            <div class="confirm-modal-actions">
+                <button id="cancel-delete-profile" class="modal-button cancel">取消</button>
+                <button id="confirm-delete-profile" class="modal-button confirm">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reset System Prompt Confirmation Modal -->
+    <div id="reset-prompt-confirm-modal" class="confirm-modal" style="display: none;">
+        <div class="confirm-modal-content">
+            <p>确定要还原系统提示为默认值吗？</p>
+            <small>此操作无法撤销。</small>
+            <div class="confirm-modal-actions">
+                <button id="cancel-reset-prompt" class="modal-button cancel">取消</button>
+                <button id="confirm-reset-prompt" class="modal-button confirm">确定</button>
+            </div>
+        </div>
+    </div>
+
     <div class="image-preview-modal">
         <div class="image-preview-content">
             <img src="" alt="预览图片">
