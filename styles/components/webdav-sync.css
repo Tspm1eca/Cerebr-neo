@@ -233,7 +233,7 @@
     font-size: 14px;
     font-weight: 500;
     border: none;
-    border-radius: 6px;
+    border-radius: 18px;
     cursor: pointer;
     transition: all 0.2s ease;
 }
@@ -253,12 +253,13 @@
 }
 
 .webdav-upload-btn {
-    background-color: var(--cerebr-highlight-border-color);
-    color: #fff;
+    background-color: var(--cerebr-message-ai-bg);
+    color: var(--cerebr-text-color);
+    border: 1px solid var(--cerebr-card-border-color);
 }
 
 .webdav-upload-btn:hover:not(:disabled) {
-    opacity: 0.9;
+    background-color: var(--cerebr-button-hover-bg);
 }
 
 .webdav-download-btn {

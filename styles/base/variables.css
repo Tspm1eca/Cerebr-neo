@@ -12,7 +12,7 @@
     --cerebr-input-bg:rgba(33, 37, 43, 0.90);
     --cerebr-icon-color: #abb2bf;
     --cerebr-card-border-color: rgba(255, 255, 255, 0.1);
-    --cerebr-highlight-border-color: rgba(0, 122, 255, 0.5);
+    --cerebr-highlight-border-color: rgba(106, 161, 220, 0.5);
     --cerebr-button-hover-bg: rgba(0, 0, 0, 0.25);
     --cerebr-focus-border-color: rgba(0, 122, 255, 0.3);
     --cerebr-inline-code-bg: rgba(41, 33, 29, 0.4);
@@ -35,7 +35,7 @@
     --cerebr-reasoning-hover-bg: rgba(255, 255, 255, 0.05);
     --cerebr-reasoning-pulse-color: rgba(255, 193, 37, 0.5);
     --cerebr-toggle-bg-off: rgba(255, 255, 255, 0.15);
-    --cerebr-toggle-bg-on: #32d74b;
+    --cerebr-toggle-bg-on: #6aa1dc;
     --cerebr-input-border-color: rgba(255, 255, 255, 0.15);
     --cerebr-sidebar-box-shadow: -2px 0 15px rgba(0, 0, 0, 0.2);
     --cerebr-search-used-border: rgba(50, 215, 75, 0.4);
