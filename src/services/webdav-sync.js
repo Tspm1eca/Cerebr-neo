@@ -870,7 +870,6 @@ class WebDAVSyncManager {
      */
     async resolveConflict() {
         const conflictInfo = await this.getConflictInfo();
-        console.log(`[WebDAV] 衝突自動解決：推薦 ${conflictInfo.recommendation}`);
         return conflictInfo.recommendation;
     }
 
@@ -882,7 +881,6 @@ class WebDAVSyncManager {
      */
     async syncOnOpen(options = {}) {
         if (!this.config.enabled) {
-            console.log('[WebDAV] 開啟同步：WebDAV 未啟用');
             return { synced: false, direction: null, result: null, error: null, conflict: null };
         }
 
@@ -891,11 +889,9 @@ class WebDAVSyncManager {
             const status = await this.checkSyncStatus();
 
             if (!status.needsSync) {
-                console.log('[WebDAV] 開啟同步檢查：無需同步 -', status.reason);
                 return { synced: false, direction: null, result: null, error: null, conflict: null };
             }
 
-            console.log('[WebDAV] 開啟同步檢查：需要同步 -', status.reason);
 
             let direction = status.direction;
 
@@ -905,7 +901,6 @@ class WebDAVSyncManager {
 
                 if (options.onConflict && typeof options.onConflict === 'function') {
                     // 返回衝突信息，讓調用者處理
-                    console.log('[WebDAV] 檢測到衝突，等待用戶選擇');
                     return {
                         synced: false,
                         direction: 'conflict',
@@ -916,18 +911,15 @@ class WebDAVSyncManager {
                 } else {
                     // 沒有回調，使用自動解決
                     direction = conflictInfo.recommendation;
-                    console.log('[WebDAV] 衝突自動解決，同步方向:', direction);
                 }
             }
 
             // 根據方向執行同步
             if (direction === 'upload') {
                 const result = await this.syncToRemote();
-                console.log('[WebDAV] 開啟同步完成：已上傳到遠端');
                 return { synced: true, direction: 'upload', result, error: null, conflict: null };
             } else if (direction === 'download') {
                 const result = await this.syncFromRemote();
-                console.log('[WebDAV] 開啟同步完成：已從遠端下載');
                 // 如果需要重新載入，通知監聽器
                 if (result.needsReload) {
                     this.notifyListeners('sync-reload-required', { reason: '開啟同步下載了新數據' });
@@ -948,7 +940,6 @@ class WebDAVSyncManager {
      */
     async syncOnClose() {
         if (!this.config.enabled) {
-            console.log('[WebDAV] 關閉同步：WebDAV 未啟用');
             return { synced: false, result: null, error: null };
         }
 
@@ -958,13 +949,10 @@ class WebDAVSyncManager {
 
             // 只有當本地有變更時才上傳
             if (status.needsSync && (status.direction === 'upload' || status.direction === 'conflict')) {
-                console.log('[WebDAV] 關閉同步：檢測到本地變更，正在上傳...');
                 const result = await this.syncToRemote();
-                console.log('[WebDAV] 關閉同步完成：已上傳到遠端');
                 return { synced: true, result, error: null };
             }
 
-            console.log('[WebDAV] 關閉同步：無需同步 -', status.reason);
             return { synced: false, result: null, error: null };
         } catch (error) {
             console.error('[WebDAV] 關閉同步失敗:', error);

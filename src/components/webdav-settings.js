@@ -429,19 +429,15 @@ class WebDAVSettingsController {
 
             // 如果檢測到衝突，顯示對話框讓用戶選擇
             if (syncResult.direction === 'conflict' && syncResult.conflict) {
-                console.log('[WebDAV] 檢測到衝突，顯示選擇對話框');
                 const userChoice = await showConflictDialog(syncResult.conflict);
-                console.log(`[WebDAV] 用戶選擇: ${userChoice}`);
 
                 // 根據用戶選擇執行同步
                 let result;
                 if (userChoice === 'upload') {
                     result = await webdavSyncManager.syncToRemote();
-                    console.log('[WebDAV] 衝突解決：已上傳本地數據');
                     return { synced: true, direction: 'upload', result, error: null };
                 } else {
                     result = await webdavSyncManager.syncFromRemote();
-                    console.log('[WebDAV] 衝突解決：已下載雲端數據');
                     // 如果是下載，觸發回調以重新載入數據
                     if (result.needsReload && this.callbacks.onDataReload) {
                         await this.callbacks.onDataReload(result);
@@ -452,7 +448,6 @@ class WebDAVSettingsController {
 
             // 非衝突情況的正常處理
             if (syncResult.synced) {
-                console.log(`[WebDAV] 開啟同步完成: ${syncResult.direction}`);
                 // 如果是下載，觸發回調以重新載入數據
                 if (syncResult.direction === 'download' && syncResult.result?.needsReload) {
                     if (this.callbacks.onDataReload) {
@@ -479,10 +474,6 @@ class WebDAVSettingsController {
             if (syncResult.error) {
                 console.error('[WebDAV] 關閉同步失敗:', syncResult.error);
                 // 關閉時不顯示 Toast，因為頁面可能已經關閉
-            }
-
-            if (syncResult.synced) {
-                console.log('[WebDAV] 關閉同步完成');
             }
 
             return syncResult;

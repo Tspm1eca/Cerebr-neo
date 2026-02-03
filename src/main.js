@@ -1746,12 +1746,19 @@ let exaApiUrl = '';
 
     // 使用 visibilitychange 事件來檢測頁面即將關閉
     // 這比 beforeunload 更可靠，因為它在頁面隱藏時觸發
+    // 加入防抖機制，避免快速切換標籤頁時產生不必要的網路請求
+    let syncOnCloseDebounceTimer = null;
     document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'hidden') {
             // 頁面被隱藏（可能是關閉、切換標籤頁或最小化）
-            // 執行同步操作
-            console.log('[WebDAV] 頁面隱藏，嘗試執行關閉同步...');
-            await performWebDAVSyncOnClose();
+            // 使用 300ms 防抖，過濾快速切換標籤頁的情況
+            clearTimeout(syncOnCloseDebounceTimer);
+            syncOnCloseDebounceTimer = setTimeout(async () => {
+                await performWebDAVSyncOnClose();
+            }, 300);
+        } else if (document.visibilityState === 'visible') {
+            // 頁面重新可見時，取消待執行的同步（用戶快速切回來了）
+            clearTimeout(syncOnCloseDebounceTimer);
         }
     });
 
@@ -1760,13 +1767,11 @@ let exaApiUrl = '';
         // pagehide 事件在頁面被卸載時觸發
         // persisted 為 true 表示頁面可能被緩存（bfcache）
         if (!event.persisted) {
-            console.log('[WebDAV] 頁面卸載，嘗試執行關閉同步...');
             await performWebDAVSyncOnClose();
         }
     });
 
     // 網頁載入時執行 WebDAV 同步
-    console.log('[WebDAV] 網頁載入，執行開啟同步...');
     performWebDAVSyncOnOpen();
     // ==================== WebDAV 同步設置結束 ====================
 
