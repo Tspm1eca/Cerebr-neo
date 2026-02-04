@@ -187,7 +187,7 @@ export function addImageToPreview({
     const item = document.createElement('div');
     item.className = 'preview-image-item';
     item.setAttribute('data-image', base64Data);
-    item.title = fileName;
+    // 不設置 title，避免 hover 時顯示 tooltip
 
     const img = document.createElement('img');
     img.src = base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
@@ -195,7 +195,7 @@ export function addImageToPreview({
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'preview-delete-btn';
-    deleteBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-linecap="round"/></svg>';
+    deleteBtn.innerHTML = '';
     deleteBtn.title = '删除图片';
 
     // 点击图片预览
@@ -243,6 +243,12 @@ export function updatePreviewVisibility() {
         if (chatContainer) {
             chatContainer.classList.add('has-image-preview');
         }
+
+        // 當圖片預覽區域顯示時，隱藏快速選項
+        // 動態導入以避免循環依賴
+        import('../components/quick-chat.js').then(({ toggleQuickChatOptions }) => {
+            toggleQuickChatOptions(false);
+        });
     } else {
         previewContainer.classList.remove('has-images');
         if (chatContainer) {

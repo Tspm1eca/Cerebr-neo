@@ -26,7 +26,7 @@
     max-width: 90%;
     max-height: 90%;
     position: relative;
-    border-radius: 8px;
+    border-radius: 18px;
     overflow: hidden;
     box-shadow: 0 4px 20px var(--cerebr-popup-shadow);
     cursor: pointer; /* 點擊圖片可關閉預覽 */

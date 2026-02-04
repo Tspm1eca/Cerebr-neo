@@ -467,113 +467,85 @@ class CerebrSidebar {
       // 尝试从 dataTransfer 获取图片
       const dataTransfer = e.dataTransfer;
 
+      // 辅助函数：发送图片数据到 iframe
+      const sendImageToIframe = (imageData, name = '拖放图片') => {
+        iframe.contentWindow.postMessage({
+          type: 'DROP_IMAGE',
+          imageData: {
+            type: 'image',
+            data: imageData,
+            name: name
+          }
+        }, '*');
+        isDraggingImage = false;
+      };
+
+      // 辅助函数：从 URL 获取图片并转换为 base64
+      const fetchImageFromUrl = async (url) => {
+        try {
+          const response = await fetch(url);
+          const blob = await response.blob();
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch (error) {
+          console.error('从 URL 获取图片失败:', error);
+          return null;
+        }
+      };
+
       // 1. 首先尝试获取文件
       if (dataTransfer.files && dataTransfer.files.length > 0) {
         for (const file of dataTransfer.files) {
           if (file.type.startsWith('image/')) {
             console.log('从文件获取图片:', file.name);
             const reader = new FileReader();
-            reader.onload = () => {
-              iframe.contentWindow.postMessage({
-                type: 'DROP_IMAGE',
-                imageData: {
-                  type: 'image',
-                  data: reader.result,
-                  name: file.name || '拖放图片'
-                }
-              }, '*');
-            };
+            reader.onload = () => sendImageToIframe(reader.result, file.name || '拖放图片');
             reader.readAsDataURL(file);
-            isDraggingImage = false;
             return;
           }
         }
       }
 
-      // 2. 尝试从 text/html 获取图片 URL
-      const html = dataTransfer.getData('text/html');
-      if (html) {
-        const imgMatch = html.match(/<img[^>]+src=["']([^"']+)["']/i);
-        if (imgMatch && imgMatch[1]) {
-          const imgUrl = imgMatch[1];
-          console.log('从 HTML 获取图片 URL:', imgUrl);
-          try {
-            const response = await fetch(imgUrl);
-            const blob = await response.blob();
-            const reader = new FileReader();
-            reader.onload = () => {
-              iframe.contentWindow.postMessage({
-                type: 'DROP_IMAGE',
-                imageData: {
-                  type: 'image',
-                  data: reader.result,
-                  name: '拖放图片'
-                }
-              }, '*');
-            };
-            reader.readAsDataURL(blob);
-            isDraggingImage = false;
+      // 2-4. 统一处理 URL 来源（HTML、URI列表、纯文本）
+      const urlSources = [
+        {
+          type: 'HTML',
+          getUrl: () => {
+            const html = dataTransfer.getData('text/html');
+            const imgMatch = html?.match(/<img[^>]+src=["']([^"']+)["']/i);
+            return imgMatch?.[1];
+          }
+        },
+        {
+          type: 'URI列表',
+          getUrl: () => {
+            const uriList = dataTransfer.getData('text/uri-list');
+            const urls = uriList?.split('\n').filter(url => url && !url.startsWith('#'));
+            return urls?.find(url => url.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/i));
+          }
+        },
+        {
+          type: '纯文本',
+          getUrl: () => {
+            const plainText = dataTransfer.getData('text/plain');
+            return plainText?.match(/^https?:\/\/.+\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/i) ? plainText : null;
+          }
+        }
+      ];
+
+      for (const source of urlSources) {
+        const url = source.getUrl();
+        if (url) {
+          console.log(`从${source.type}获取图片 URL:`, url);
+          const imageData = await fetchImageFromUrl(url);
+          if (imageData) {
+            sendImageToIframe(imageData);
             return;
-          } catch (error) {
-            console.error('从 URL 获取图片失败:', error);
           }
-        }
-      }
-
-      // 3. 尝试从 text/uri-list 获取图片 URL
-      const uriList = dataTransfer.getData('text/uri-list');
-      if (uriList) {
-        const urls = uriList.split('\n').filter(url => url && !url.startsWith('#'));
-        for (const url of urls) {
-          if (url.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/i)) {
-            console.log('从 URI 列表获取图片 URL:', url);
-            try {
-              const response = await fetch(url);
-              const blob = await response.blob();
-              const reader = new FileReader();
-              reader.onload = () => {
-                iframe.contentWindow.postMessage({
-                  type: 'DROP_IMAGE',
-                  imageData: {
-                    type: 'image',
-                    data: reader.result,
-                    name: '拖放图片'
-                  }
-                }, '*');
-              };
-              reader.readAsDataURL(blob);
-              isDraggingImage = false;
-              return;
-            } catch (error) {
-              console.error('从 URL 获取图片失败:', error);
-            }
-          }
-        }
-      }
-
-      // 4. 尝试从 text/plain 获取图片 URL
-      const plainText = dataTransfer.getData('text/plain');
-      if (plainText && plainText.match(/^https?:\/\/.+\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/i)) {
-        console.log('从纯文本获取图片 URL:', plainText);
-        try {
-          const response = await fetch(plainText);
-          const blob = await response.blob();
-          const reader = new FileReader();
-          reader.onload = () => {
-            iframe.contentWindow.postMessage({
-              type: 'DROP_IMAGE',
-              imageData: {
-                type: 'image',
-                data: reader.result,
-                name: '拖放图片'
-              }
-            }, '*');
-          };
-          reader.readAsDataURL(blob);
-          isDraggingImage = false;
-          return;
-        } catch (error) {
-          console.error('从 URL 获取图片失败:', error);
         }
       }
 
