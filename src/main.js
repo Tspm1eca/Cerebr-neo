@@ -1811,6 +1811,14 @@ let exaApiUrl = '';
         }
     });
 
+    // 監聽歷史紀錄自動清理事件
+    document.addEventListener('history-auto-cleaned', (e) => {
+        const { deletedCount } = e.detail;
+        // 更新歷史紀錄列表顯示
+        const chatCards = chatListPage.querySelector('.chat-cards');
+        renderChatList(chatManager, chatCards);
+    });
+
     // 图片预览功能
     previewModal.addEventListener('click', (e) => {
         // 點擊模態框背景或圖片內容區域都會關閉預覽

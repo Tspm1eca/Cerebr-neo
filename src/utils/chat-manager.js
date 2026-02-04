@@ -178,6 +178,18 @@ export class ChatManager {
                     document.dispatchEvent(new CustomEvent('chat-title-updated', { detail: { chatId: currentChat.id, newTitle: fallbackTitle } }));
                 }
             }
+
+            // 當創建新對話時，自動清理超過限制的歷史紀錄
+            // 使用 setTimeout 確保不阻塞當前操作，並在下一個事件循環中執行
+            setTimeout(() => {
+                this.autoCleanupHistory(100).then(deletedCount => {
+                    if (deletedCount > 0) {
+                        console.log(`已自動刪除 ${deletedCount} 條舊的歷史紀錄`);
+                        // 觸發事件通知 UI 更新歷史紀錄列表
+                        document.dispatchEvent(new CustomEvent('history-auto-cleaned', { detail: { deletedCount } }));
+                    }
+                });
+            }, 0);
         }
 
         await this.saveChats();
