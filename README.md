@@ -7,7 +7,6 @@
 ![screenshot](./statics/image.png)
 
 Cerebr 是一款强大的浏览器 AI 助手扩展，现已支持 Chrome、Firefox 和 Edge，专注于提升您的工作效率和学习体验。"Cerebr"源自拉丁语词根，与"大脑"或"脑"相关。这个命名体现了我们的愿景：整合 Claude、OpenAI 等 AI 的强大能力，使 Cerebr 成为您的第二大脑，为您提供深度阅读和理解支持。  
-
 ---
 ## 個人修改
 1. 多處UI修改（請自行體驗）
