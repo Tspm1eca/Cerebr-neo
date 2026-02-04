@@ -126,10 +126,12 @@
     position: relative;
     margin-left: 16px;
     flex-grow: 1;
+    font-family: var(--cerebr-font-family);
 }
 
 #chat-search-input {
     padding-right: 32px; /* 为清除按钮留出空间 */
+    font-family: var(--cerebr-font-family);
 }
 
 /* 隐藏浏览器原生的清除按钮 */

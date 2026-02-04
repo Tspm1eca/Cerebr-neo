@@ -28,7 +28,7 @@
     opacity: 0; /* 默认隐藏 */
     color: var(--cerebr-code-tag-color);
     font-size: 13px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--cerebr-font-family);
     border-bottom-left-radius: 8px;
     display: flex;
     align-items: center;
