@@ -1892,12 +1892,6 @@ let exaApiUrl = '';
     });
 
     // 图片预览功能
-    const closeButton = previewModal.querySelector('.image-preview-close');
-
-    closeButton.addEventListener('click', () => {
-        hideImagePreview({ config: uiConfig.imagePreview });
-    });
-
     previewModal.addEventListener('click', (e) => {
         // 點擊模態框背景或圖片內容區域都會關閉預覽
         if (e.target === previewModal || e.target.closest('.image-preview-content')) {
