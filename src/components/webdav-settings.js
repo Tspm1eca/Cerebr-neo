@@ -1,15 +1,15 @@
 /**
- * WebDAV 設置組件
- * 處理 WebDAV 同步的 UI 邏輯
+ * WebDAV 设置组件
+ * 处理 WebDAV 同步的 UI 逻辑
  */
 
 import { webdavSyncManager } from '../services/webdav-sync.js';
 import { validatePassword } from '../utils/crypto.js';
 
 /**
- * 顯示 Toast 提示
- * @param {string} message - 提示訊息
- * @param {string} type - 類型 ('success' | 'error')
+ * 显示 Toast 提示
+ * @param {string} message - 提示讯息
+ * @param {string} type - 类型 ('success' | 'error')
  */
 function showToast(message, type = 'success') {
     const toast = document.createElement('div');
@@ -28,15 +28,15 @@ function showToast(message, type = 'success') {
 }
 
 /**
- * 格式化時間戳為可讀格式
- * @param {string} timestamp - ISO 時間戳
- * @returns {string} 格式化後的時間字符串，格式為 YYYY/MM/DD HH:mm
+ * 格式化时间戳为可读格式
+ * @param {string} timestamp - ISO 时间戳
+ * @returns {string} 格式化后的时间字符串，格式为 YYYY/MM/DD HH:mm
  */
 function formatTimestamp(timestamp) {
     if (!timestamp) return '未知';
     try {
         const date = new Date(timestamp);
-        // 格式化為 YYYY/MM/DD HH:mm
+        // 格式化为 YYYY/MM/DD HH:mm
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
         const day = String(date.getDate()).padStart(2, '0');
@@ -49,9 +49,9 @@ function formatTimestamp(timestamp) {
 }
 
 /**
- * 顯示衝突解決對話框
- * @param {Object} conflictInfo - 衝突信息
- * @returns {Promise<'upload'|'download'>} 用戶選擇的方向
+ * 显示冲突解决对话框
+ * @param {Object} conflictInfo - 冲突信息
+ * @returns {Promise<'upload'|'download'>} 用户选择的方向
  */
 function showConflictDialog(conflictInfo) {
     return new Promise((resolve) => {
@@ -62,12 +62,12 @@ function showConflictDialog(conflictInfo) {
         const useRemoteBtn = document.getElementById('conflict-use-remote');
 
         if (!modal || !useLocalBtn || !useRemoteBtn) {
-            console.warn('[WebDAV] 衝突對話框元素不存在，使用自動解決');
+            console.warn('[WebDAV] 冲突对话框元素不存在，使用自动解决');
             resolve(conflictInfo.recommendation);
             return;
         }
 
-        // 更新時間顯示
+        // 更新时间显示
         if (localTimeEl) {
             localTimeEl.textContent = formatTimestamp(conflictInfo.localTimestamp);
         }
@@ -75,13 +75,13 @@ function showConflictDialog(conflictInfo) {
             remoteTimeEl.textContent = formatTimestamp(conflictInfo.remoteTimestamp);
         }
 
-        // 清理舊的事件監聽器
+        // 清理旧的事件监听器
         const newUseLocalBtn = useLocalBtn.cloneNode(true);
         const newUseRemoteBtn = useRemoteBtn.cloneNode(true);
         useLocalBtn.parentNode.replaceChild(newUseLocalBtn, useLocalBtn);
         useRemoteBtn.parentNode.replaceChild(newUseRemoteBtn, useRemoteBtn);
 
-        // 綁定新的事件監聽器
+        // 绑定新的事件监听器
         newUseLocalBtn.addEventListener('click', () => {
             modal.style.display = 'none';
             resolve('upload');
@@ -92,13 +92,13 @@ function showConflictDialog(conflictInfo) {
             resolve('download');
         });
 
-        // 顯示對話框
+        // 显示对话框
         modal.style.display = 'flex';
     });
 }
 
 /**
- * WebDAV 設置控制器
+ * WebDAV 设置控制器
  */
 class WebDAVSettingsController {
     constructor(options) {
@@ -108,7 +108,7 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 初始化 WebDAV 設置
+     * 初始化 WebDAV 设置
      */
     async initialize() {
         if (this.initialized) return;
@@ -116,13 +116,13 @@ class WebDAVSettingsController {
         // 初始化 WebDAV 同步管理器
         await webdavSyncManager.initialize();
 
-        // 綁定事件
+        // 绑定事件
         this.bindEvents();
 
-        // 加載設置到 UI
+        // 加载设置到 UI
         await this.loadSettings();
 
-        // 監聽 WebDAV 同步事件
+        // 监听 WebDAV 同步事件
         webdavSyncManager.addListener((event, data) => {
             if (event === 'sync-complete') {
                 this.updateLastSyncTimeDisplay();
@@ -133,7 +133,7 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 綁定事件處理器
+     * 绑定事件处理器
      */
     bindEvents() {
         const {
@@ -152,66 +152,66 @@ class WebDAVSettingsController {
             syncDownload
         } = this.elements;
 
-        // 啟用開關事件
+        // 启用开关事件
         enabledSwitch?.addEventListener('change', () => this.saveSettings());
 
-        // 伺服器地址輸入事件
+        // 服务器地址输入事件
         serverUrl?.addEventListener('change', () => this.saveSettings());
         serverUrl?.addEventListener('click', (e) => e.stopPropagation());
 
-        // 用戶名輸入事件
+        // 用户名输入事件
         username?.addEventListener('change', () => this.saveSettings());
         username?.addEventListener('click', (e) => e.stopPropagation());
 
-        // 密碼輸入事件
+        // 密码输入事件
         password?.addEventListener('change', () => this.saveSettings());
         password?.addEventListener('click', (e) => e.stopPropagation());
 
-        // 密碼顯示/隱藏切換
+        // 密码显示/隐藏切换
         togglePassword?.addEventListener('click', (e) => {
             e.stopPropagation();
             this.togglePasswordVisibility();
         });
 
-        // 同步路徑輸入事件
+        // 同步路径输入事件
         syncPath?.addEventListener('change', () => this.saveSettings());
         syncPath?.addEventListener('click', (e) => e.stopPropagation());
 
-        // 同步 API 配置開關事件
+        // 同步 API 配置开关事件
         syncApiSwitch?.addEventListener('change', () => {
             this.saveSettings();
             this.updateEncryptionFieldsState();
         });
 
-        // 加密 API Keys 開關事件
+        // 加密 API Keys 开关事件
         encryptApiSwitch?.addEventListener('change', () => {
             this.saveSettings();
             this.updateEncryptionFieldsState();
         });
 
-        // 加密密碼輸入事件
+        // 加密密码输入事件
         encryptionPassword?.addEventListener('change', () => this.saveSettings());
         encryptionPassword?.addEventListener('click', (e) => e.stopPropagation());
 
-        // 加密密碼顯示/隱藏切換
+        // 加密密码显示/隐藏切换
         toggleEncryptionPassword?.addEventListener('click', (e) => {
             e.stopPropagation();
             this.toggleEncryptionPasswordVisibility();
         });
 
-        // 測試連接按鈕事件
+        // 测试连接按钮事件
         testConnection?.addEventListener('click', (e) => {
             e.stopPropagation();
             this.handleTestConnection();
         });
 
-        // 上傳到雲端按鈕事件
+        // 上传到云端按钮事件
         syncUpload?.addEventListener('click', (e) => {
             e.stopPropagation();
             this.handleSyncUpload();
         });
 
-        // 從雲端下載按鈕事件
+        // 从云端下载按钮事件
         syncDownload?.addEventListener('click', (e) => {
             e.stopPropagation();
             this.handleSyncDownload();
@@ -219,7 +219,7 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 加載 WebDAV 設置到 UI
+     * 加载 WebDAV 设置到 UI
      */
     async loadSettings() {
         const config = webdavSyncManager.getConfig();
@@ -244,18 +244,18 @@ class WebDAVSettingsController {
         if (encryptApiSwitch) encryptApiSwitch.checked = config.encryptApiKeys || false;
         if (encryptionPassword) encryptionPassword.value = config.encryptionPassword || '';
 
-        // 更新表單禁用狀態
+        // 更新表单禁用状态
         this.updateFormState(config.enabled);
 
-        // 更新加密字段狀態
+        // 更新加密字段状态
         this.updateEncryptionFieldsState();
 
-        // 更新最後同步時間
+        // 更新最后同步时间
         await this.updateLastSyncTimeDisplay();
     }
 
     /**
-     * 保存 WebDAV 設置
+     * 保存 WebDAV 设置
      */
     async saveSettings() {
         const {
@@ -272,7 +272,7 @@ class WebDAVSettingsController {
         const encryptEnabled = encryptApiSwitch?.checked || false;
         const encryptPwd = encryptionPassword?.value || '';
 
-        // 如果啟用加密但密碼無效，顯示警告
+        // 如果启用加密但密码无效，显示警告
         if (encryptEnabled && encryptPwd) {
             const validation = validatePassword(encryptPwd);
             if (!validation.valid) {
@@ -296,8 +296,8 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 更新表單禁用狀態
-     * @param {boolean} enabled - 是否啟用
+     * 更新表单禁用状态
+     * @param {boolean} enabled - 是否启用
      */
     updateFormState(enabled) {
         const { form } = this.elements;
@@ -311,7 +311,7 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 更新加密字段的啟用/禁用狀態
+     * 更新加密字段的启用/禁用状态
      */
     updateEncryptionFieldsState() {
         const {
@@ -324,7 +324,7 @@ class WebDAVSettingsController {
         const syncApiEnabled = syncApiSwitch?.checked || false;
         const encryptEnabled = encryptApiSwitch?.checked || false;
 
-        // 加密開關只有在同步 API 配置啟用時才可用
+        // 加密开关只有在同步 API 配置启用时才可用
         if (encryptApiSwitch) {
             encryptApiSwitch.disabled = !syncApiEnabled;
             const encryptToggle = encryptApiSwitch.closest('.webdav-encrypt-toggle');
@@ -337,7 +337,7 @@ class WebDAVSettingsController {
             }
         }
 
-        // 加密密碼輸入框只有在加密啟用時才可用
+        // 加密密码输入框只有在加密启用时才可用
         if (encryptionPasswordGroup) {
             if (syncApiEnabled && encryptEnabled) {
                 encryptionPasswordGroup.classList.remove('disabled');
@@ -353,8 +353,8 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 更新警告提示顯示
-     * @param {boolean} isEncrypted - 是否啟用加密
+     * 更新警告提示显示
+     * @param {boolean} isEncrypted - 是否启用加密
      */
     updateWarningDisplay(isEncrypted) {
         const warningContainer = document.getElementById('webdav-api-warning');
@@ -375,7 +375,7 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 更新最後同步時間顯示
+     * 更新最后同步时间显示
      */
     async updateLastSyncTimeDisplay() {
         const { lastSyncTime } = this.elements;
@@ -384,7 +384,7 @@ class WebDAVSettingsController {
         const lastSync = await webdavSyncManager.getLastSyncTime();
         if (lastSync) {
             const date = new Date(lastSync);
-            // 格式化為 YYYY/MM/DD HH:mm
+            // 格式化为 YYYY/MM/DD HH:mm
             const year = date.getFullYear();
             const month = String(date.getMonth() + 1).padStart(2, '0');
             const day = String(date.getDate()).padStart(2, '0');
@@ -397,7 +397,7 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 切換密碼可見性
+     * 切换密码可见性
      */
     togglePasswordVisibility() {
         const { password, togglePassword } = this.elements;
@@ -418,7 +418,7 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 切換加密密碼可見性
+     * 切换加密密码可见性
      */
     toggleEncryptionPasswordVisibility() {
         const { encryptionPassword, toggleEncryptionPassword } = this.elements;
@@ -439,13 +439,13 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 處理測試連接
+     * 处理测试连接
      */
     async handleTestConnection() {
         const { testConnection } = this.elements;
         if (!testConnection) return;
 
-        // 先保存當前設置
+        // 先保存当前设置
         await this.saveSettings();
 
         const originalBtnContent = testConnection.innerHTML;
@@ -485,7 +485,7 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 處理上傳到雲端
+     * 处理上传到云端
      */
     async handleSyncUpload() {
         const { enabledSwitch, syncUpload } = this.elements;
@@ -513,7 +513,7 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 處理從雲端下載
+     * 处理从云端下载
      */
     async handleSyncDownload() {
         const { enabledSwitch, syncDownload } = this.elements;
@@ -533,7 +533,7 @@ class WebDAVSettingsController {
             showToast(result.message, 'success');
             await this.updateLastSyncTimeDisplay();
 
-            // 觸發回調以重新載入數據
+            // 触发回调以重新载入数据
             if (result.needsReload && this.callbacks.onDataReload) {
                 await this.callbacks.onDataReload(result);
             }
@@ -546,34 +546,34 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 執行開啟時同步
-     * @returns {Promise<Object>} 同步結果
+     * 执行开启时同步
+     * @returns {Promise<Object>} 同步结果
      */
     async performSyncOnOpen() {
         try {
-            // 首先檢查是否有衝突
+            // 首先检查是否有冲突
             const syncResult = await webdavSyncManager.syncOnOpen({
-                onConflict: () => true // 標記我們想要處理衝突
+                onConflict: () => true // 标记我们想要处理冲突
             });
 
-            // 如果有錯誤，顯示 Toast 提示
+            // 如果有错误，显示 Toast 提示
             if (syncResult.error) {
-                showToast(`WebDAV 同步失敗<br>${syncResult.error}`, 'error');
+                showToast(`WebDAV 同步失败<br>${syncResult.error}`, 'error');
                 return syncResult;
             }
 
-            // 如果檢測到衝突，顯示對話框讓用戶選擇
+            // 如果检测到冲突，显示对话框让用户选择
             if (syncResult.direction === 'conflict' && syncResult.conflict) {
                 const userChoice = await showConflictDialog(syncResult.conflict);
 
-                // 根據用戶選擇執行同步
+                // 根据用户选择执行同步
                 let result;
                 if (userChoice === 'upload') {
                     result = await webdavSyncManager.syncToRemote();
                     return { synced: true, direction: 'upload', result, error: null };
                 } else {
                     result = await webdavSyncManager.syncFromRemote();
-                    // 如果是下載，觸發回調以重新載入數據
+                    // 如果是下载，触发回调以重新载入数据
                     if (result.needsReload && this.callbacks.onDataReload) {
                         await this.callbacks.onDataReload(result);
                     }
@@ -581,9 +581,9 @@ class WebDAVSettingsController {
                 }
             }
 
-            // 非衝突情況的正常處理
+            // 非冲突情况的正常处理
             if (syncResult.synced) {
-                // 如果是下載，觸發回調以重新載入數據
+                // 如果是下载，触发回调以重新载入数据
                 if (syncResult.direction === 'download' && syncResult.result?.needsReload) {
                     if (this.callbacks.onDataReload) {
                         await this.callbacks.onDataReload(syncResult.result);
@@ -592,36 +592,36 @@ class WebDAVSettingsController {
             }
             return syncResult;
         } catch (error) {
-            showToast(`WebDAV 同步失敗<br>${error.message}`, 'error');
+            showToast(`WebDAV 同步失败<br>${error.message}`, 'error');
             return { synced: false, direction: null, result: null, error: error.message };
         }
     }
 
     /**
-     * 執行關閉時同步（僅上傳本地變更）
-     * @returns {Promise<Object>} 同步結果
+     * 执行关闭时同步（仅上传本地变更）
+     * @returns {Promise<Object>} 同步结果
      */
     async performSyncOnClose() {
         try {
             const syncResult = await webdavSyncManager.syncOnClose();
 
             if (syncResult.error) {
-                console.error('[WebDAV] 關閉同步失敗:', syncResult.error);
-                // 關閉時不顯示 Toast，因為頁面可能已經關閉
+                console.error('[WebDAV] 关闭同步失败:', syncResult.error);
+                // 关闭时不显示 Toast，因为页面可能已经关闭
             }
 
             return syncResult;
         } catch (error) {
-            console.error('[WebDAV] 關閉同步失敗:', error);
+            console.error('[WebDAV] 关闭同步失败:', error);
             return { synced: false, result: null, error: error.message };
         }
     }
 }
 
 /**
- * 初始化 WebDAV 設置組件
- * @param {Object} options - 配置選項
- * @returns {WebDAVSettingsController} 控制器實例
+ * 初始化 WebDAV 设置组件
+ * @param {Object} options - 配置选项
+ * @returns {WebDAVSettingsController} 控制器实例
  */
 export function initWebDAVSettings(options) {
     const elements = {

@@ -89,7 +89,7 @@ async function deriveKey(password, salt) {
  */
 export async function encrypt(data, password) {
     if (!password || password.length === 0) {
-        throw new Error('加密密碼不能為空');
+        throw new Error('加密密码不能为空');
     }
 
     const encoder = new TextEncoder();
@@ -135,20 +135,20 @@ export async function encrypt(data, password) {
  */
 export async function decrypt(encryptedData, password, parseJson = true) {
     if (!password || password.length === 0) {
-        throw new Error('解密密碼不能為空');
+        throw new Error('解密密码不能为空');
     }
 
     if (!encryptedData || !encryptedData.salt || !encryptedData.iv || !encryptedData.ciphertext) {
-        throw new Error('加密數據格式無效：缺少必要的加密字段（salt、iv 或 ciphertext）');
+        throw new Error('加密数据格式无效：缺少必要的加密字段（salt、iv 或 ciphertext）');
     }
 
     // 檢查加密版本
     const version = encryptedData.version;
     if (version === undefined) {
-        throw new Error('加密數據格式無效：缺少版本標識');
+        throw new Error('加密数据格式无效：缺少版本标识');
     }
     if (version !== 1) {
-        throw new Error(`不支援的加密版本：${version}，當前僅支援版本 1`);
+        throw new Error(`不支持的加密版本：${version}，当前仅支持版本 1`);
     }
 
     const decoder = new TextDecoder();
@@ -160,7 +160,7 @@ export async function decrypt(encryptedData, password, parseJson = true) {
         iv = new Uint8Array(base64ToArrayBuffer(encryptedData.iv));
         ciphertext = base64ToArrayBuffer(encryptedData.ciphertext);
     } catch (e) {
-        throw new Error('加密數據解碼失敗：Base64 格式無效');
+        throw new Error('加密数据解码失败：Base64 格式无效');
     }
 
     // 派生密鑰
@@ -195,9 +195,9 @@ export async function decrypt(encryptedData, password, parseJson = true) {
     } catch (error) {
         // 解密失敗，提供更具體的錯誤信息
         if (error.name === 'OperationError') {
-            throw new Error('解密失敗：密碼錯誤或數據已損壞。請確認您輸入的密碼與加密時使用的密碼一致。');
+            throw new Error('解密失败：密码错误或数据已损坏。请确认您输入的密码与加密时使用的密码一致。');
         }
-        throw new Error(`解密過程發生錯誤：${error.message}`);
+        throw new Error(`解密过程发生错误：${error.message}`);
     }
 }
 
@@ -222,12 +222,12 @@ export function isEncrypted(data) {
  */
 export function validatePassword(password) {
     if (!password || password.length === 0) {
-        return { valid: false, message: '密碼不能為空' };
+        return { valid: false, message: '密码不能为空' };
     }
 
     // 已移除密碼長度限制，允許任意長度的密碼
 
-    return { valid: true, message: '密碼有效' };
+    return { valid: true, message: '密码有效' };
 }
 
 /**
