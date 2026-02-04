@@ -1779,105 +1779,25 @@ let exaApiUrl = '';
     performWebDAVSyncOnOpen();
     // ==================== WebDAV 同步設置結束 ====================
 
-    // ==================== 歷史紀錄限制警告功能 ====================
+    // ==================== 歷史紀錄自動清理功能 ====================
     const HISTORY_LIMIT_THRESHOLD = 100;
-    const HISTORY_WARNING_DISMISSED_KEY = 'cerebr_history_warning_dismissed';
-    const historyLimitModal = document.getElementById('history-limit-modal');
-    const historyCountElement = document.getElementById('history-count');
-    const historyLimitDismissBtn = document.getElementById('history-limit-dismiss');
-    const historyLimitManageBtn = document.getElementById('history-limit-manage');
 
     /**
-     * 檢查歷史紀錄數量並顯示警告
+     * 檢查並自動清理超過限制的歷史紀錄
      */
-    async function checkHistoryLimitWarning() {
-        const chatCount = chatManager.getChatCount();
-
-        // 如果歷史紀錄數量達到閾值
-        if (chatCount >= HISTORY_LIMIT_THRESHOLD) {
-            // 檢查用戶是否已經關閉過此警告（在當前會話中）
-            const result = await storageAdapter.get(HISTORY_WARNING_DISMISSED_KEY);
-            const dismissedData = result[HISTORY_WARNING_DISMISSED_KEY];
-
-            // 如果用戶在同一數量級別已經關閉過警告，則不再顯示
-            // 每增加 50 條記錄會再次提醒
-            const currentLevel = Math.floor(chatCount / 50);
-            if (dismissedData && dismissedData.level >= currentLevel) {
-                return;
-            }
-
-            // 更新顯示的數量
-            if (historyCountElement) {
-                historyCountElement.textContent = chatCount;
-            }
-
-            // 顯示警告對話框
-            showHistoryLimitModal();
-        }
-    }
-
-    /**
-     * 顯示歷史紀錄限制警告對話框
-     */
-    function showHistoryLimitModal() {
-        if (historyLimitModal) {
-            historyLimitModal.style.display = 'flex';
-        }
-    }
-
-    /**
-     * 隱藏歷史紀錄限制警告對話框
-     */
-    function hideHistoryLimitModal() {
-        if (historyLimitModal) {
-            historyLimitModal.style.display = 'none';
-        }
-    }
-
-    // 「我知道了」按鈕事件
-    if (historyLimitDismissBtn) {
-        historyLimitDismissBtn.addEventListener('click', async () => {
-            const chatCount = chatManager.getChatCount();
-            const currentLevel = Math.floor(chatCount / 50);
-
-            // 記錄用戶已關閉警告的級別
-            await storageAdapter.set({
-                [HISTORY_WARNING_DISMISSED_KEY]: {
-                    level: currentLevel,
-                    dismissedAt: new Date().toISOString()
-                }
-            });
-
-            hideHistoryLimitModal();
-        });
-    }
-
-    // 「管理歷史」按鈕事件 - 打開歷史紀錄頁面
-    if (historyLimitManageBtn) {
-        historyLimitManageBtn.addEventListener('click', () => {
-            hideHistoryLimitModal();
-            // 顯示歷史紀錄頁面並渲染列表
-            const searchInput = document.getElementById('chat-search-input');
+    async function autoCleanupHistoryIfNeeded() {
+        const deletedCount = await chatManager.autoCleanupHistory(HISTORY_LIMIT_THRESHOLD);
+        if (deletedCount > 0) {
+            console.log(`已自動刪除 ${deletedCount} 條舊的歷史紀錄`);
+            // 更新歷史紀錄列表顯示
             const chatCards = chatListPage.querySelector('.chat-cards');
-            if (searchInput) {
-                searchInput.value = ''; // 清空搜索框
-            }
             renderChatList(chatManager, chatCards);
-            chatListPage.classList.add('show');
-        });
+        }
     }
 
-    // 點擊對話框外部關閉
-    if (historyLimitModal) {
-        historyLimitModal.addEventListener('click', (e) => {
-            if (e.target === historyLimitModal) {
-                hideHistoryLimitModal();
-            }
-        });
-    }
-    // 在所有初始化完成後檢查歷史紀錄數量
-    checkHistoryLimitWarning();
-    // ==================== 歷史紀錄限制警告功能結束 ====================
+    // 在所有初始化完成後檢查並清理歷史紀錄
+    autoCleanupHistoryIfNeeded();
+    // ==================== 歷史紀錄自動清理功能結束 ====================
 
     // 监听标题更新事件
     document.addEventListener('chat-title-updated', (e) => {

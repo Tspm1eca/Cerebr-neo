@@ -108,6 +108,38 @@ export class ChatManager {
         return this.getAllChats().length;
     }
 
+    /**
+     * 自動清理超過限制的歷史記錄
+     * @param {number} limit - 歷史記錄上限
+     * @returns {Promise<number>} 刪除的數量
+     */
+    async autoCleanupHistory(limit = 100) {
+        const allChats = this.getAllChats();
+        const chatCount = allChats.length;
+
+        if (chatCount > limit) {
+            const excessCount = chatCount - limit;
+            // getAllChats 返回的是按創建時間降序排列的，所以最舊的在最後
+            const chatsToDelete = allChats.slice(-excessCount);
+
+            let deletedCount = 0;
+            for (const chat of chatsToDelete) {
+                // 不刪除當前正在使用的對話
+                if (chat.id !== this.currentChatId) {
+                    this.chats.delete(chat.id);
+                    deletedCount++;
+                }
+            }
+
+            if (deletedCount > 0) {
+                await this.saveChats();
+            }
+
+            return deletedCount;
+        }
+        return 0;
+    }
+
     async addMessageToCurrentChat(message, webpageInfo) {
         const currentChat = this.getCurrentChat();
         if (!currentChat) {
