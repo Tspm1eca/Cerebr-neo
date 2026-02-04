@@ -316,12 +316,38 @@
     display: inline-block;
     width: 36px;
     height: 20px;
+    outline: none !important;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.switch:focus,
+.switch:focus-visible,
+.switch:focus-within {
+    outline: none !important;
+    box-shadow: none !important;
 }
 
 .switch input {
     opacity: 0;
     width: 0;
     height: 0;
+    position: absolute;
+    pointer-events: none;
+    margin: 0;
+    padding: 0;
+    outline: none !important;
+}
+
+.switch input:focus,
+.switch input:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.switch input:focus + .slider,
+.switch input:focus-visible + .slider {
+    outline: none !important;
+    box-shadow: none !important;
 }
 
 .slider {

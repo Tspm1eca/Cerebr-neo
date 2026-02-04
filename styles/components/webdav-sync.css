@@ -322,6 +322,7 @@
     padding: 8px 12px;
     font-size: 14px;
     font-weight: 500;
+    font-family: var(--cerebr-font-family);
     border: none;
     border-radius: 18px;
     cursor: pointer;
