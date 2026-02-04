@@ -188,6 +188,11 @@ export function initWebpageMenu({ webpageQAContainer, webpageContentMenu }) {
     webpageContentMenu.addEventListener('mouseenter', () => clearTimeout(menuTimeout));
     webpageContentMenu.addEventListener('mouseleave', hideMenu);
 
+    // 防止點擊菜單背景時關閉菜單
+    webpageContentMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+
     webpageQAContainer.addEventListener('click', (e) => {
         e.stopPropagation();
         const isVisible = webpageContentMenu.classList.toggle('visible');

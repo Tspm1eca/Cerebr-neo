@@ -187,16 +187,99 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 2px;
+    padding: 8px;
     background-color: var(--cerebr-message-ai-bg);
+    border: 1px solid var(--cerebr-card-border-color);
     border-radius: 6px;
     margin-top: 2px;
+}
+
+/* API 警告提示 */
+.webdav-api-warning {
+    font-size: 11px;
+    color: var(--cerebr-text-color);
+    padding: 4px 8px;
+    line-height: 1.4;
+}
+
+.webdav-api-warning strong {
+    font-weight: 600;
+}
+
+/* 未加密警告樣式 */
+.webdav-api-warning .warning-unencrypted {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #f59e0b;
+    opacity: 1;
+}
+
+.webdav-api-warning .warning-unencrypted svg {
+    flex-shrink: 0;
+}
+
+/* 加密警告樣式 */
+.webdav-api-warning .warning-encrypted {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #4caf50;
+    opacity: 1;
+}
+
+.webdav-api-warning .warning-encrypted svg {
+    flex-shrink: 0;
 }
 
 .webdav-sync-api-group {
     flex-direction: row !important;
     align-items: center;
     justify-content: space-between;
+}
+
+/* 加密 API Keys 開關 */
+.webdav-encrypt-toggle {
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 0;
+    transition: opacity 0.2s ease;
+}
+
+.webdav-encrypt-toggle.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.webdav-encrypt-toggle label:first-child {
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+/* 加密密碼輸入組 */
+.webdav-encryption-password-group {
+    transition: opacity 0.2s ease, max-height 0.3s ease;
+    overflow: hidden;
+}
+
+.webdav-encryption-password-group.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.webdav-encryption-password-group .webdav-input:disabled {
+    background-color: var(--cerebr-message-ai-bg);
+    cursor: not-allowed;
+}
+
+/* 加密提示文字 */
+.webdav-encryption-hint {
+    font-size: 11px;
+    color: var(--cerebr-text-color);
+    opacity: 0.5;
+    padding: 4px 0;
+    line-height: 1.4;
 }
 
 .webdav-auto-sync-group {
@@ -363,30 +446,46 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    margin-bottom: 16px;
 }
 
 .conflict-option {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 8px;
+    padding: 12px;
     background: var(--cerebr-message-ai-bg);
     border: 1px solid var(--cerebr-card-border-color);
-    border-radius: 6px;
+    border-radius: 8px;
+    text-align: left;
+}
+
+/* 按鈕樣式的 conflict-option */
+.conflict-option-btn {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.conflict-option-btn:hover {
+    border-color: var(--cerebr-highlight-border-color);
+    background: var(--cerebr-button-hover-bg);
+}
+
+.conflict-option-btn:active {
+    transform: scale(0.98);
 }
 
 .conflict-option-header {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--cerebr-text-color);
 }
 
 .conflict-option-header svg {
     opacity: 0.7;
+    flex-shrink: 0;
 }
 
 .conflict-option-time {
@@ -394,49 +493,4 @@
     color: var(--cerebr-text-color);
     opacity: 0.6;
     padding-left: 24px;
-}
-
-.conflict-actions {
-    display: flex;
-    gap: 8px;
-}
-
-.conflict-btn-local,
-.conflict-btn-remote {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 8px 12px;
-    font-size: 14px;
-    font-weight: 500;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.conflict-btn-local {
-    background-color: var(--cerebr-highlight-border-color);
-    color: #fff;
-    border: none;
-}
-
-.conflict-btn-local:hover {
-    opacity: 0.9;
-}
-
-.conflict-btn-remote {
-    background-color: var(--cerebr-message-ai-bg);
-    color: var(--cerebr-text-color);
-    border: 1px solid var(--cerebr-card-border-color);
-}
-
-.conflict-btn-remote:hover {
-    background-color: var(--cerebr-button-hover-bg);
-}
-
-.conflict-btn-local svg,
-.conflict-btn-remote svg {
-    flex-shrink: 0;
 }

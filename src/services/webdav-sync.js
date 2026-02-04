@@ -4,6 +4,7 @@
  */
 
 import { storageAdapter, syncStorageAdapter } from '../utils/storage-adapter.js';
+import { encrypt, decrypt, isEncrypted } from '../utils/crypto.js';
 
 // WebDAV 配置鍵
 const WEBDAV_CONFIG_KEY = 'webdav_config';
@@ -37,7 +38,9 @@ const DEFAULT_CONFIG = {
     password: '',
     syncPath: '/cerebr-sync/',
     enabled: false,
-    syncApiConfig: false // 是否同步 API 配置
+    syncApiConfig: false, // 是否同步 API 配置
+    encryptApiKeys: false, // 是否加密 API Keys
+    encryptionPassword: '' // 加密密碼（僅存儲在本地，不同步）
 };
 
 /**
@@ -457,6 +460,13 @@ class WebDAVSyncManager {
             if (result[WEBDAV_CONFIG_KEY]) {
                 this.config = { ...DEFAULT_CONFIG, ...result[WEBDAV_CONFIG_KEY] };
             }
+
+            // 從本地存儲加載加密密碼（不同步）
+            const passwordResult = await storageAdapter.get('webdav_encryption_password');
+            if (passwordResult.webdav_encryption_password) {
+                this.config.encryptionPassword = passwordResult.webdav_encryption_password;
+            }
+
             this.client = new WebDAVClient(this.config);
         } catch (error) {
             console.error('加載 WebDAV 配置失敗:', error);
@@ -465,10 +475,22 @@ class WebDAVSyncManager {
 
     /**
      * 保存配置
+     * 注意：加密密碼不會同步到雲端，僅保存在本地
      */
     async saveConfig(config) {
         this.config = { ...this.config, ...config };
-        await syncStorageAdapter.set({ [WEBDAV_CONFIG_KEY]: this.config });
+
+        // 創建一個不包含加密密碼的配置副本用於同步存儲
+        // 加密密碼僅保存在本地，不同步到其他設備
+        const configForSync = { ...this.config };
+        delete configForSync.encryptionPassword;
+
+        await syncStorageAdapter.set({ [WEBDAV_CONFIG_KEY]: configForSync });
+
+        // 加密密碼單獨保存到本地存儲
+        if (config.encryptionPassword !== undefined) {
+            await storageAdapter.set({ webdav_encryption_password: config.encryptionPassword });
+        }
 
         if (this.client) {
             this.client.updateConfig(this.config);
@@ -520,11 +542,24 @@ class WebDAVSyncManager {
             }
 
             // 創建同步數據包（添加版本和時間戳）
-            const syncData = {
+            let syncData = {
                 version: 1,
                 timestamp: new Date().toISOString(),
                 ...localData
             };
+
+            // 如果啟用了加密且有 API 設置，則加密 API 配置
+            if (this.config.encryptApiKeys && this.config.encryptionPassword && syncData.apiSettings) {
+                try {
+                    const encryptedApiSettings = await encrypt(syncData.apiSettings, this.config.encryptionPassword);
+                    syncData.apiSettings = encryptedApiSettings;
+                    syncData.apiSettingsEncrypted = true;
+                    console.log('[WebDAV] API 配置已加密');
+                } catch (encryptError) {
+                    console.error('[WebDAV] 加密 API 配置失敗:', encryptError);
+                    throw new Error('加密 API 配置失敗: ' + encryptError.message);
+                }
+            }
 
             // 上傳到 WebDAV
             await this.client.uploadData('cerebr.json', syncData);
@@ -621,7 +656,23 @@ class WebDAVSyncManager {
             // 如果啟用了同步 API 配置，且遠端數據包含 API 設置，則同步
             let apiConfigSynced = false;
             if (this.config.syncApiConfig && syncData.apiSettings) {
-                const apiSettings = syncData.apiSettings;
+                let apiSettings = syncData.apiSettings;
+
+                // 檢查 API 設置是否已加密
+                if (syncData.apiSettingsEncrypted && isEncrypted(apiSettings)) {
+                    // 需要解密
+                    if (!this.config.encryptionPassword) {
+                        throw new Error('遠端 API 配置已加密，請設置解密密碼');
+                    }
+                    try {
+                        apiSettings = await decrypt(apiSettings, this.config.encryptionPassword);
+                        console.log('[WebDAV] API 配置已解密');
+                    } catch (decryptError) {
+                        console.error('[WebDAV] 解密 API 配置失敗:', decryptError);
+                        throw new Error('解密 API 配置失敗：密碼錯誤或數據已損壞');
+                    }
+                }
+
                 await syncStorageAdapter.set({
                     apiConfigs: apiSettings.apiConfigs || [],
                     selectedConfigIndex: apiSettings.selectedConfigIndex ?? 0,
@@ -848,7 +899,7 @@ class WebDAVSyncManager {
 
     /**
      * 獲取衝突信息 - 返回本地和遠端的時間戳信息供用戶選擇
-     * @returns {Promise<Object>} { localTimestamp, remoteTimestamp, recommendation }
+     * @returns {Promise<Object>} { localTimestamp, remoteTimestamp, recommendation, remoteEncrypted }
      */
     async getConflictInfo() {
         try {
@@ -859,6 +910,7 @@ class WebDAVSyncManager {
             // 獲取遠端數據的時間戳
             const remoteData = await this.client.downloadData('cerebr.json');
             const remoteTimestamp = remoteData?.timestamp;
+            const remoteEncrypted = remoteData?.apiSettingsEncrypted || false;
 
             // 計算推薦方向
             let recommendation = 'upload';
@@ -873,14 +925,16 @@ class WebDAVSyncManager {
             return {
                 localTimestamp,
                 remoteTimestamp,
-                recommendation
+                recommendation,
+                remoteEncrypted
             };
         } catch (error) {
             console.error('[WebDAV] 獲取衝突信息失敗:', error);
             return {
                 localTimestamp: null,
                 remoteTimestamp: null,
-                recommendation: 'upload'
+                recommendation: 'upload',
+                remoteEncrypted: false
             };
         }
     }

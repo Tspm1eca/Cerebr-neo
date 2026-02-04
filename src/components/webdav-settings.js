@@ -4,6 +4,7 @@
  */
 
 import { webdavSyncManager } from '../services/webdav-sync.js';
+import { validatePassword } from '../utils/crypto.js';
 
 /**
  * 顯示 Toast 提示
@@ -29,13 +30,19 @@ function showToast(message, type = 'success') {
 /**
  * 格式化時間戳為可讀格式
  * @param {string} timestamp - ISO 時間戳
- * @returns {string} 格式化後的時間字符串
+ * @returns {string} 格式化後的時間字符串，格式為 YYYY/MM/DD HH:mm
  */
 function formatTimestamp(timestamp) {
     if (!timestamp) return '未知';
     try {
         const date = new Date(timestamp);
-        return date.toLocaleString();
+        // 格式化為 YYYY/MM/DD HH:mm
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${year}/${month}/${day} ${hours}:${minutes}`;
     } catch (e) {
         return '未知';
     }
@@ -54,7 +61,7 @@ function showConflictDialog(conflictInfo) {
         const useLocalBtn = document.getElementById('conflict-use-local');
         const useRemoteBtn = document.getElementById('conflict-use-remote');
 
-        if (!modal) {
+        if (!modal || !useLocalBtn || !useRemoteBtn) {
             console.warn('[WebDAV] 衝突對話框元素不存在，使用自動解決');
             resolve(conflictInfo.recommendation);
             return;
@@ -137,6 +144,9 @@ class WebDAVSettingsController {
             togglePassword,
             syncPath,
             syncApiSwitch,
+            encryptApiSwitch,
+            encryptionPassword,
+            toggleEncryptionPassword,
             testConnection,
             syncUpload,
             syncDownload
@@ -168,7 +178,26 @@ class WebDAVSettingsController {
         syncPath?.addEventListener('click', (e) => e.stopPropagation());
 
         // 同步 API 配置開關事件
-        syncApiSwitch?.addEventListener('change', () => this.saveSettings());
+        syncApiSwitch?.addEventListener('change', () => {
+            this.saveSettings();
+            this.updateEncryptionFieldsState();
+        });
+
+        // 加密 API Keys 開關事件
+        encryptApiSwitch?.addEventListener('change', () => {
+            this.saveSettings();
+            this.updateEncryptionFieldsState();
+        });
+
+        // 加密密碼輸入事件
+        encryptionPassword?.addEventListener('change', () => this.saveSettings());
+        encryptionPassword?.addEventListener('click', (e) => e.stopPropagation());
+
+        // 加密密碼顯示/隱藏切換
+        toggleEncryptionPassword?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleEncryptionPasswordVisibility();
+        });
 
         // 測試連接按鈕事件
         testConnection?.addEventListener('click', (e) => {
@@ -201,6 +230,8 @@ class WebDAVSettingsController {
             password,
             syncPath,
             syncApiSwitch,
+            encryptApiSwitch,
+            encryptionPassword,
             form
         } = this.elements;
 
@@ -210,9 +241,14 @@ class WebDAVSettingsController {
         if (password) password.value = config.password || '';
         if (syncPath) syncPath.value = config.syncPath || '/cerebr-sync/';
         if (syncApiSwitch) syncApiSwitch.checked = config.syncApiConfig || false;
+        if (encryptApiSwitch) encryptApiSwitch.checked = config.encryptApiKeys || false;
+        if (encryptionPassword) encryptionPassword.value = config.encryptionPassword || '';
 
         // 更新表單禁用狀態
         this.updateFormState(config.enabled);
+
+        // 更新加密字段狀態
+        this.updateEncryptionFieldsState();
 
         // 更新最後同步時間
         await this.updateLastSyncTimeDisplay();
@@ -228,8 +264,21 @@ class WebDAVSettingsController {
             username,
             password,
             syncPath,
-            syncApiSwitch
+            syncApiSwitch,
+            encryptApiSwitch,
+            encryptionPassword
         } = this.elements;
+
+        const encryptEnabled = encryptApiSwitch?.checked || false;
+        const encryptPwd = encryptionPassword?.value || '';
+
+        // 如果啟用加密但密碼無效，顯示警告
+        if (encryptEnabled && encryptPwd) {
+            const validation = validatePassword(encryptPwd);
+            if (!validation.valid) {
+                showToast(validation.message, 'error');
+            }
+        }
 
         const config = {
             enabled: enabledSwitch?.checked || false,
@@ -237,7 +286,9 @@ class WebDAVSettingsController {
             username: username?.value.trim() || '',
             password: password?.value || '',
             syncPath: syncPath?.value.trim() || '/cerebr-sync/',
-            syncApiConfig: syncApiSwitch?.checked || false
+            syncApiConfig: syncApiSwitch?.checked || false,
+            encryptApiKeys: encryptEnabled,
+            encryptionPassword: encryptPwd
         };
 
         await webdavSyncManager.saveConfig(config);
@@ -255,6 +306,70 @@ class WebDAVSettingsController {
                 form.classList.remove('disabled');
             } else {
                 form.classList.add('disabled');
+            }
+        }
+    }
+
+    /**
+     * 更新加密字段的啟用/禁用狀態
+     */
+    updateEncryptionFieldsState() {
+        const {
+            syncApiSwitch,
+            encryptApiSwitch,
+            encryptionPassword,
+            encryptionPasswordGroup
+        } = this.elements;
+
+        const syncApiEnabled = syncApiSwitch?.checked || false;
+        const encryptEnabled = encryptApiSwitch?.checked || false;
+
+        // 加密開關只有在同步 API 配置啟用時才可用
+        if (encryptApiSwitch) {
+            encryptApiSwitch.disabled = !syncApiEnabled;
+            const encryptToggle = encryptApiSwitch.closest('.webdav-encrypt-toggle');
+            if (encryptToggle) {
+                if (syncApiEnabled) {
+                    encryptToggle.classList.remove('disabled');
+                } else {
+                    encryptToggle.classList.add('disabled');
+                }
+            }
+        }
+
+        // 加密密碼輸入框只有在加密啟用時才可用
+        if (encryptionPasswordGroup) {
+            if (syncApiEnabled && encryptEnabled) {
+                encryptionPasswordGroup.classList.remove('disabled');
+                if (encryptionPassword) encryptionPassword.disabled = false;
+            } else {
+                encryptionPasswordGroup.classList.add('disabled');
+                if (encryptionPassword) encryptionPassword.disabled = true;
+            }
+        }
+
+        // 更新警告提示
+        this.updateWarningDisplay(syncApiEnabled && encryptEnabled);
+    }
+
+    /**
+     * 更新警告提示顯示
+     * @param {boolean} isEncrypted - 是否啟用加密
+     */
+    updateWarningDisplay(isEncrypted) {
+        const warningContainer = document.getElementById('webdav-api-warning');
+        if (!warningContainer) return;
+
+        const unencryptedWarning = warningContainer.querySelector('.warning-unencrypted');
+        const encryptedWarning = warningContainer.querySelector('.warning-encrypted');
+
+        if (unencryptedWarning && encryptedWarning) {
+            if (isEncrypted) {
+                unencryptedWarning.style.display = 'none';
+                encryptedWarning.style.display = 'flex';
+            } else {
+                unencryptedWarning.style.display = 'flex';
+                encryptedWarning.style.display = 'none';
             }
         }
     }
@@ -297,6 +412,27 @@ class WebDAVSettingsController {
             if (eyeOffIcon) eyeOffIcon.style.display = 'block';
         } else {
             password.type = 'password';
+            if (eyeIcon) eyeIcon.style.display = 'block';
+            if (eyeOffIcon) eyeOffIcon.style.display = 'none';
+        }
+    }
+
+    /**
+     * 切換加密密碼可見性
+     */
+    toggleEncryptionPasswordVisibility() {
+        const { encryptionPassword, toggleEncryptionPassword } = this.elements;
+        if (!encryptionPassword || !toggleEncryptionPassword) return;
+
+        const eyeIcon = toggleEncryptionPassword.querySelector('.eye-icon');
+        const eyeOffIcon = toggleEncryptionPassword.querySelector('.eye-off-icon');
+
+        if (encryptionPassword.type === 'password') {
+            encryptionPassword.type = 'text';
+            if (eyeIcon) eyeIcon.style.display = 'none';
+            if (eyeOffIcon) eyeOffIcon.style.display = 'block';
+        } else {
+            encryptionPassword.type = 'password';
             if (eyeIcon) eyeIcon.style.display = 'block';
             if (eyeOffIcon) eyeOffIcon.style.display = 'none';
         }
@@ -498,6 +634,10 @@ export function initWebDAVSettings(options) {
         togglePassword: document.getElementById('webdav-toggle-password'),
         syncPath: document.getElementById('webdav-sync-path'),
         syncApiSwitch: document.getElementById('webdav-sync-api-switch'),
+        encryptApiSwitch: document.getElementById('webdav-encrypt-api-switch'),
+        encryptionPassword: document.getElementById('webdav-encryption-password'),
+        toggleEncryptionPassword: document.getElementById('webdav-toggle-encryption-password'),
+        encryptionPasswordGroup: document.getElementById('webdav-encryption-password-group'),
         testConnection: document.getElementById('webdav-test-connection'),
         syncUpload: document.getElementById('webdav-sync-upload'),
         syncDownload: document.getElementById('webdav-sync-download'),
