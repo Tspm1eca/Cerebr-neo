@@ -4,7 +4,7 @@
  */
 
 import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePreview, addImageToPreview, clearImagePreview, getPreviewImages, updatePreviewVisibility } from '../utils/ui.js';
-import { handleImageDrop } from '../utils/image.js';
+import { handleImageDrop, compressImage } from '../utils/image.js';
 
 // 跟踪输入法状态
 let isComposing = false;
@@ -585,11 +585,12 @@ export function initMessageInput(config) {
             const reader = new FileReader();
 
             reader.onload = async () => {
-                const base64Data = reader.result;
+                // 壓縮圖片
+                const compressedData = await compressImage(reader.result);
 
                 // 添加到预览区域
                 addImageToPreview({
-                    base64Data,
+                    base64Data: compressedData,
                     fileName: file.name,
                     onImageClick: (data, sourceElement) => {
                         showImagePreview({
@@ -823,36 +824,39 @@ export function handleWindowMessage(event, config) {
         const imageData = event.data.imageData;
         if (imageData && imageData.data) {
             // 确保base64数据格式正确
-            const base64Data = imageData.data.startsWith('data:') ? imageData.data : `data:image/png;base64,${imageData.data}`;
+            const rawBase64Data = imageData.data.startsWith('data:') ? imageData.data : `data:image/png;base64,${imageData.data}`;
 
-            // 使用新的预览区域显示图片
-            addImageToPreview({
-                base64Data: base64Data,
-                fileName: imageData.name,
-                onImageClick: (data, sourceElement) => {
-                    showImagePreview({
-                        base64Data: data,
-                        config: uiConfig.imagePreview,
-                        sourceElement
-                    });
-                },
-                onDelete: () => {
-                    // 触发输入事件以更新状态
-                    messageInput.dispatchEvent(new Event('input'));
+            // 壓縮圖片
+            compressImage(rawBase64Data).then(compressedData => {
+                // 使用新的预览区域显示图片
+                addImageToPreview({
+                    base64Data: compressedData,
+                    fileName: imageData.name,
+                    onImageClick: (data, sourceElement) => {
+                        showImagePreview({
+                            base64Data: data,
+                            config: uiConfig.imagePreview,
+                            sourceElement
+                        });
+                    },
+                    onDelete: () => {
+                        // 触发输入事件以更新状态
+                        messageInput.dispatchEvent(new Event('input'));
+                    }
+                });
+
+                // 展开 input-container
+                const inputContainer = document.getElementById('input-container');
+                if (inputContainer) {
+                    inputContainer.classList.remove('collapsed');
                 }
+
+                // 确保输入框有焦点
+                messageInput.focus();
+
+                // 触发输入事件以调整高度
+                messageInput.dispatchEvent(new Event('input'));
             });
-
-            // 展开 input-container
-            const inputContainer = document.getElementById('input-container');
-            if (inputContainer) {
-                inputContainer.classList.remove('collapsed');
-            }
-
-            // 确保输入框有焦点
-            messageInput.focus();
-
-            // 触发输入事件以调整高度
-            messageInput.dispatchEvent(new Event('input'));
         }
     } else if (event.data.type === 'FOCUS_INPUT') {
         messageInput.focus();
