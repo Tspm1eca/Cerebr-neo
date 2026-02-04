@@ -552,7 +552,7 @@ export function initAPICard({
 
         } catch (error) {
             console.error('Test connection error:', error);
-            showToast(`连接失败: ${error.message}`, 'error');
+            showToast(`连接失败<br>${error.message}`, 'error');
             button.classList.add('error');
             button.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -573,7 +573,7 @@ export function initAPICard({
     function showToast(message, type = 'success') {
         const toast = document.createElement('div');
         toast.className = type === 'success' ? 'success-toast' : 'error-toast';
-        toast.textContent = message;
+        toast.innerHTML = message;
         document.body.appendChild(toast);
 
         setTimeout(() => {

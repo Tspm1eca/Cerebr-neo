@@ -198,7 +198,11 @@
 .webdav-api-warning {
     font-size: 11px;
     color: var(--cerebr-text-color);
-    padding: 4px 8px;
+    /* padding: 4px 8px; */
+    /* padding-bottom: 8px; */
+    display: flex;
+    justify-content: center;
+    align-items: center;
     line-height: 1.4;
 }
 
@@ -278,7 +282,10 @@
     font-size: 11px;
     color: var(--cerebr-text-color);
     opacity: 0.5;
-    padding: 4px 0;
+    /* padding: 4px 0; */
+    display: flex;
+    justify-content: center;
+    align-items: center;
     line-height: 1.4;
 }
 

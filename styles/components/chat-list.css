@@ -238,10 +238,13 @@
     border-radius: 8px;
     color: white;
     font-size: 14px;
+    text-align: center;
     z-index: 2000;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     animation: toast-fade-in 0.3s ease-out;
     transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+    max-width: 80%;
+    line-height: 1.5;
 }
 
 .success-toast.fade-out, .error-toast.fade-out {

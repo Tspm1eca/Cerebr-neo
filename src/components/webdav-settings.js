@@ -14,7 +14,7 @@ import { validatePassword } from '../utils/crypto.js';
 function showToast(message, type = 'success') {
     const toast = document.createElement('div');
     toast.className = type === 'success' ? 'success-toast' : 'error-toast';
-    toast.textContent = message;
+    toast.innerHTML = message.replace(/\n/g, '<br>');
     document.body.appendChild(toast);
 
     // 2.7秒后开始淡出动画，3秒后移除提示
@@ -466,7 +466,7 @@ class WebDAVSettingsController {
                 </svg>
             `;
         } catch (error) {
-            showToast(`WebDAV 连接失败: ${error.message}`, 'error');
+            showToast(`WebDAV 连接失败<br>${error.message}`, 'error');
             testConnection.classList.add('error');
             testConnection.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -538,7 +538,7 @@ class WebDAVSettingsController {
                 await this.callbacks.onDataReload(result);
             }
         } catch (error) {
-            showToast('下载失败: ' + error.message, 'error');
+            showToast('同步失败<br>' + error.message, 'error');
         } finally {
             syncDownload.classList.remove('syncing');
             syncDownload.disabled = false;
@@ -558,8 +558,7 @@ class WebDAVSettingsController {
 
             // 如果有錯誤，顯示 Toast 提示
             if (syncResult.error) {
-                console.error('[WebDAV] 開啟同步失敗:', syncResult.error);
-                showToast(`WebDAV 同步失敗: ${syncResult.error}`, 'error');
+                showToast(`WebDAV 同步失敗<br>${syncResult.error}`, 'error');
                 return syncResult;
             }
 
@@ -593,8 +592,7 @@ class WebDAVSettingsController {
             }
             return syncResult;
         } catch (error) {
-            console.error('[WebDAV] 開啟同步失敗:', error);
-            showToast(`WebDAV 同步失敗: ${error.message}`, 'error');
+            showToast(`WebDAV 同步失敗<br>${error.message}`, 'error');
             return { synced: false, direction: null, result: null, error: error.message };
         }
     }

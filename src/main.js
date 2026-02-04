@@ -1421,7 +1421,7 @@ let exaApiUrl = '';
 
       } catch (error) {
           console.error('Tavily test connection error:', error);
-          showToast(`Tavily 连接失败: ${error.message}`, 'error');
+          showToast(`Tavily 连接失败<br>${error.message}`, 'error');
           button.classList.add('error');
           button.innerHTML = `
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1492,7 +1492,7 @@ let exaApiUrl = '';
 
       } catch (error) {
           console.error('Exa test connection error:', error);
-          showToast(`Exa 连接失败: ${error.message}`, 'error');
+          showToast(`Exa 连接失败<br>${error.message}`, 'error');
           button.classList.add('error');
           button.innerHTML = `
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

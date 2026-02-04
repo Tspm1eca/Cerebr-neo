@@ -75,7 +75,8 @@ class WebDAVClient {
         const credentials = btoa(`${this.config.username}:${this.config.password}`);
         return {
             'Authorization': `Basic ${credentials}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest' // 防止瀏覽器彈出認證對話框
         };
     }
 
@@ -89,8 +90,16 @@ class WebDAVClient {
     async fetchWithTimeout(url, options, timeout = DEFAULT_TIMEOUT) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        // 添加 credentials: 'omit' 防止瀏覽器自動處理認證並彈出對話框
+        const fetchOptions = {
+            ...options,
+            signal: controller.signal,
+            credentials: 'omit'
+        };
+
         try {
-            const response = await fetch(url, { ...options, signal: controller.signal });
+            const response = await fetch(url, fetchOptions);
             return response;
         } catch (error) {
             if (error.name === 'AbortError') {
@@ -668,8 +677,7 @@ class WebDAVSyncManager {
                         apiSettings = await decrypt(apiSettings, this.config.encryptionPassword);
                         console.log('[WebDAV] API 配置已解密');
                     } catch (decryptError) {
-                        console.error('[WebDAV] 解密 API 配置失敗:', decryptError);
-                        throw new Error('解密 API 配置失敗：密碼錯誤或數據已損壞');
+                        throw new Error('解密API配置失敗<br>密碼錯誤或數據已損壞');
                     }
                 }
 
