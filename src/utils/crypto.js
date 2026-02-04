@@ -139,15 +139,29 @@ export async function decrypt(encryptedData, password, parseJson = true) {
     }
 
     if (!encryptedData || !encryptedData.salt || !encryptedData.iv || !encryptedData.ciphertext) {
-        throw new Error('加密數據格式無效');
+        throw new Error('加密數據格式無效：缺少必要的加密字段（salt、iv 或 ciphertext）');
+    }
+
+    // 檢查加密版本
+    const version = encryptedData.version;
+    if (version === undefined) {
+        throw new Error('加密數據格式無效：缺少版本標識');
+    }
+    if (version !== 1) {
+        throw new Error(`不支援的加密版本：${version}，當前僅支援版本 1`);
     }
 
     const decoder = new TextDecoder();
 
     // 從 Base64 解碼
-    const salt = new Uint8Array(base64ToArrayBuffer(encryptedData.salt));
-    const iv = new Uint8Array(base64ToArrayBuffer(encryptedData.iv));
-    const ciphertext = base64ToArrayBuffer(encryptedData.ciphertext);
+    let salt, iv, ciphertext;
+    try {
+        salt = new Uint8Array(base64ToArrayBuffer(encryptedData.salt));
+        iv = new Uint8Array(base64ToArrayBuffer(encryptedData.iv));
+        ciphertext = base64ToArrayBuffer(encryptedData.ciphertext);
+    } catch (e) {
+        throw new Error('加密數據解碼失敗：Base64 格式無效');
+    }
 
     // 派生密鑰
     const key = await deriveKey(password, salt);
@@ -179,11 +193,11 @@ export async function decrypt(encryptedData, password, parseJson = true) {
 
         return decryptedString;
     } catch (error) {
-        // 解密失敗通常意味著密碼錯誤
+        // 解密失敗，提供更具體的錯誤信息
         if (error.name === 'OperationError') {
-            throw new Error('解密失敗：密碼錯誤或數據已損壞');
+            throw new Error('解密失敗：密碼錯誤或數據已損壞。請確認您輸入的密碼與加密時使用的密碼一致。');
         }
-        throw error;
+        throw new Error(`解密過程發生錯誤：${error.message}`);
     }
 }
 
