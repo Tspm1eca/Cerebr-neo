@@ -1,5 +1,5 @@
 import { chatManager } from '../utils/chat-manager.js';
-import { showImagePreview, createImageTag } from '../utils/ui.js';
+import { showImagePreview, createImageTag, removeImageFromChatManager } from '../utils/ui.js';
 import { processMathAndMarkdown, renderMathInElement } from '../../htmd/latex.js';
 
 /**
@@ -221,7 +221,10 @@ export async function appendMessage({
     // 处理消息中的图片标签
     messageDiv.querySelectorAll('.image-tag').forEach(tag => {
         const img = tag.querySelector('img');
+        const deleteBtn = tag.querySelector('.delete-btn');
         const base64Data = tag.getAttribute('data-image');
+
+        // 綁定圖片點擊預覽事件
         if (img && base64Data) {
             img.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -233,6 +236,34 @@ export async function appendMessage({
                         previewImage
                     },
                     sourceElement: img
+                });
+            });
+        }
+
+        // 綁定刪除按鈕事件
+        if (deleteBtn && base64Data) {
+            deleteBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                // 獲取圖片容器
+                const imagesContainer = tag.closest('.message-images');
+
+                // 從 DOM 中移除圖片標籤
+                tag.remove();
+
+                // 如果圖片容器中沒有圖片了，移除容器並更新樣式
+                if (imagesContainer && imagesContainer.querySelectorAll('.image-tag').length === 0) {
+                    imagesContainer.remove();
+                    messageDiv.classList.remove('has-images');
+                }
+
+                // 獲取消息在聊天記錄中的索引並更新 chatManager
+                const messageIndex = Array.from(chatContainer.children).indexOf(messageDiv);
+                removeImageFromChatManager({
+                    chatManager,
+                    messageIndex,
+                    base64Data
                 });
             });
         }

@@ -276,3 +276,98 @@ export function getPreviewImages() {
         fileName: item.title
     }));
 }
+
+/**
+ * 從 chatManager 中移除指定圖片
+ * @param {Object} params - 參數對象
+ * @param {Object} params.chatManager - 聊天管理器實例
+ * @param {number} params.messageIndex - 消息在聊天記錄中的索引
+ * @param {string} params.base64Data - 要移除的圖片 base64 數據
+ */
+export function removeImageFromChatManager({ chatManager, messageIndex, base64Data }) {
+    const currentChat = chatManager.getCurrentChat();
+    if (!currentChat || messageIndex === -1 || !currentChat.messages[messageIndex]) {
+        return;
+    }
+
+    const message = currentChat.messages[messageIndex];
+    if (!Array.isArray(message.content)) {
+        return;
+    }
+
+    const imageIndex = message.content.findIndex(
+        item => item.type === 'image_url' && item.image_url.url === base64Data
+    );
+
+    if (imageIndex !== -1) {
+        message.content.splice(imageIndex, 1);
+
+        // 如果只剩下文字，將內容轉換為字符串格式
+        if (message.content.length === 1 && message.content[0].type === 'text') {
+            message.content = message.content[0].text;
+        }
+
+        chatManager.saveChats();
+    }
+}
+
+/**
+ * 為圖片容器中的圖片標籤綁定事件（點擊預覽和刪除）
+ * @param {Object} params - 參數對象
+ * @param {HTMLElement} params.imagesContainer - 圖片容器元素
+ * @param {HTMLElement} params.messageElement - 消息元素
+ * @param {number} params.messageIndex - 消息在聊天記錄中的索引
+ * @param {Object} params.chatManager - 聊天管理器實例
+ */
+export function bindImageTagEvents({
+    imagesContainer,
+    messageElement,
+    messageIndex,
+    chatManager
+}) {
+    const previewModal = document.querySelector('.image-preview-modal');
+    const previewImage = previewModal.querySelector('img');
+
+    imagesContainer.querySelectorAll('.image-tag').forEach(tag => {
+        const img = tag.querySelector('img');
+        const deleteBtn = tag.querySelector('.delete-btn');
+        const base64Data = tag.getAttribute('data-image');
+
+        // 綁定圖片點擊預覽事件
+        if (img && base64Data) {
+            img.addEventListener('click', (evt) => {
+                evt.preventDefault();
+                evt.stopPropagation();
+                showImagePreview({
+                    base64Data,
+                    config: { previewModal, previewImage },
+                    sourceElement: img
+                });
+            });
+        }
+
+        // 綁定刪除按鈕事件
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', (evt) => {
+                evt.preventDefault();
+                evt.stopPropagation();
+
+                // 從 DOM 中移除圖片標籤
+                tag.remove();
+
+                // 如果圖片容器中沒有圖片了，移除容器並更新樣式
+                if (imagesContainer.querySelectorAll('.image-tag').length === 0) {
+                    imagesContainer.remove();
+                    messageElement.classList.remove('has-images');
+                }
+
+                // 更新 chatManager 中的消息內容
+                removeImageFromChatManager({
+                    chatManager,
+                    messageIndex,
+                    base64Data
+                });
+            });
+        }
+    });
+}

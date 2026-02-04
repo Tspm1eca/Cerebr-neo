@@ -1,4 +1,4 @@
-import { createImageTag } from '../utils/ui.js';
+import { createImageTag, showImagePreview, bindImageTagEvents } from '../utils/ui.js';
 import { showContextMenu, hideContextMenu, copyMessageContent } from './context-menu.js';
 import { handleImageDrop } from '../utils/image.js';
 import { updateAIMessage } from '../handlers/message-handler.js';
@@ -329,9 +329,28 @@ export function initChatContainer({
                     // 使用 innerText 來保留換行符
                     const newText = editInput.innerText.trim();
                     if (newText && newText !== originalText) {
+                        // 從原始內容中提取圖片容器（如果有的話）
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = originalContent;
+                        const originalImagesContainer = tempDiv.querySelector('.message-images');
+
                         // 更新消息元素
                         messageElementToEdit.innerHTML = '';
                         messageElementToEdit.className = originalClassName;
+
+                        // 如果有圖片，先添加圖片容器（用戶消息時圖片在文字上方）
+                        if (originalImagesContainer) {
+                            const clonedImagesContainer = originalImagesContainer.cloneNode(true);
+                            messageElementToEdit.appendChild(clonedImagesContainer);
+
+                            // 使用共用函數綁定圖片事件
+                            bindImageTagEvents({
+                                imagesContainer: clonedImagesContainer,
+                                messageElement: messageElementToEdit,
+                                messageIndex,
+                                chatManager
+                            });
+                        }
 
                         // 创建主要内容容器
                         const mainContent = document.createElement('div');
@@ -383,9 +402,28 @@ export function initChatContainer({
                     // 使用 innerText 來保留換行符
                     const newText = editInput.innerText.trim();
                     if (newText) {
+                        // 從原始內容中提取圖片容器（如果有的話）
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = originalContent;
+                        const originalImagesContainer = tempDiv.querySelector('.message-images');
+
                         // 更新消息元素
                         messageElementToEdit.innerHTML = '';
                         messageElementToEdit.className = originalClassName;
+
+                        // 如果有圖片，先添加圖片容器（用戶消息時圖片在文字上方）
+                        if (originalImagesContainer) {
+                            const clonedImagesContainer = originalImagesContainer.cloneNode(true);
+                            messageElementToEdit.appendChild(clonedImagesContainer);
+
+                            // 使用共用函數綁定圖片事件
+                            bindImageTagEvents({
+                                imagesContainer: clonedImagesContainer,
+                                messageElement: messageElementToEdit,
+                                messageIndex,
+                                chatManager
+                            });
+                        }
 
                         // 创建主要内容容器
                         const mainContent = document.createElement('div');
