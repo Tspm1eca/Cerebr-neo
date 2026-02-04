@@ -158,6 +158,8 @@ export async function appendMessage({
         imagesContainer.className = 'message-images';
         imagesContainer.innerHTML = imagesHtml;
         messageDiv.appendChild(imagesContainer);
+        // 添加 has-images class 以便文字右對齊
+        messageDiv.classList.add('has-images');
     }
 
     // 添加主要内容

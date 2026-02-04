@@ -39,6 +39,16 @@
     margin-bottom: 8px;
 }
 
+/* 用戶訊息有圖片時，圖片靠右對齊 */
+.user-message .message-images {
+    justify-content: flex-end;
+}
+
+/* 用戶訊息有圖片時，文字靠右對齊 */
+.user-message.has-images {
+    text-align: right;
+}
+
 .message .message-images:last-child {
     margin-bottom: 0;
     margin-top: 8px;
