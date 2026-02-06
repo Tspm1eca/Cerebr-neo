@@ -146,6 +146,45 @@
     border-bottom-style: solid;
 }
 
+/* 引用未找到時的反饋動畫 */
+.message a.citation-link.citation-not-found {
+    color: var(--cerebr-error-color, #e74c3c);
+    border-bottom-color: var(--cerebr-error-color, #e74c3c);
+    animation: citation-shake 0.4s ease;
+    position: relative;
+}
+
+.message a.citation-link.citation-not-found::after {
+    content: '未找到';
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: var(--cerebr-error-color, #e74c3c);
+    color: #fff;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    animation: citation-tooltip-fade 2s ease forwards;
+}
+
+@keyframes citation-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-3px); }
+    40% { transform: translateX(3px); }
+    60% { transform: translateX(-2px); }
+    80% { transform: translateX(2px); }
+}
+
+@keyframes citation-tooltip-fade {
+    0% { opacity: 0; transform: translateX(-50%) translateY(2px); }
+    15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    75% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+}
+
 .message blockquote {
     margin: 0.5em 0;
     padding-left: 12px;

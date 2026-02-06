@@ -601,6 +601,20 @@ try {
   console.error('创建侧边栏实例失败:', error);
 }
 
+// 注入 CSS Highlight API 的全局樣式（用於 citation 高亮）
+try {
+  const highlightStyle = document.createElement('style');
+  highlightStyle.textContent = `
+    ::highlight(cerebr-citation) {
+      background-color: rgba(255, 235, 59, 0.5);
+      color: inherit;
+    }
+  `;
+  (document.head || document.documentElement).appendChild(highlightStyle);
+} catch (e) {
+  // CSS Highlight API 不支持時靜默忽略
+}
+
 // 修改消息监听器
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // console.log('content.js 收到消息:', message.type);
@@ -967,24 +981,151 @@ async function extractTextFromPDF(url) {
 }
 
 
-// 滚动到指定文本
+// 清除之前的高亮（用於 CSS Highlight API）
+let currentHighlightTimeout = null;
+
+/**
+ * 使用 CSS Highlight API 高亮指定的 Range（精確高亮文字而非整個元素）
+ * 如果瀏覽器不支持，則回退到修改背景色的方式
+ * @param {Range} range - 要高亮的文字範圍
+ */
+function highlightRange(range) {
+    // 清除之前的高亮
+    if (currentHighlightTimeout) {
+        clearTimeout(currentHighlightTimeout);
+        currentHighlightTimeout = null;
+    }
+
+    // 優先使用 CSS Custom Highlight API（Chrome 105+）
+    if (typeof CSS !== 'undefined' && CSS.highlights) {
+        try {
+            const highlight = new Highlight(range);
+            CSS.highlights.set('cerebr-citation', highlight);
+            currentHighlightTimeout = setTimeout(() => {
+                CSS.highlights.delete('cerebr-citation');
+                currentHighlightTimeout = null;
+            }, 2000);
+            return;
+        } catch (e) {
+            console.warn('CSS Highlight API 失敗，回退到背景色方式:', e);
+        }
+    }
+
+    // 回退方案：修改父元素背景色
+    const element = range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? range.startContainer
+        : range.startContainer.parentElement;
+
+    if (element) {
+        const originalTransition = element.style.transition;
+        const originalBg = element.style.backgroundColor;
+
+        element.style.transition = 'background-color 0.5s ease';
+        element.style.backgroundColor = 'rgba(255, 235, 59, 0.5)';
+
+        currentHighlightTimeout = setTimeout(() => {
+            element.style.backgroundColor = originalBg;
+            setTimeout(() => {
+                element.style.transition = originalTransition;
+            }, 500);
+            currentHighlightTimeout = null;
+        }, 2000);
+    }
+}
+
+/**
+ * 使用 TreeWalker 在 DOM 中查找文本並返回對應的 Range
+ * 作為 window.find() 的備用方案
+ * @param {string} text - 要查找的文本
+ * @returns {Range|null} 找到的文字範圍，未找到返回 null
+ */
+function findTextWithTreeWalker(text) {
+    const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        {
+            acceptNode: (node) => {
+                // 跳過不可見元素中的文本
+                const parent = node.parentElement;
+                if (!parent) return NodeFilter.FILTER_REJECT;
+                const style = window.getComputedStyle(parent);
+                if (style.display === 'none' || style.visibility === 'hidden') {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        }
+    );
+
+    const lowerText = text.toLowerCase();
+
+    // 第一遍：嘗試在單個文本節點中查找
+    while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const index = node.textContent.toLowerCase().indexOf(lowerText);
+        if (index !== -1) {
+            const range = document.createRange();
+            range.setStart(node, index);
+            range.setEnd(node, index + text.length);
+            return range;
+        }
+    }
+
+    // 第二遍：嘗試跨節點查找（處理文本被分割到多個節點的情況）
+    walker.currentNode = document.body;
+    const textNodes = [];
+    while (walker.nextNode()) {
+        textNodes.push(walker.currentNode);
+    }
+
+    // 構建連續文本並記錄每個字符對應的節點和偏移
+    let concatenated = '';
+    const charMap = []; // { node, offset }
+
+    for (const node of textNodes) {
+        for (let i = 0; i < node.textContent.length; i++) {
+            charMap.push({ node, offset: i });
+            concatenated += node.textContent[i];
+        }
+    }
+
+    const searchIndex = concatenated.toLowerCase().indexOf(lowerText);
+    if (searchIndex !== -1) {
+        const startInfo = charMap[searchIndex];
+        const endInfo = charMap[searchIndex + text.length - 1];
+        if (startInfo && endInfo) {
+            const range = document.createRange();
+            range.setStart(startInfo.node, startInfo.offset);
+            range.setEnd(endInfo.node, endInfo.offset + 1);
+            return range;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * 滾動到指定文本並高亮顯示
+ * 優先使用 window.find()，失敗時回退到 TreeWalker
+ * @param {string} text - 要查找並滾動到的文本
+ * @returns {boolean} 是否成功找到並滾動到文本
+ */
 function scrollToText(text) {
     if (!text) return false;
 
     try {
-        // 记录当前滚动位置
+        // 記錄當前滾動位置
         const currentScrollX = window.scrollX;
         const currentScrollY = window.scrollY;
 
-        // 先移除当前选区，以免影响搜索起始位置（虽然开启了 wrapAround）
+        // 先移除當前選區，以免影響搜索起始位置
         window.getSelection().removeAllRanges();
 
-        // window.find(aString, aCaseSensitive, aBackwards, aWrapAround, aWholeWord, aSearchInFrames, aShowDialog);
-        // 使用 wrapAround=true 确保全文档搜索
+        // 嘗試使用 window.find（wrapAround=true 確保全文檔搜索）
         const found = window.find(text, false, false, true, false, true, false);
 
         if (found) {
-            // 立即恢复原来的滚动位置，抵消 window.find 可能造成的瞬间跳转
+            // 立即恢復原來的滾動位置，抵消 window.find 可能造成的瞬間跳轉
             window.scrollTo(currentScrollX, currentScrollY);
 
             const selection = window.getSelection();
@@ -995,43 +1136,46 @@ function scrollToText(text) {
                     : range.startContainer.parentElement;
 
                 if (element) {
-                    // 使用 requestAnimationFrame 确保在恢复滚动位置后执行平滑滚动
+                    // 使用 requestAnimationFrame 確保在恢復滾動位置後執行平滑滾動
                     requestAnimationFrame(() => {
                         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     });
 
-                    // 添加高亮动画
-                    // 创建一个高亮覆盖层或者直接修改背景色
-                    // 这里直接修改背景色，为了不破坏原有样式，使用 data 属性存储原有值
-                    // 注意：这可能会被原有样式覆盖，或者覆盖原有样式
-
-                    // 更好的方式：使用 CSS Highlight API (如果支持) 或者创建一个绝对定位的高亮层
-                    // 简单起见，暂时使用背景色闪烁
-
-                    const originalTransition = element.style.transition;
-                    const originalBg = element.style.backgroundColor;
-
-                    element.style.transition = 'background-color 0.5s ease';
-                    element.style.backgroundColor = 'rgba(255, 235, 59, 0.5)'; // 柔和的黄色
-
-                    setTimeout(() => {
-                        element.style.backgroundColor = originalBg;
-                        setTimeout(() => {
-                            element.style.transition = originalTransition;
-                        }, 500);
-                    }, 2000);
-
+                    // 使用精確的高亮方式
+                    highlightRange(range);
                     return true;
                 }
             }
-        } else {
-             // 备用方案：如果 window.find 失败（例如在某些复杂 DOM 结构中），
-             // 可以尝试遍历 TextNode。但考虑到性能和 window.find 的通用性，
-             // 暂时只依赖 window.find。AI 生成的引用通常是页面上的可见文本。
-             console.log('未找到文本:', text);
         }
+
+        // 備用方案：使用 TreeWalker 遍歷 DOM 查找文本
+        console.log('window.find 未找到文本，嘗試 TreeWalker 備用方案:', text);
+        const fallbackRange = findTextWithTreeWalker(text);
+
+        if (fallbackRange) {
+            const element = fallbackRange.startContainer.nodeType === Node.ELEMENT_NODE
+                ? fallbackRange.startContainer
+                : fallbackRange.startContainer.parentElement;
+
+            if (element) {
+                requestAnimationFrame(() => {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
+
+                // 設置選區以便用戶看到找到的文本
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(fallbackRange);
+
+                // 使用精確的高亮方式
+                highlightRange(fallbackRange);
+                return true;
+            }
+        }
+
+        console.log('未找到文本:', text);
     } catch (e) {
-        console.error('滚动到文本失败:', e);
+        console.error('滾動到文本失敗:', e);
     }
     return false;
 }

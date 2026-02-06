@@ -3,6 +3,7 @@ import { showContextMenu, hideContextMenu, copyMessageContent } from './context-
 import { handleImageDrop } from '../utils/image.js';
 import { updateAIMessage } from '../handlers/message-handler.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
+import { extractCitationText } from '../../htmd/citation.js';
 
 /**
  * 初始化聊天容器的所有功能
@@ -27,6 +28,38 @@ export function initChatContainer({
     // 定义本地变量
     let currentMessageElement = null;
     let currentCodeElement = null;
+
+    /**
+     * 處理 citation-link 的點擊事件
+     * 發送跳轉指令到 content script，並提供用戶反饋
+     * @param {HTMLElement} linkElement - 被點擊的連結元素
+     * @param {string} textToFind - 要在頁面中查找的文本
+     */
+    async function handleCitationClick(linkElement, textToFind) {
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab) {
+                const response = await chrome.tabs.sendMessage(tab.id, {
+                    type: 'SCROLL_TO_TEXT',
+                    text: textToFind
+                });
+                // 如果未找到文本，顯示反饋
+                if (response && !response.success) {
+                    linkElement.classList.add('citation-not-found');
+                    setTimeout(() => {
+                        linkElement.classList.remove('citation-not-found');
+                    }, 2000);
+                }
+            }
+        } catch (error) {
+            console.error('發送跳轉指令失敗:', error);
+            // 連接失敗時也顯示反饋
+            linkElement.classList.add('citation-not-found');
+            setTimeout(() => {
+                linkElement.classList.remove('citation-not-found');
+            }, 2000);
+        }
+    }
 
     // 初始化 MutationObserver 来监视添加到聊天容器的新用户消息
     const observer = new MutationObserver((mutations) => {
@@ -58,7 +91,20 @@ export function initChatContainer({
     observer.observe(chatContainer, { childList: true });
 
     // 添加点击事件监听
-    chatContainer.addEventListener('click', () => {
+    chatContainer.addEventListener('click', (e) => {
+        // 事件委託：處理 citation-link 的點擊事件
+        const citationLink = e.target.closest('a.citation-link');
+        if (citationLink) {
+            e.preventDefault();
+            e.stopPropagation();
+            const href = citationLink.getAttribute('href');
+            const textToFind = extractCitationText(href);
+            if (textToFind) {
+                handleCitationClick(citationLink, textToFind);
+            }
+            return;
+        }
+
         // 点击聊天区域时让输入框失去焦点
         messageInput.blur();
     });

@@ -1,6 +1,28 @@
 import { chatManager } from '../utils/chat-manager.js';
 import { showImagePreview, createImageTag, removeImageFromChatManager } from '../utils/ui.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
+import { extractCitationText } from '../../htmd/citation.js';
+
+/**
+ * 處理消息中的連結：標記 cite: 連結為 citation-link，設置外部連結屬性
+ * 點擊事件由 chat-container.js 中的事件委託統一處理，避免重複綁定
+ * @param {HTMLElement} container - 包含連結的容器元素
+ */
+export function processMessageLinks(container) {
+    container.querySelectorAll('a').forEach(link => {
+        const href = link.getAttribute('href');
+        if (href && href.startsWith('cite:')) {
+            link.classList.add('citation-link');
+            const textToFind = extractCitationText(href);
+            if (textToFind) {
+                link.title = `跳轉到: "${textToFind}"`;
+            }
+        } else {
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+        }
+    });
+}
 
 /**
  * Preloads and caches an image to a blob property on the img element.
@@ -188,37 +210,8 @@ export async function appendMessage({
     // Preload images for faster copying
     messageDiv.querySelectorAll('img').forEach(preloadAndCacheImage);
 
-    // 处理消息中的链接
-    messageDiv.querySelectorAll('a').forEach(link => {
-        const href = link.getAttribute('href');
-        if (href && href.startsWith('cite:')) {
-            link.classList.add('citation-link');
-            // 移除 cite: 前缀，获取要搜索的文本
-            const textToFind = decodeURIComponent(href.substring(5));
-            link.title = `跳转到: "${textToFind}"`;
-
-            link.addEventListener('click', async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-
-                // 发送消息给 content script
-                try {
-                    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-                    if (tab) {
-                        await chrome.tabs.sendMessage(tab.id, {
-                            type: 'SCROLL_TO_TEXT',
-                            text: textToFind
-                        });
-                    }
-                } catch (error) {
-                    console.error('发送跳转指令失败:', error);
-                }
-            });
-        } else {
-            link.target = '_blank';
-            link.rel = 'noopener noreferrer';
-        }
-    });
+    // 处理消息中的链接（标记 citation-link 和外部链接属性，点击事件由事件委託處理）
+    processMessageLinks(messageDiv);
 
     // 处理消息中的图片标签
     messageDiv.querySelectorAll('.image-tag').forEach(tag => {
@@ -649,36 +642,8 @@ export async function updateAIMessage({
             // Preload images for faster copying
             mainContent.querySelectorAll('img').forEach(preloadAndCacheImage);
 
-            // 处理新染的链接
-            lastMessage.querySelectorAll('a').forEach(link => {
-                const href = link.getAttribute('href');
-                if (href && href.startsWith('cite:')) {
-                    link.classList.add('citation-link');
-                    // 移除 cite: 前缀
-                    const textToFind = decodeURIComponent(href.substring(5));
-                    link.title = `跳转到: "${textToFind}"`;
-
-                    link.addEventListener('click', async (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-
-                        try {
-                            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-                            if (tab) {
-                                await chrome.tabs.sendMessage(tab.id, {
-                                    type: 'SCROLL_TO_TEXT',
-                                    text: textToFind
-                                });
-                            }
-                        } catch (error) {
-                            console.error('发送跳转指令失败:', error);
-                        }
-                    });
-                } else {
-                    link.target = '_blank';
-                    link.rel = 'noopener noreferrer';
-                }
-            });
+            // 处理新渲染的链接（标记 citation-link 和外部链接属性，点击事件由事件委託處理）
+            processMessageLinks(lastMessage);
 
             // 为新渲染的代码块添加复制按钮
             if (addCopyButtonToCodeBlocks) {
