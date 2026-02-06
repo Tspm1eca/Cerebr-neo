@@ -192,7 +192,7 @@
 /* 等待和流式返回時的藍色呼吸光暈邊框效果 */
 .message.ai-message.waiting,
 .message.ai-message.updating {
-    border: 1px solid rgba(59, 130, 246, 0.5);
+    border: 1px solid rgba(106, 161, 220, 0.5);
     animation: messageAppear 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards,
                breathing-glow 2s ease-in-out infinite;
 }

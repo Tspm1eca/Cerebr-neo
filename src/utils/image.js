@@ -8,22 +8,174 @@ const COMPRESSION_CONFIG = {
     maxHeight: 1024,     // 最大高度
     quality: 0.8,        // 圖片質量 (0-1)
     maxSizeKB: 200,      // 目標最大大小 (KB)
-    preferWebP: true     // 優先使用 WebP 格式
+    preferAVIF: true,    // 優先使用 AVIF 格式
+    preserveTransparency: true  // 保留透明度
 };
 
 /**
- * 檢測瀏覽器是否支持 WebP 格式
- * @returns {boolean} 是否支持 WebP
+ * 格式支持緩存
  */
-function isWebPSupported() {
+const formatSupport = {
+    avif: null,
+    webp: null
+};
+
+/**
+ * 檢測瀏覽器是否支持指定的圖片格式
+ * @param {string} format - 格式類型 ('avif' | 'webp')
+ * @returns {boolean} 是否支持該格式
+ */
+function isFormatSupported(format) {
     const canvas = document.createElement('canvas');
     canvas.width = 1;
     canvas.height = 1;
-    return canvas.toDataURL('image/webp').startsWith('data:image/webp');
+    const mimeType = `image/${format}`;
+    return canvas.toDataURL(mimeType).startsWith(`data:${mimeType}`);
 }
 
-// 緩存 WebP 支持檢測結果
-let webPSupported = null;
+/**
+ * 初始化格式支持檢測（只執行一次）
+ */
+function initFormatSupport() {
+    if (formatSupport.avif === null) {
+        formatSupport.avif = isFormatSupported('avif');
+        console.log(`AVIF 格式支持: ${formatSupport.avif ? '是' : '否'}`);
+    }
+    if (formatSupport.webp === null) {
+        formatSupport.webp = isFormatSupported('webp');
+        console.log(`WebP 格式支持: ${formatSupport.webp ? '是' : '否'}`);
+    }
+}
+
+/**
+ * 計算 Base64 字符串的實際字節大小
+ * @param {string} base64String - Base64 編碼的字符串
+ * @returns {number} 實際字節大小
+ */
+function getBase64ByteSize(base64String) {
+    // 移除 data:image/xxx;base64, 前綴
+    const base64 = base64String.split(',')[1] || base64String;
+    // Base64 編碼後大小約為原始的 4/3，所以實際大小 = 長度 * 3/4
+    // 還需要考慮 padding（末尾的 = 號）
+    const padding = (base64.match(/=+$/) || [''])[0].length;
+    return Math.floor((base64.length * 3) / 4) - padding;
+}
+
+/**
+ * 檢測圖片是否包含透明通道
+ * @param {HTMLCanvasElement} canvas - 畫布元素
+ * @param {CanvasRenderingContext2D} ctx - 畫布上下文
+ * @returns {boolean} 是否包含透明像素
+ */
+function hasTransparency(canvas, ctx) {
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    // 檢查 alpha 通道（每 4 個值的第 4 個）
+    for (let i = 3; i < data.length; i += 4) {
+        if (data[i] < 255) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * 使用二分搜索找到最佳壓縮質量
+ * @param {HTMLCanvasElement} canvas - 畫布元素
+ * @param {string} format - 圖片格式 MIME 類型
+ * @param {number} targetBytes - 目標字節大小
+ * @param {number} maxQuality - 最大質量值
+ * @param {number} minQuality - 最小質量值
+ * @returns {{data: string, quality: number}} 壓縮結果和使用的質量值
+ */
+function binarySearchQuality(canvas, format, targetBytes, maxQuality = 0.9, minQuality = 0.1) {
+    let low = minQuality;
+    let high = maxQuality;
+    let bestData = canvas.toDataURL(format, high);
+    let bestQuality = high;
+
+    // 如果最高質量已經滿足要求，直接返回
+    if (getBase64ByteSize(bestData) <= targetBytes) {
+        return { data: bestData, quality: bestQuality };
+    }
+
+    // 二分搜索最佳質量（最多 8 次迭代）
+    for (let i = 0; i < 8; i++) {
+        const mid = (low + high) / 2;
+        const data = canvas.toDataURL(format, mid);
+        const size = getBase64ByteSize(data);
+
+        if (size <= targetBytes) {
+            // 大小符合要求，嘗試提高質量
+            bestData = data;
+            bestQuality = mid;
+            low = mid;
+        } else {
+            // 大小超標，降低質量
+            high = mid;
+        }
+
+        // 如果範圍已經很小，停止搜索
+        if (high - low < 0.02) {
+            break;
+        }
+    }
+
+    // 如果二分搜索後仍然超標，使用最低質量
+    if (getBase64ByteSize(bestData) > targetBytes) {
+        bestData = canvas.toDataURL(format, minQuality);
+        bestQuality = minQuality;
+    }
+
+    return { data: bestData, quality: bestQuality };
+}
+
+/**
+ * 選擇最佳壓縮格式
+ * @param {boolean} hasAlpha - 圖片是否有透明通道
+ * @param {boolean} preferAVIF - 是否優先使用 AVIF
+ * @returns {string[]} 按優先級排序的格式列表
+ */
+function getPreferredFormats(hasAlpha, preferAVIF) {
+    const formats = [];
+
+    if (hasAlpha) {
+        // 有透明通道：優先使用支持透明的格式
+        if (preferAVIF && formatSupport.avif) {
+            formats.push('image/avif');
+        }
+        if (formatSupport.webp) {
+            formats.push('image/webp');
+        }
+        formats.push('image/png'); // PNG 作為最後備選（支持透明但壓縮率低）
+    } else {
+        // 無透明通道：可以使用所有格式
+        if (preferAVIF && formatSupport.avif) {
+            formats.push('image/avif');
+        }
+        if (formatSupport.webp) {
+            formats.push('image/webp');
+        }
+        formats.push('image/jpeg'); // JPEG 作為最後備選
+    }
+
+    return formats;
+}
+
+/**
+ * 獲取格式的顯示名稱
+ * @param {string} mimeType - MIME 類型
+ * @returns {string} 格式名稱
+ */
+function getFormatName(mimeType) {
+    const names = {
+        'image/avif': 'AVIF',
+        'image/webp': 'WebP',
+        'image/jpeg': 'JPEG',
+        'image/png': 'PNG'
+    };
+    return names[mimeType] || mimeType;
+}
 
 /**
  * 壓縮圖片
@@ -33,22 +185,15 @@ let webPSupported = null;
  * @param {number} [options.maxHeight=1024] - 最大高度
  * @param {number} [options.quality=0.8] - 圖片質量 (0-1)
  * @param {number} [options.maxSizeKB=200] - 目標最大大小 (KB)
- * @param {boolean} [options.preferWebP=true] - 優先使用 WebP 格式
+ * @param {boolean} [options.preferAVIF=true] - 優先使用 AVIF 格式
+ * @param {boolean} [options.preserveTransparency=true] - 保留透明度
  * @returns {Promise<string>} 壓縮後的 base64 數據
  */
 export async function compressImage(base64Data, options = {}) {
     const config = { ...COMPRESSION_CONFIG, ...options };
 
-    // 檢測 WebP 支持（只檢測一次）
-    if (webPSupported === null) {
-        webPSupported = isWebPSupported();
-        console.log(`WebP 格式支持: ${webPSupported ? '是' : '否'}`);
-    }
-
-    // 決定使用的格式
-    const useWebP = config.preferWebP && webPSupported;
-    const format = useWebP ? 'image/webp' : 'image/jpeg';
-    const formatName = useWebP ? 'WebP' : 'JPEG';
+    // 初始化格式支持檢測
+    initFormatSupport();
 
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -73,49 +218,79 @@ export async function compressImage(base64Data, options = {}) {
                 canvas.height = height;
 
                 const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
 
-                // 嘗試不同質量級別以達到目標大小
-                let quality = config.quality;
-                let compressedData = canvas.toDataURL(format, quality);
+                // 檢測是否需要保留透明度
+                let imageHasAlpha = false;
+                if (config.preserveTransparency) {
+                    // 先繪製到臨時 canvas 檢測透明度
+                    ctx.drawImage(img, 0, 0, width, height);
+                    imageHasAlpha = hasTransparency(canvas, ctx);
 
-                // 如果圖片仍然太大，逐步降低質量
-                const targetSizeBytes = config.maxSizeKB * 1024;
-                while (compressedData.length > targetSizeBytes && quality > 0.1) {
-                    quality -= 0.1;
-                    compressedData = canvas.toDataURL(format, quality);
+                    if (!imageHasAlpha) {
+                        // 如果沒有透明度，用白色背景重繪（優化 JPEG 壓縮）
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillRect(0, 0, width, height);
+                        ctx.drawImage(img, 0, 0, width, height);
+                    }
+                } else {
+                    // 不保留透明度，直接用白色背景
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(0, 0, width, height);
+                    ctx.drawImage(img, 0, 0, width, height);
                 }
 
-                // 如果使用 WebP 但結果不理想，嘗試 JPEG 作為備選
-                if (useWebP && compressedData.length > targetSizeBytes) {
-                    let jpegQuality = config.quality;
-                    let jpegData = canvas.toDataURL('image/jpeg', jpegQuality);
-                    while (jpegData.length > targetSizeBytes && jpegQuality > 0.1) {
-                        jpegQuality -= 0.1;
-                        jpegData = canvas.toDataURL('image/jpeg', jpegQuality);
+                // 獲取優先格式列表
+                const formats = getPreferredFormats(imageHasAlpha, config.preferAVIF);
+                const targetBytes = config.maxSizeKB * 1024;
+                const originalBytes = getBase64ByteSize(base64Data);
+
+                let bestResult = null;
+                let bestFormat = null;
+
+                // 嘗試每種格式，選擇最佳結果
+                for (const format of formats) {
+                    const result = binarySearchQuality(
+                        canvas,
+                        format,
+                        targetBytes,
+                        config.quality,
+                        0.1
+                    );
+
+                    const resultBytes = getBase64ByteSize(result.data);
+
+                    // 選擇最小的結果
+                    if (!bestResult || resultBytes < getBase64ByteSize(bestResult.data)) {
+                        bestResult = result;
+                        bestFormat = format;
                     }
-                    // 如果 JPEG 更小，使用 JPEG
-                    if (jpegData.length < compressedData.length) {
-                        compressedData = jpegData;
-                        console.log('WebP 壓縮效果不佳，改用 JPEG');
+
+                    // 如果已經達到目標大小且壓縮率不錯，可以提前結束
+                    if (resultBytes <= targetBytes && resultBytes < originalBytes * 0.8) {
+                        break;
                     }
                 }
 
                 // 如果壓縮後比原始更大，返回原始數據
-                if (compressedData.length >= base64Data.length) {
+                const compressedBytes = getBase64ByteSize(bestResult.data);
+                if (compressedBytes >= originalBytes) {
                     console.log('壓縮後大小未減少，使用原始圖片');
                     resolve(base64Data);
                     return;
                 }
 
-                const originalSizeKB = Math.round(base64Data.length / 1024);
-                const compressedSizeKB = Math.round(compressedData.length / 1024);
-                const compressionRatio = Math.round((1 - compressedData.length / base64Data.length) * 100);
-                const finalFormat = compressedData.startsWith('data:image/webp') ? 'WebP' : 'JPEG';
+                const originalSizeKB = Math.round(originalBytes / 1024);
+                const compressedSizeKB = Math.round(compressedBytes / 1024);
+                const compressionRatio = Math.round((1 - compressedBytes / originalBytes) * 100);
+                const formatName = getFormatName(bestFormat);
 
-                console.log(`圖片壓縮完成 (${finalFormat}): ${originalSizeKB}KB → ${compressedSizeKB}KB (減少 ${compressionRatio}%)`);
+                console.log(
+                    `圖片壓縮完成 (${formatName}, 質量=${Math.round(bestResult.quality * 100)}%): ` +
+                    `${originalSizeKB}KB → ${compressedSizeKB}KB (減少 ${compressionRatio}%)` +
+                    (imageHasAlpha ? ' [保留透明度]' : '')
+                );
 
-                resolve(compressedData);
+                resolve(bestResult.data);
             } catch (error) {
                 console.error('圖片壓縮失敗:', error);
                 // 壓縮失敗時返回原始數據
