@@ -484,6 +484,8 @@ let exaApiUrl = '';
                 const lastMessage = chatContainer.querySelector('.ai-message:last-child');
                 if (lastMessage) {
                     lastMessage.classList.remove('updating');
+                    // 流式更新結束後，標記為已渲染以釋放 GPU 合成層
+                    lastMessage.classList.add('rendered');
                 }
             }
         }
@@ -653,6 +655,8 @@ let exaApiUrl = '';
                 const lastMessage = chatContainer.querySelector('.ai-message:last-child');
                 if (lastMessage) {
                     lastMessage.classList.remove('updating');
+                    // 流式更新結束後，標記為已渲染以釋放 GPU 合成層
+                    lastMessage.classList.add('rendered');
                 }
             }
         }

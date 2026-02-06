@@ -276,19 +276,26 @@ class CerebrSidebar {
       const wasVisible = this.isVisible;
       this.isVisible = !this.isVisible;
 
-      // 更新DOM状态
-      this.sidebar.classList.toggle('visible');
-
       // 不再保存可見狀態，側邊欄不會自動出現
 
-      // 如果从不可见变为可见，通知iframe并聚焦输入框
       if (!wasVisible && this.isVisible) {
-        const iframe = this.sidebar.querySelector('.cerebr-sidebar__iframe');
-        if (iframe) {
-          iframe.contentWindow.postMessage({ type: 'FOCUS_INPUT' }, '*');
-          // 添加检查对话状态的消息
-          iframe.contentWindow.postMessage({ type: 'CHECK_CHAT_STATUS' }, '*');
-        }
+        // 顯示側邊欄：使用雙 rAF 延遲添加 visible 類
+        // 第一幀讓瀏覽器準備好 iframe 內容的佈局和繪製
+        // 第二幀再觸發 CSS 過渡動畫，避免首幀卡頓
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            this.sidebar.classList.add('visible');
+            // 通知iframe並聚焦輸入框
+            const iframe = this.sidebar.querySelector('.cerebr-sidebar__iframe');
+            if (iframe) {
+              iframe.contentWindow.postMessage({ type: 'FOCUS_INPUT' }, '*');
+              iframe.contentWindow.postMessage({ type: 'CHECK_CHAT_STATUS' }, '*');
+            }
+          });
+        });
+      } else {
+        // 隱藏側邊欄：直接移除 visible 類
+        this.sidebar.classList.remove('visible');
       }
     } catch (error) {
       console.error('切换侧边栏失败:', error);

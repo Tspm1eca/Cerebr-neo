@@ -92,6 +92,9 @@ export async function loadChatContent(chat, chatContainer) {
     const messages = chat.messages;
     // console.log('loadChatContent', JSON.stringify(messages));
 
+    // 使用 DocumentFragment 批量插入，減少重排次數
+    const fragment = document.createDocumentFragment();
+
     for (let i = 0; i < messages.length; i++) {
         const message = messages[i];
         if (message.content) {
@@ -100,9 +103,21 @@ export async function loadChatContent(chat, chatContainer) {
                 sender: message.role === 'user' ? 'user' : 'ai',
                 chatContainer,
                 skipHistory: true,
+                fragment,
             });
         }
     }
+
+    // 一次性插入所有訊息到 DOM
+    chatContainer.appendChild(fragment);
+
+    // 歷史訊息直接顯示，跳過入場動畫並釋放 GPU 合成層
+    requestAnimationFrame(() => {
+        const batchMessages = chatContainer.querySelectorAll('.message.batch-load');
+        batchMessages.forEach(msg => {
+            msg.classList.add('show', 'rendered');
+        });
+    });
 }
 
 // 切换到指定对话

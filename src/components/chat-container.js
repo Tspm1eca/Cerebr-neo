@@ -2,7 +2,7 @@ import { createImageTag, showImagePreview, bindImageTagEvents } from '../utils/u
 import { showContextMenu, hideContextMenu, copyMessageContent } from './context-menu.js';
 import { handleImageDrop } from '../utils/image.js';
 import { updateAIMessage } from '../handlers/message-handler.js';
-import { processMathAndMarkdown, renderMathInElement } from '../../htmd/latex.js';
+import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
 
 /**
  * 初始化聊天容器的所有功能
@@ -42,6 +42,13 @@ export function initChatContainer({
                     }
                     // 为新消息中的代码块添加复制按钮
                     addCopyButtonToCodeBlocks(node);
+
+                    // 動畫結束後添加 .rendered 類，移除 will-change 以釋放 GPU 合成層
+                    if (node.classList && node.classList.contains('message') && !node.classList.contains('rendered')) {
+                        node.addEventListener('animationend', () => {
+                            node.classList.add('rendered');
+                        }, { once: true });
+                    }
                 }
             });
         });
@@ -359,11 +366,13 @@ export function initChatContainer({
                         mainContent.innerHTML = processMathAndMarkdown(newText);
                         messageElementToEdit.appendChild(mainContent);
 
-                        // 渲染 LaTeX 公式
-                        try {
-                            await renderMathInElement(mainContent);
-                        } catch (err) {
-                            console.error('渲染LaTeX公式失败:', err);
+                        // 渲染 LaTeX 公式（僅在文本可能包含數學公式時才呼叫 MathJax）
+                        if (textMayContainMath(newText)) {
+                            try {
+                                await renderMathInElement(mainContent);
+                            } catch (err) {
+                                console.error('渲染LaTeX公式失败:', err);
+                            }
                         }
 
                         // 为代码块添加复制按钮
@@ -432,11 +441,13 @@ export function initChatContainer({
                         mainContent.innerHTML = processMathAndMarkdown(newText);
                         messageElementToEdit.appendChild(mainContent);
 
-                        // 渲染 LaTeX 公式
-                        try {
-                            await renderMathInElement(mainContent);
-                        } catch (err) {
-                            console.error('渲染LaTeX公式失败:', err);
+                        // 渲染 LaTeX 公式（僅在文本可能包含數學公式時才呼叫 MathJax）
+                        if (textMayContainMath(newText)) {
+                            try {
+                                await renderMathInElement(mainContent);
+                            } catch (err) {
+                                console.error('渲染LaTeX公式失败:', err);
+                            }
                         }
 
                         // 为代码块添加复制按钮

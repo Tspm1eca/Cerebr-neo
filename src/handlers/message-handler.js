@@ -1,6 +1,6 @@
 import { chatManager } from '../utils/chat-manager.js';
 import { showImagePreview, createImageTag, removeImageFromChatManager } from '../utils/ui.js';
-import { processMathAndMarkdown, renderMathInElement } from '../../htmd/latex.js';
+import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
 
 /**
  * Preloads and caches an image to a blob property on the img element.
@@ -176,11 +176,13 @@ export async function appendMessage({
         messageDiv.appendChild(imagesContainer);
     }
 
-    // 渲染 LaTeX 公式
-    try {
-        await renderMathInElement(messageDiv);
-    } catch (err) {
-        console.error('渲染LaTeX公式失败:', err);
+    // 渲染 LaTeX 公式（僅在文本可能包含數學公式時才呼叫 MathJax）
+    if (textMayContainMath(messageHtml) || (reasoningContent && textMayContainMath(reasoningContent))) {
+        try {
+            await renderMathInElement(messageDiv);
+        } catch (err) {
+            console.error('渲染LaTeX公式失败:', err);
+        }
     }
 
     // Preload images for faster copying
@@ -604,13 +606,15 @@ export async function updateAIMessage({
                 const currentReasoningText = reasoningTextDiv.getAttribute('data-original-text') || '';
 
                 // 只要内容发生变化就更新
-                if (reasoningContent !== currentReasoningText) {
-                    // 更新原始文本属性
-                    reasoningTextDiv.setAttribute('data-original-text', reasoningContent);
-                    // 更新显示内容
-                    reasoningTextDiv.innerHTML = processMathAndMarkdown(reasoningContent).trim();
+            if (reasoningContent !== currentReasoningText) {
+                // 更新原始文本属性
+                reasoningTextDiv.setAttribute('data-original-text', reasoningContent);
+                // 更新显示内容
+                reasoningTextDiv.innerHTML = processMathAndMarkdown(reasoningContent).trim();
+                if (textMayContainMath(reasoningContent)) {
                     await renderMathInElement(reasoningTextDiv);
                 }
+            }
             }
 
             if (textContent && reasoningDiv && !reasoningDiv.classList.contains('collapsed')) {
@@ -637,8 +641,10 @@ export async function updateAIMessage({
                 lastMessage.appendChild(mainContent);
             }
 
-            // 渲染LaTeX公式
-            await renderMathInElement(mainContent);
+            // 渲染LaTeX公式（僅在文本可能包含數學公式時才呼叫 MathJax）
+            if (textMayContainMath(textContent)) {
+                await renderMathInElement(mainContent);
+            }
 
             // Preload images for faster copying
             mainContent.querySelectorAll('img').forEach(preloadAndCacheImage);

@@ -10,7 +10,7 @@
     line-height: 1.5;
     position: relative;
     opacity: 0;
-    transform: translateY(8px) scaleX(0.92) scaleY(0.98) translateZ(0);
+    transform: translateY(8px) scaleX(0.92) scaleY(0.98);
     animation: messageAppear 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
     will-change: transform, opacity;
     box-shadow: 0 2px 6px var(--cerebr-message-shadow);
@@ -18,8 +18,12 @@
                 box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    backface-visibility: hidden;
-    perspective: 1000px;
+}
+
+/* 動畫結束後移除 will-change，釋放 GPU 合成層資源，並啟用 CSS containment 限制重繪範圍 */
+.message.rendered {
+    will-change: auto;
+    contain: layout style paint;
 }
 
 /* 消息中的图片样式 */
@@ -72,12 +76,9 @@
     border-radius: 8px !important;
 }
 
-/* 添加更新中的消息样式 */
+/* 添加更新中的消息样式 - 流式更新時保持 will-change 以確保流暢 */
 .message.updating {
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-    -webkit-transform-style: preserve-3d;
-    transform-style: preserve-3d;
+    will-change: transform, opacity;
 }
 
 .user-message {
@@ -153,7 +154,7 @@
 }
 
 .message:hover {
-    transform: translateY(-1px) translateZ(0);
+    transform: translateY(-1px);
     box-shadow: 0 4px 12px var(--cerebr-message-hover-shadow);
 }
 
@@ -168,6 +169,15 @@
     opacity: 1;
     transform: translateY(0) scaleX(1) scaleY(1);
     transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+/* 歷史訊息直接顯示，跳過過渡動畫 */
+.message.batch-load.rendered {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    transition: none;
+    will-change: auto;
 }
 
 /* 等待LLM回覆的動畫樣式 */
