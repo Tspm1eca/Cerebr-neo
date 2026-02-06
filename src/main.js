@@ -1752,26 +1752,35 @@ let exaApiUrl = '';
     // 這比 beforeunload 更可靠，因為它在頁面隱藏時觸發
     // 加入防抖機制，避免快速切換標籤頁時產生不必要的網路請求
     let syncOnCloseDebounceTimer = null;
+    let syncOnCloseExecuted = false; // 去重標記，防止 visibilitychange 和 pagehide 重複觸發
     document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'hidden') {
             // 頁面被隱藏（可能是關閉、切換標籤頁或最小化）
-            // 使用 300ms 防抖，過濾快速切換標籤頁的情況
+            // 使用 5 秒防抖，過濾快速切換標籤頁的情況
+            syncOnCloseExecuted = false;
             clearTimeout(syncOnCloseDebounceTimer);
             syncOnCloseDebounceTimer = setTimeout(async () => {
+                syncOnCloseExecuted = true;
                 await performWebDAVSyncOnClose();
-            }, 300);
+            }, 5000);
         } else if (document.visibilityState === 'visible') {
             // 頁面重新可見時，取消待執行的同步（用戶快速切回來了）
             clearTimeout(syncOnCloseDebounceTimer);
+            syncOnCloseExecuted = false;
         }
     });
 
-    // 監聯頁面卸載事件（作為備用方案）
+    // 監聽頁面卸載事件（作為備用方案，僅在真正卸載時觸發）
     window.addEventListener('pagehide', async (event) => {
         // pagehide 事件在頁面被卸載時觸發
         // persisted 為 true 表示頁面可能被緩存（bfcache）
         if (!event.persisted) {
-            await performWebDAVSyncOnClose();
+            // 取消防抖計時器，避免重複執行
+            clearTimeout(syncOnCloseDebounceTimer);
+            // 如果 visibilitychange 已經執行過同步，則跳過
+            if (!syncOnCloseExecuted) {
+                await performWebDAVSyncOnClose();
+            }
         }
     });
 

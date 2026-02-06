@@ -278,7 +278,9 @@ class WebDAVClient {
                 throw new Error(`上传失败: HTTP ${response.status}`);
             }
 
-            return true;
+            // 从 PUT 回应中提取 ETag，避免额外的 HEAD 请求
+            const etag = response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
+            return { success: true, etag };
         };
 
         return await this.withDirectoryRetry(doUpload, '上传数据');
@@ -298,7 +300,7 @@ class WebDAVClient {
             });
 
             if (response.status === HTTP_STATUS.NOT_FOUND) {
-                return null; // 文件不存在
+                return { data: null, etag: null }; // 文件不存在
             }
 
             // 处理 424 Failed Dependency - 目录可能不存在
@@ -312,9 +314,12 @@ class WebDAVClient {
                 throw new Error(`下载失败: HTTP ${response.status}`);
             }
 
+            // 从 GET 回应中提取 ETag，避免额外的 HEAD 请求
+            const etag = response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
+
             const text = await response.text();
             try {
-                return JSON.parse(text);
+                return { data: JSON.parse(text), etag };
             } catch (e) {
                 throw new Error('数据格式错误');
             }
@@ -325,7 +330,7 @@ class WebDAVClient {
         } catch (error) {
             // 如果重试后仍然是目录问题，返回 null（文件不存在）
             if (error.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                return null;
+                return { data: null, etag: null };
             }
             throw error;
         }
@@ -433,6 +438,12 @@ class WebDAVClient {
 /**
  * WebDAV 同步管理器
  */
+// checkSyncStatus 最小间隔（毫秒）- 60 秒内不重复向远端发 HEAD 请求
+const CHECK_SYNC_THROTTLE_MS = 60000;
+
+// syncOnClose 最小间隔（毫秒）- 30 秒内不重复执行关闭同步
+const SYNC_ON_CLOSE_THROTTLE_MS = 30000;
+
 class WebDAVSyncManager {
     constructor() {
         this.client = null;
@@ -442,6 +453,11 @@ class WebDAVSyncManager {
         this._cachedLocalData = null;
         this._cachedLocalHash = null;
         this._cacheTimestamp = 0;
+        // 节流：checkSyncStatus 上次执行时间和缓存结果
+        this._lastCheckSyncTime = 0;
+        this._lastCheckSyncResult = null;
+        // 节流：syncOnClose 上次执行时间
+        this._lastSyncOnCloseTime = 0;
     }
 
     /**
@@ -601,17 +617,21 @@ class WebDAVSyncManager {
                 }
             }
 
-            // 上传到 WebDAV
-            await this.client.uploadData('cerebr.json', syncData);
+            // 上传到 WebDAV，并从 PUT 回应中获取 ETag
+            const uploadResult = await this.client.uploadData('cerebr.json', syncData);
 
-            // 获取并储存新的 ETag（用于下次同步检查）
-            try {
-                const newETag = await this.client.getRemoteETag('cerebr.json');
-                if (newETag) {
-                    await syncStorageAdapter.set({ [WEBDAV_REMOTE_ETAG_KEY]: newETag });
+            // 优先使用 PUT 回应中的 ETag，避免额外的 HEAD 请求
+            let newETag = uploadResult.etag;
+            if (!newETag) {
+                // 回退：某些 WebDAV 服务器的 PUT 回应不包含 ETag，才发 HEAD 请求
+                try {
+                    newETag = await this.client.getRemoteETag('cerebr.json');
+                } catch (etagError) {
+                    console.warn('[WebDAV] 获取上传后 ETag 失败:', etagError);
                 }
-            } catch (etagError) {
-                console.warn('[WebDAV] 获取上传后 ETag 失败:', etagError);
+            }
+            if (newETag) {
+                await syncStorageAdapter.set({ [WEBDAV_REMOTE_ETAG_KEY]: newETag });
             }
 
             // 使用已计算的 hash 或缓存的 hash，避免重复计算
@@ -646,6 +666,8 @@ class WebDAVSyncManager {
 
             // 清除缓存，因为同步完成后数据状态已确定
             this.clearCache();
+            // 重置 checkSyncStatus 节流缓存，确保下次检查是最新状态
+            this._lastCheckSyncResult = null;
 
             return { success: true, message, timestamp: lastSync };
         } catch (error) {
@@ -672,8 +694,10 @@ class WebDAVSyncManager {
         this.notifyListeners('sync-start', { direction: 'download' });
 
         try {
-            // 从 WebDAV 下载数据
-            const syncData = await this.client.downloadData('cerebr.json');
+            // 从 WebDAV 下载数据，并从 GET 回应中获取 ETag
+            const downloadResult = await this.client.downloadData('cerebr.json');
+            const syncData = downloadResult.data;
+            const downloadETag = downloadResult.etag;
 
             if (!syncData) {
                 throw new Error('远端没有同步数据');
@@ -727,14 +751,18 @@ class WebDAVSyncManager {
             // 清除缓存，因为本地数据已更新
             this.clearCache();
 
-            // 获取并储存新的 ETag（用于下次同步检查）
-            try {
-                const newETag = await this.client.getRemoteETag('cerebr.json');
-                if (newETag) {
-                    await syncStorageAdapter.set({ [WEBDAV_REMOTE_ETAG_KEY]: newETag });
+            // 优先使用 GET 回应中的 ETag，避免额外的 HEAD 请求
+            let newETag = downloadETag;
+            if (!newETag) {
+                // 回退：某些 WebDAV 服务器的 GET 回应不包含 ETag，才发 HEAD 请求
+                try {
+                    newETag = await this.client.getRemoteETag('cerebr.json');
+                } catch (etagError) {
+                    console.warn('[WebDAV] 获取下载后 ETag 失败:', etagError);
                 }
-            } catch (etagError) {
-                console.warn('[WebDAV] 获取下载后 ETag 失败:', etagError);
+            }
+            if (newETag) {
+                await syncStorageAdapter.set({ [WEBDAV_REMOTE_ETAG_KEY]: newETag });
             }
 
             // 计算并储存本地 Hash（下载后本地数据已更新，强制重新计算）
@@ -883,6 +911,27 @@ class WebDAVSyncManager {
                 return { needsSync: true, direction: 'upload', reason: '客户端未初始化', cachedHash: null };
             }
 
+            // 节流：如果距离上次检查不到 CHECK_SYNC_THROTTLE_MS，直接返回缓存结果
+            const now = Date.now();
+            if (this._lastCheckSyncResult && (now - this._lastCheckSyncTime) < CHECK_SYNC_THROTTLE_MS) {
+                // 但仍需重新计算本地 hash，因为本地数据可能已变更
+                const currentLocalHash = await this.calculateLocalHash();
+                const hashResult = await syncStorageAdapter.get(WEBDAV_LOCAL_HASH_KEY);
+                const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];
+                const localChanged = currentLocalHash !== lastLocalHash;
+
+                // 如果本地无变更且上次结果也是无需同步，直接返回
+                if (!localChanged && !this._lastCheckSyncResult.needsSync) {
+                    return { needsSync: false, direction: null, reason: '节流期间：本地和远端均无变化', cachedHash: currentLocalHash };
+                }
+                // 如果本地有变更，需要上传（不需要再检查远端）
+                if (localChanged) {
+                    return { needsSync: true, direction: 'upload', reason: '节流期间：本地有新变更，需要上传', cachedHash: currentLocalHash };
+                }
+                // 其他情况返回上次缓存的结果（更新 cachedHash）
+                return { ...this._lastCheckSyncResult, cachedHash: currentLocalHash };
+            }
+
             // 1. 计算当前本地数据的 hash（使用缓存）
             const currentLocalHash = await this.calculateLocalHash();
 
@@ -903,31 +952,46 @@ class WebDAVSyncManager {
             // 6. 检测远端是否有变更
             const remoteChanged = remoteETag !== null && remoteETag !== lastRemoteETag;
 
+            // 更新节流时间戳（已发出 HEAD 请求，开始计时）
+            this._lastCheckSyncTime = Date.now();
+
             // 7. 如果远端文件不存在，需要上传
             if (remoteETag === null) {
-                return { needsSync: true, direction: 'upload', reason: '远端文件不存在，需要上传', cachedHash: currentLocalHash };
+                const result = { needsSync: true, direction: 'upload', reason: '远端文件不存在，需要上传', cachedHash: currentLocalHash };
+                this._lastCheckSyncResult = result;
+                return result;
             }
 
             // 8. 如果没有上次的记录，执行同步以建立基准
             if (!lastRemoteETag || !lastLocalHash) {
-                return { needsSync: true, direction: 'download', reason: '首次同步检查，需要建立基准', cachedHash: currentLocalHash };
+                const result = { needsSync: true, direction: 'download', reason: '首次同步检查，需要建立基准', cachedHash: currentLocalHash };
+                this._lastCheckSyncResult = result;
+                return result;
             }
 
             // 9. 根据变更情况决定同步方向
             if (!localChanged && !remoteChanged) {
-                return { needsSync: false, direction: null, reason: '本地和远端均无变化', cachedHash: currentLocalHash };
+                const result = { needsSync: false, direction: null, reason: '本地和远端均无变化', cachedHash: currentLocalHash };
+                this._lastCheckSyncResult = result;
+                return result;
             }
 
             if (localChanged && !remoteChanged) {
-                return { needsSync: true, direction: 'upload', reason: '本地有新变更，需要上传', cachedHash: currentLocalHash };
+                const result = { needsSync: true, direction: 'upload', reason: '本地有新变更，需要上传', cachedHash: currentLocalHash };
+                this._lastCheckSyncResult = result;
+                return result;
             }
 
             if (!localChanged && remoteChanged) {
-                return { needsSync: true, direction: 'download', reason: '远端有新变更，需要下载', cachedHash: currentLocalHash };
+                const result = { needsSync: true, direction: 'download', reason: '远端有新变更，需要下载', cachedHash: currentLocalHash };
+                this._lastCheckSyncResult = result;
+                return result;
             }
 
             // 10. 双方都有变更 - 使用时间戳优先策略
-            return { needsSync: true, direction: 'conflict', reason: '本地和远端都有变更，需要比较时间戳', cachedHash: currentLocalHash };
+            const result = { needsSync: true, direction: 'conflict', reason: '本地和远端都有变更，需要比较时间戳', cachedHash: currentLocalHash };
+            this._lastCheckSyncResult = result;
+            return result;
 
         } catch (error) {
             console.error('[WebDAV] 同步检查失败:', error);
@@ -947,7 +1011,8 @@ class WebDAVSyncManager {
             const localTimestamp = localResult[WEBDAV_LAST_SYNC_TIMESTAMP_KEY];
 
             // 获取远端数据的时间戳
-            const remoteData = await this.client.downloadData('cerebr.json');
+            const downloadResult = await this.client.downloadData('cerebr.json');
+            const remoteData = downloadResult.data;
             const remoteTimestamp = remoteData?.timestamp;
             const remoteEncrypted = remoteData?.apiSettingsEncrypted || false;
 
@@ -1057,6 +1122,13 @@ class WebDAVSyncManager {
             return { synced: false, result: null, error: null };
         }
 
+        // 全局节流：距离上次 syncOnClose 不到 SYNC_ON_CLOSE_THROTTLE_MS，直接跳过
+        const now = Date.now();
+        if ((now - this._lastSyncOnCloseTime) < SYNC_ON_CLOSE_THROTTLE_MS) {
+            console.log('[WebDAV] syncOnClose 节流：距离上次同步不到 ' + (SYNC_ON_CLOSE_THROTTLE_MS / 1000) + ' 秒，跳过');
+            return { synced: false, result: null, error: null };
+        }
+
         try {
             // 检查本地是否有变更（会缓存 hash）
             const status = await this.checkSyncStatus();
@@ -1064,6 +1136,9 @@ class WebDAVSyncManager {
             // 只有当本地有变更时才上传，传递缓存的 hash
             if (status.needsSync && (status.direction === 'upload' || status.direction === 'conflict')) {
                 const result = await this.syncToRemote({ cachedHash: status.cachedHash });
+                this._lastSyncOnCloseTime = Date.now();
+                // 同步完成后重置 checkSyncStatus 节流缓存，确保下次检查是最新状态
+                this._lastCheckSyncResult = null;
                 return { synced: true, result, error: null };
             }
 
