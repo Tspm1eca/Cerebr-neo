@@ -553,7 +553,21 @@ class WebDAVSettingsController {
         try {
             // 首先检查是否有冲突
             const syncResult = await webdavSyncManager.syncOnOpen({
-                onConflict: () => true // 标记我们想要处理冲突
+                onConflict: async () => {
+                    // 获取冲突信息，检查时间戳是否相同
+                    const conflictInfo = await webdavSyncManager.getConflictInfo();
+
+                    // 如果时间戳相同，说明双方数据来自同一次同步，视为无冲突
+                    if (conflictInfo.localTimestamp &&
+                        conflictInfo.remoteTimestamp &&
+                        conflictInfo.localTimestamp === conflictInfo.remoteTimestamp) {
+                        console.log('[WebDAV] 时间戳相同，视为无冲突，自动跳过');
+                        return false; // 返回 false，不显示对话框
+                    }
+
+                    // 时间戳不同，需要显示对话框让用户选择
+                    return true;
+                }
             });
 
             // 如果有错误，显示 Toast 提示
