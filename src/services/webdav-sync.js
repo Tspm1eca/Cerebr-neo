@@ -4,7 +4,7 @@
  */
 
 import { storageAdapter, syncStorageAdapter } from '../utils/storage-adapter.js';
-import { encrypt, decrypt, isEncrypted } from '../utils/crypto.js';
+import { encrypt, decrypt, isEncrypted, encryptPasswordForStorage, decryptPasswordFromStorage, isEncryptedPassword } from '../utils/crypto.js';
 
 // WebDAV 配置键
 const WEBDAV_CONFIG_KEY = 'webdav_config';
@@ -36,7 +36,7 @@ const DEFAULT_CONFIG = {
     serverUrl: '',
     username: '',
     password: '',
-    syncPath: '/cerebr-sync/',
+    syncPath: '/Cerebr-neo',
     enabled: false,
     syncApiConfig: false, // 是否同步 API 配置
     encryptApiKeys: false, // 是否加密 API Keys
@@ -473,7 +473,24 @@ class WebDAVSyncManager {
             // 从本地存储加载加密密码（不同步）
             const passwordResult = await storageAdapter.get('webdav_encryption_password');
             if (passwordResult.webdav_encryption_password) {
-                this.config.encryptionPassword = passwordResult.webdav_encryption_password;
+                const storedPassword = passwordResult.webdav_encryption_password;
+
+                // 检查是否为加密存储的密码
+                if (isEncryptedPassword(storedPassword)) {
+                    try {
+                        // 解密密码
+                        this.config.encryptionPassword = await decryptPasswordFromStorage(storedPassword);
+                        console.log('[WebDAV] 加密密码已从加密存储中加载');
+                    } catch (decryptError) {
+                        console.error('[WebDAV] 解密加密密码失败:', decryptError);
+                        // 解密失败时，清空密码，需要用户重新输入
+                        this.config.encryptionPassword = '';
+                    }
+                } else {
+                    // 兼容旧版本：明文存储的密码
+                    console.warn('[WebDAV] 检测到明文存储的加密密码，建议重新设置');
+                    this.config.encryptionPassword = storedPassword;
+                }
             }
 
             this.client = new WebDAVClient(this.config);
@@ -496,9 +513,23 @@ class WebDAVSyncManager {
 
         await syncStorageAdapter.set({ [WEBDAV_CONFIG_KEY]: configForSync });
 
-        // 加密密码单独保存到本地存储
+        // 加密密码单独保存到本地存储（加密后存储）
         if (config.encryptionPassword !== undefined) {
-            await storageAdapter.set({ webdav_encryption_password: config.encryptionPassword });
+            if (config.encryptionPassword && config.encryptionPassword.length > 0) {
+                try {
+                    // 加密密码后存储
+                    const encryptedPassword = await encryptPasswordForStorage(config.encryptionPassword);
+                    await storageAdapter.set({ webdav_encryption_password: encryptedPassword });
+                    console.log('[WebDAV] 加密密码已加密存储');
+                } catch (encryptError) {
+                    console.error('[WebDAV] 加密存储密码失败:', encryptError);
+                    // 加密失败时，仍然保存明文（降级处理）
+                    await storageAdapter.set({ webdav_encryption_password: config.encryptionPassword });
+                }
+            } else {
+                // 密码为空，清空存储
+                await storageAdapter.set({ webdav_encryption_password: '' });
+            }
         }
 
         if (this.client) {

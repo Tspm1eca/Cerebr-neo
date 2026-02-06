@@ -245,6 +245,161 @@ export function generateRandomPassword(length = 16) {
     return password;
 }
 
+/**
+ * 生成主密鑰（用於加密存儲加密密碼）
+ * 基於擴展 ID 和固定鹽值派生，確保同一擴展實例使用相同的主密鑰
+ * @returns {Promise<CryptoKey>} 主密鑰
+ */
+async function deriveMasterKey() {
+    // 使用擴展 ID 作為密鑰派生的基礎
+    // 在 Chrome 擴展中，chrome.runtime.id 提供擴展的唯一標識符
+    const extensionId = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id
+        ? chrome.runtime.id
+        : 'cerebr-neo-default';
+
+    // 固定的鹽值（用於確保同一擴展實例生成相同的主密鑰）
+    const saltString = 'cerebr-webdav-master-key-salt-v1';
+    const encoder = new TextEncoder();
+    const salt = encoder.encode(saltString);
+
+    // 將擴展 ID 轉換為密鑰材料
+    const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(extensionId),
+        'PBKDF2',
+        false,
+        ['deriveKey']
+    );
+
+    // 派生主密鑰
+    const masterKey = await crypto.subtle.deriveKey(
+        {
+            name: 'PBKDF2',
+            salt: salt,
+            iterations: 100000,
+            hash: 'SHA-256'
+        },
+        keyMaterial,
+        {
+            name: CRYPTO_CONFIG.algorithm,
+            length: CRYPTO_CONFIG.keyLength
+        },
+        false,
+        ['encrypt', 'decrypt']
+    );
+
+    return masterKey;
+}
+
+/**
+ * 加密存儲加密密碼
+ * 使用主密鑰加密用戶的加密密碼，然後存儲加密後的結果
+ * @param {string} password - 要加密存儲的密碼
+ * @returns {Promise<Object>} 加密結果，包含 iv 和 ciphertext（均為 Base64）
+ */
+export async function encryptPasswordForStorage(password) {
+    if (!password || password.length === 0) {
+        throw new Error('密碼不能為空');
+    }
+
+    const encoder = new TextEncoder();
+    const passwordBuffer = encoder.encode(password);
+
+    // 生成隨機 IV
+    const iv = crypto.getRandomValues(new Uint8Array(CRYPTO_CONFIG.ivLength));
+
+    // 派生主密鑰
+    const masterKey = await deriveMasterKey();
+
+    // 加密密碼
+    const ciphertext = await crypto.subtle.encrypt(
+        {
+            name: CRYPTO_CONFIG.algorithm,
+            iv: iv,
+            tagLength: CRYPTO_CONFIG.tagLength
+        },
+        masterKey,
+        passwordBuffer
+    );
+
+    // 返回 Base64 編碼的結果
+    return {
+        iv: arrayBufferToBase64(iv.buffer),
+        ciphertext: arrayBufferToBase64(ciphertext),
+        version: 1
+    };
+}
+
+/**
+ * 解密存儲的加密密碼
+ * 使用主密鑰解密存儲的加密密碼
+ * @param {Object} encryptedPassword - 加密的密碼對象，包含 iv 和 ciphertext
+ * @returns {Promise<string>} 解密後的密碼
+ */
+export async function decryptPasswordFromStorage(encryptedPassword) {
+    if (!encryptedPassword || !encryptedPassword.iv || !encryptedPassword.ciphertext) {
+        throw new Error('加密密碼格式無效：缺少必要的加密字段（iv 或 ciphertext）');
+    }
+
+    // 檢查加密版本
+    const version = encryptedPassword.version;
+    if (version === undefined) {
+        throw new Error('加密密碼格式無效：缺少版本標識');
+    }
+    if (version !== 1) {
+        throw new Error(`不支持的加密密碼版本：${version}，當前僅支持版本 1`);
+    }
+
+    const decoder = new TextDecoder();
+
+    // 從 Base64 解碼
+    let iv, ciphertext;
+    try {
+        iv = new Uint8Array(base64ToArrayBuffer(encryptedPassword.iv));
+        ciphertext = base64ToArrayBuffer(encryptedPassword.ciphertext);
+    } catch (e) {
+        throw new Error('加密密碼解碼失敗：Base64 格式無效');
+    }
+
+    // 派生主密鑰
+    const masterKey = await deriveMasterKey();
+
+    try {
+        // 解密密碼
+        const decryptedBuffer = await crypto.subtle.decrypt(
+            {
+                name: CRYPTO_CONFIG.algorithm,
+                iv: iv,
+                tagLength: CRYPTO_CONFIG.tagLength
+            },
+            masterKey,
+            ciphertext
+        );
+
+        // 將解密結果轉換為字符串
+        return decoder.decode(decryptedBuffer);
+    } catch (error) {
+        // 解密失敗
+        if (error.name === 'OperationError') {
+            throw new Error('解密失敗：數據已損壞或擴展環境已變更');
+        }
+        throw new Error(`解密過程發生錯誤：${error.message}`);
+    }
+}
+
+/**
+ * 檢查密碼是否已加密存儲
+ * @param {any} data - 要檢查的數據
+ * @returns {boolean} 是否為加密存儲的密碼
+ */
+export function isEncryptedPassword(data) {
+    return data &&
+           typeof data === 'object' &&
+           data.version !== undefined &&
+           data.iv !== undefined &&
+           data.ciphertext !== undefined;
+}
+
 // 導出配置常量（用於測試或調試）
 export const CRYPTO_CONSTANTS = {
     ...CRYPTO_CONFIG
