@@ -43,6 +43,106 @@ const DEFAULT_CONFIG = {
     encryptionPassword: '' // 加密密码（仅存储在本地，不同步）
 };
 
+const WEBDAV_IMAGE_PREFIX = 'webdav-image://';
+const IMAGE_FILENAME_PREFIX = 'cerebr-img-';
+const IMAGE_DIRECTORY = 'images';
+const DATA_IMAGE_URL_REGEX = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/i;
+
+function cloneData(value) {
+    if (typeof structuredClone === 'function') {
+        return structuredClone(value);
+    }
+    return JSON.parse(JSON.stringify(value));
+}
+
+function parseDataImageUrl(dataUrl) {
+    if (typeof dataUrl !== 'string') {
+        return null;
+    }
+
+    const matches = dataUrl.match(DATA_IMAGE_URL_REGEX);
+    if (!matches) {
+        return null;
+    }
+
+    return {
+        mimeType: matches[1].toLowerCase(),
+        base64: matches[2]
+    };
+}
+
+function base64ToUint8Array(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+}
+
+function arrayBufferToHex(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let hex = '';
+    for (const byte of bytes) {
+        hex += byte.toString(16).padStart(2, '0');
+    }
+    return hex;
+}
+
+async function sha256Hex(data) {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return arrayBufferToHex(hashBuffer);
+}
+
+function getImageExtensionFromMimeType(mimeType) {
+    const normalized = (mimeType || '').toLowerCase().split(';')[0].trim();
+    const map = {
+        'image/jpeg': 'jpg',
+        'image/jpg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'image/avif': 'avif',
+        'image/gif': 'gif',
+        'image/bmp': 'bmp',
+        'image/svg+xml': 'svg'
+    };
+
+    if (map[normalized]) {
+        return map[normalized];
+    }
+
+    if (normalized.startsWith('image/')) {
+        return normalized.slice('image/'.length).replace('+xml', '');
+    }
+
+    return 'bin';
+}
+
+function getMimeTypeFromFilename(filename) {
+    const extension = filename.split('.').pop()?.toLowerCase();
+    const map = {
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        webp: 'image/webp',
+        avif: 'image/avif',
+        gif: 'image/gif',
+        bmp: 'image/bmp',
+        svg: 'image/svg+xml'
+    };
+
+    return map[extension] || 'application/octet-stream';
+}
+
+function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error('图片转码失败'));
+        reader.readAsDataURL(blob);
+    });
+}
+
 /**
  * WebDAV 客户端类
  */
@@ -252,6 +352,41 @@ class WebDAVClient {
         return true;
     }
 
+    async createDirectoryAtPath(relativePath) {
+        const baseUrl = this.config.serverUrl.replace(/\/+$/, '');
+        const syncPath = this.config.syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
+        const childPath = relativePath.replace(/^\/+/, '').replace(/\/+$/, '');
+        const fullPath = [syncPath, childPath].filter(Boolean).join('/');
+
+        if (!fullPath) {
+            return { created: false, error: null };
+        }
+
+        const parts = fullPath.split('/').filter(Boolean);
+        let currentPath = '';
+
+        for (const part of parts) {
+            currentPath += '/' + part;
+            const url = `${baseUrl}${currentPath}`;
+            const response = await this.fetchWithTimeout(url, {
+                method: 'MKCOL',
+                headers: this.getAuthHeaders()
+            });
+
+            if (
+                response.status !== HTTP_STATUS.CREATED &&
+                response.status !== HTTP_STATUS.METHOD_NOT_ALLOWED &&
+                response.status !== HTTP_STATUS.MOVED_PERMANENTLY &&
+                response.status !== HTTP_STATUS.CONFLICT &&
+                response.status !== HTTP_STATUS.FAILED_DEPENDENCY
+            ) {
+                return { created: false, error: `HTTP ${response.status}` };
+            }
+        }
+
+        return { created: true, error: null };
+    }
+
     /**
      * 上传数据到 WebDAV
      * @param {string} filename - 文件名
@@ -358,6 +493,73 @@ class WebDAVClient {
      * @param {string} filename - 文件名
      * @returns {Promise<string|null>} ETag 或 Last-Modified 值，文件不存在时返回 null
      */
+    async uploadBinary(filename, data, mimeType = 'application/octet-stream') {
+        const url = this.getFullUrl(filename);
+
+        const doUpload = async () => {
+            const credentials = btoa(`${this.config.username}:${this.config.password}`);
+            const response = await this.fetchWithTimeout(url, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Basic ${credentials}`,
+                    'Content-Type': mimeType,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: data
+            });
+
+            if (response.status === HTTP_STATUS.FAILED_DEPENDENCY || response.status === HTTP_STATUS.CONFLICT) {
+                const error = new Error(`上传二进制失败: HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+
+            if (!response.ok && response.status !== HTTP_STATUS.CREATED && response.status !== HTTP_STATUS.NO_CONTENT) {
+                throw new Error(`上传二进制失败: HTTP ${response.status}`);
+            }
+
+            return true;
+        };
+
+        return await this.withDirectoryRetry(doUpload, '上传二进制文件');
+    }
+
+    async downloadBinary(filename) {
+        const url = this.getFullUrl(filename);
+
+        const doDownload = async () => {
+            const response = await this.fetchWithTimeout(url, {
+                method: 'GET',
+                headers: this.getAuthHeaders()
+            });
+
+            if (response.status === HTTP_STATUS.NOT_FOUND) {
+                return { blob: null };
+            }
+
+            if (response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
+                const error = new Error(`下载二进制失败: HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+
+            if (!response.ok) {
+                throw new Error(`下载二进制失败: HTTP ${response.status}`);
+            }
+
+            return { blob: await response.blob() };
+        };
+
+        try {
+            return await this.withDirectoryRetry(doDownload, '下载二进制文件');
+        } catch (error) {
+            if (error.status === HTTP_STATUS.FAILED_DEPENDENCY) {
+                return { blob: null };
+            }
+            throw error;
+        }
+    }
+
     async getRemoteETag(filename) {
         const url = this.getFullUrl(filename);
 
@@ -467,6 +669,140 @@ class WebDAVSyncManager {
         this._cachedLocalData = null;
         this._cachedLocalHash = null;
         this._cacheTimestamp = 0;
+    }
+
+    async prepareSyncDataWithImageReferences(syncData) {
+        const preparedData = cloneData(syncData);
+        const imageFileMap = new Map();
+        let replacedImageCount = 0;
+
+        const chats = Array.isArray(preparedData.chats) ? preparedData.chats : [];
+        for (const chat of chats) {
+            const messages = Array.isArray(chat.messages) ? chat.messages : [];
+            for (const message of messages) {
+                if (!Array.isArray(message.content)) {
+                    continue;
+                }
+
+                for (const item of message.content) {
+                    if (item?.type !== 'image_url' || !item?.image_url?.url) {
+                        continue;
+                    }
+
+                    const parsedImage = parseDataImageUrl(item.image_url.url);
+                    if (!parsedImage) {
+                        continue;
+                    }
+
+                    const imageBytes = base64ToUint8Array(parsedImage.base64);
+                    const hash = await sha256Hex(imageBytes);
+                    const extension = getImageExtensionFromMimeType(parsedImage.mimeType);
+                    const filename = `${IMAGE_FILENAME_PREFIX}${hash}.${extension}`;
+                    const relativePath = `${IMAGE_DIRECTORY}/${filename}`;
+
+                    if (!imageFileMap.has(relativePath)) {
+                        imageFileMap.set(relativePath, {
+                            filename: relativePath,
+                            mimeType: parsedImage.mimeType,
+                            bytes: imageBytes
+                        });
+                    }
+
+                    item.image_url.url = `${WEBDAV_IMAGE_PREFIX}${relativePath}`;
+                    replacedImageCount++;
+                }
+            }
+        }
+
+        preparedData.imageRefs = {
+            version: 1,
+            scheme: WEBDAV_IMAGE_PREFIX,
+            directory: IMAGE_DIRECTORY,
+            fileCount: imageFileMap.size,
+            replacedImageCount
+        };
+
+        return {
+            syncData: preparedData,
+            imageFiles: Array.from(imageFileMap.values()),
+            replacedImageCount
+        };
+    }
+
+    async uploadReferencedImages(imageFiles) {
+        if (!Array.isArray(imageFiles) || imageFiles.length === 0) {
+            return;
+        }
+
+        const directoryResult = await this.client.createDirectoryAtPath(IMAGE_DIRECTORY);
+        if (directoryResult?.error) {
+            throw new Error(`创建图片目录失败: ${directoryResult.error}`);
+        }
+
+        for (const imageFile of imageFiles) {
+            await this.client.uploadBinary(imageFile.filename, imageFile.bytes, imageFile.mimeType);
+        }
+    }
+
+    async restoreImagesFromReferences(syncData) {
+        const imageCache = new Map();
+        let restoredImageCount = 0;
+
+        const chats = Array.isArray(syncData?.chats) ? syncData.chats : [];
+        for (const chat of chats) {
+            const messages = Array.isArray(chat.messages) ? chat.messages : [];
+            for (const message of messages) {
+                if (!Array.isArray(message.content)) {
+                    continue;
+                }
+
+                for (const item of message.content) {
+                    if (item?.type !== 'image_url' || !item?.image_url?.url) {
+                        continue;
+                    }
+
+                    const imageRef = item.image_url.url;
+                    if (!imageRef.startsWith(WEBDAV_IMAGE_PREFIX)) {
+                        continue;
+                    }
+
+                    const filename = imageRef.slice(WEBDAV_IMAGE_PREFIX.length);
+                    if (!filename) {
+                        continue;
+                    }
+
+                    try {
+                        let dataUrl = imageCache.get(filename);
+
+                        if (!dataUrl) {
+                            const downloadResult = await this.client.downloadBinary(filename);
+                            if (!downloadResult.blob) {
+                                console.warn(`[WebDAV] 图片文件不存在: ${filename}`);
+                                continue;
+                            }
+
+                            let blob = downloadResult.blob;
+                            if (!blob.type || blob.type === 'application/octet-stream') {
+                                const fallbackType = getMimeTypeFromFilename(filename);
+                                if (fallbackType.startsWith('image/')) {
+                                    blob = new Blob([await blob.arrayBuffer()], { type: fallbackType });
+                                }
+                            }
+
+                            dataUrl = await blobToDataUrl(blob);
+                            imageCache.set(filename, dataUrl);
+                        }
+
+                        item.image_url.url = dataUrl;
+                        restoredImageCount++;
+                    } catch (error) {
+                        console.warn(`[WebDAV] 还原图片失败: ${filename}`, error);
+                    }
+                }
+            }
+        }
+
+        return { syncData, restoredImageCount };
     }
 
     /**
@@ -617,6 +953,10 @@ class WebDAVSyncManager {
                 }
             }
 
+            const imagePrepareResult = await this.prepareSyncDataWithImageReferences(syncData);
+            syncData = imagePrepareResult.syncData;
+            await this.uploadReferencedImages(imagePrepareResult.imageFiles);
+
             // 上传到 WebDAV，并从 PUT 回应中获取 ETag
             const uploadResult = await this.client.uploadData('cerebr.json', syncData);
 
@@ -656,12 +996,14 @@ class WebDAVSyncManager {
                 direction: 'upload',
                 timestamp: lastSync,
                 chatCount: chats.length,
-                includesApiConfig: this.config.syncApiConfig
+                includesApiConfig: this.config.syncApiConfig,
+                imageFileCount: imagePrepareResult.imageFiles.length,
+                replacedImageCount: imagePrepareResult.replacedImageCount
             });
 
             let message = `已上传 ${chats.length} 个对话`;
             if (this.config.syncApiConfig) {
-                message += '（含 API 配置）';
+                message += '<br>（含 API 配置）';
             }
 
             // 清除缓存，因为同步完成后数据状态已确定
@@ -696,8 +1038,9 @@ class WebDAVSyncManager {
         try {
             // 从 WebDAV 下载数据，并从 GET 回应中获取 ETag
             const downloadResult = await this.client.downloadData('cerebr.json');
-            const syncData = downloadResult.data;
+            let syncData = downloadResult.data;
             const downloadETag = downloadResult.etag;
+            let restoredImageCount = 0;
 
             if (!syncData) {
                 throw new Error('远端没有同步数据');
@@ -706,6 +1049,10 @@ class WebDAVSyncManager {
             if (!syncData.chats || !Array.isArray(syncData.chats)) {
                 throw new Error('同步数据格式错误');
             }
+
+            const restoreResult = await this.restoreImagesFromReferences(syncData);
+            syncData = restoreResult.syncData;
+            restoredImageCount = restoreResult.restoredImageCount;
 
             // 保存聊天数据到本地
             await storageAdapter.set({ [CHATS_KEY]: syncData.chats });
@@ -786,12 +1133,13 @@ class WebDAVSyncManager {
                 direction: 'download',
                 timestamp: lastSync,
                 chatCount: syncData.chats.length,
-                apiConfigSynced
+                apiConfigSynced,
+                restoredImageCount
             });
 
             let message = `已下载 ${syncData.chats.length} 个对话`;
             if (apiConfigSynced) {
-                message += '（含 API 配置）';
+                message += '<br>（含 API 配置）';
             }
 
             return {
