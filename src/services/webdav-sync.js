@@ -1079,14 +1079,23 @@ class WebDAVSyncManager {
                 const conflictInfo = await this.getConflictInfo();
 
                 if (options.onConflict && typeof options.onConflict === 'function') {
-                    // 返回冲突信息，让调用者处理
-                    return {
-                        synced: false,
-                        direction: 'conflict',
-                        result: null,
-                        error: null,
-                        conflict: conflictInfo
-                    };
+                    // 调用冲突回调，让调用者决定是否显示对话框
+                    const shouldShowDialog = await options.onConflict(conflictInfo);
+
+                    if (shouldShowDialog) {
+                        // 返回冲突信息，让调用者处理（显示对话框）
+                        return {
+                            synced: false,
+                            direction: 'conflict',
+                            result: null,
+                            error: null,
+                            conflict: conflictInfo
+                        };
+                    } else {
+                        // 调用者返回 false，表示不需要显示对话框
+                        // 使用自动解决（基于时间戳优先策略）
+                        direction = conflictInfo.recommendation;
+                    }
                 } else {
                     // 没有回调，使用自动解决
                     direction = conflictInfo.recommendation;
