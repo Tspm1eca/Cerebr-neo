@@ -85,14 +85,13 @@ class CerebrSidebar {
           visibility: hidden;
           transform: translate3d(0, 6px, 0);
           pointer-events: none;
-          box-shadow: 0 14px 34px rgba(0, 0, 0, 0.12);
           contain: style layout size;
           isolation: isolate;
           opacity: 0;
         }
         .cerebr-sidebar.initialized {
           visibility: visible;
-          transition: transform 0.42s cubic-bezier(0.18, 0.95, 0.24, 1), box-shadow 0.42s cubic-bezier(0.18, 0.95, 0.24, 1), opacity 0.28s ease-out;
+          transition: transform 0.42s cubic-bezier(0.18, 0.95, 0.24, 1), opacity 0.28s ease-out;
           pointer-events: auto;
         }
         @media (prefers-color-scheme: dark) {
@@ -104,7 +103,7 @@ class CerebrSidebar {
         .cerebr-sidebar.visible {
           transform: translate3d(calc(-1 * var(--sidebar-translation)), 0, 0);
           opacity: 1;
-          box-shadow: 0 24px 60px rgba(0, 0, 0, 0.24), 0 6px 16px rgba(0, 0, 0, 0.1);
+          box-shadow: none;
         }
         .cerebr-sidebar__content {
           height: 100%;
@@ -250,7 +249,7 @@ class CerebrSidebar {
       }
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
-      this.sidebar.style.transition = 'transform 0.42s cubic-bezier(0.18, 0.95, 0.24, 1), box-shadow 0.42s cubic-bezier(0.18, 0.95, 0.24, 1), opacity 0.28s ease-out';
+      this.sidebar.style.transition = 'transform 0.42s cubic-bezier(0.18, 0.95, 0.24, 1), opacity 0.28s ease-out';
       this.saveState(); // 保存宽度
     };
 
