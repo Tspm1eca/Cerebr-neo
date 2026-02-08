@@ -5,7 +5,8 @@ import { appendMessage, createWaitingMessage } from './handlers/message-handler.
 import { hideContextMenu } from './components/context-menu.js';
 import { initChatContainer } from './components/chat-container.js';
 import { showImagePreview, hideImagePreview } from './utils/ui.js';
-import { initAPICard, DEFAULT_SYSTEM_PROMPT } from './components/api-card.js';
+import { initAPICard } from './components/api-card.js';
+import { DEFAULT_SYSTEM_PROMPT } from './constants/prompts.js';
 import { storageAdapter, syncStorageAdapter, browserAdapter, isExtensionEnvironment } from './utils/storage-adapter.js';
 import { initMessageInput, getFormattedMessageContent, buildMessageContent, clearMessageInput, handleWindowMessage, updatePermanentPlaceholder } from './components/message-input.js';
 import './utils/viewport.js';

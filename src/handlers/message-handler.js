@@ -1,17 +1,18 @@
 import { chatManager } from '../utils/chat-manager.js';
 import { showImagePreview, createImageTag, removeImageFromChatManager } from '../utils/ui.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
-import { extractCitationText } from '../../htmd/citation.js';
+import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
 
 /**
- * 處理消息中的連結：標記 cite: 連結為 citation-link，設置外部連結屬性
+ * 處理消息中的連結：標記引用連結為 citation-link，設置外部連結屬性
+ * 支援 Text Fragment 格式 (#:~:text=) 和舊版 cite: 格式
  * 點擊事件由 chat-container.js 中的事件委託統一處理，避免重複綁定
  * @param {HTMLElement} container - 包含連結的容器元素
  */
 export function processMessageLinks(container) {
     container.querySelectorAll('a').forEach(link => {
         const href = link.getAttribute('href');
-        if (href && href.startsWith('cite:')) {
+        if (isCitationLink(href)) {
             link.classList.add('citation-link');
             const textToFind = extractCitationText(href);
             if (textToFind) {

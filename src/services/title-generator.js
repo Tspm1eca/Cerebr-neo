@@ -8,10 +8,7 @@
  * @typedef {import('./chat.js').Message} Message
  */
 
-const TITLE_GENERATION_PROMPT = `
-根據以下對話內容，生成一個簡潔、準確、不超過 15 個字的標題。請直接返回標題文字，不要包含任何引號或多餘的解釋。
-對話內容：
-`;
+import { TITLE_GENERATION_PROMPT } from '../constants/prompts.js';
 
 /**
  * 根據對話內容生成標題

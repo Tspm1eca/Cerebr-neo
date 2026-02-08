@@ -7,7 +7,7 @@
  * @property {string} [tavilyApiKey] - Tavily API 密钥（用于网络搜索）
  */
 
-import { DEFAULT_SYSTEM_PROMPT } from '../components/api-card.js';
+import { DEFAULT_SYSTEM_PROMPT } from '../constants/prompts.js';
 import { webSearch, tavilySearch, formatSearchResultsForPrompt, extractSearchQuery } from './web-search.js';
 
 // 超時配置（毫秒）

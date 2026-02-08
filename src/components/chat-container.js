@@ -3,7 +3,7 @@ import { showContextMenu, hideContextMenu, copyMessageContent } from './context-
 import { handleImageDrop } from '../utils/image.js';
 import { updateAIMessage } from '../handlers/message-handler.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
-import { extractCitationText } from '../../htmd/citation.js';
+import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
 
 /**
  * 初始化聊天容器的所有功能
@@ -92,17 +92,20 @@ export function initChatContainer({
 
     // 添加点击事件监听
     chatContainer.addEventListener('click', (e) => {
-        // 事件委託：處理 citation-link 的點擊事件
-        const citationLink = e.target.closest('a.citation-link');
-        if (citationLink) {
-            e.preventDefault();
-            e.stopPropagation();
-            const href = citationLink.getAttribute('href');
-            const textToFind = extractCitationText(href);
-            if (textToFind) {
-                handleCitationClick(citationLink, textToFind);
+        // 事件委託：處理引用連結的點擊事件（支援 Text Fragment 和舊版 cite:）
+        const link = e.target.closest('a');
+        if (link) {
+            const href = link.getAttribute('href');
+            // 檢查是否為引用連結（Text Fragment 或 cite:）
+            if (isCitationLink(href)) {
+                e.preventDefault();
+                e.stopPropagation();
+                const textToFind = extractCitationText(href);
+                if (textToFind) {
+                    handleCitationClick(link, textToFind);
+                }
+                return;
             }
-            return;
         }
 
         // 点击聊天区域时让输入框失去焦点
