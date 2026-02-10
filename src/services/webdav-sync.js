@@ -13,6 +13,7 @@ const WEBDAV_LAST_SYNC_KEY = 'webdav_last_sync';
 const WEBDAV_REMOTE_ETAG_KEY = 'webdav_remote_etag';
 const WEBDAV_LOCAL_HASH_KEY = 'webdav_local_hash';
 const WEBDAV_LAST_SYNC_TIMESTAMP_KEY = 'webdav_last_sync_timestamp';
+const WEBDAV_IMAGE_RECONCILE_META_KEY = 'webdav_image_reconcile_meta';
 const CHATS_KEY = 'cerebr_chats';
 
 // HTTP 状态码常量
@@ -47,6 +48,9 @@ const DEFAULT_CONFIG = {
 const IMAGE_FILENAME_PREFIX = 'cerebr-img-';
 const IMAGE_DIRECTORY = 'images';
 const DATA_IMAGE_URL_REGEX = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/i;
+const IMAGE_FULL_RECONCILE_INTERVAL_SYNCS = 20;
+const IMAGE_FULL_RECONCILE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const IMAGE_ORPHAN_DELETE_MAX_PER_RUN = 30;
 
 function isImageDirectoryPath(relativePath) {
     return typeof relativePath === 'string' && relativePath.startsWith(`${IMAGE_DIRECTORY}/`);
@@ -77,6 +81,98 @@ function normalizeWebdavImageAbsoluteUrl(imageUrl, config) {
     }
 
     return `${baseUrl}/${relativePath}`;
+}
+
+function extractImageReferenceRelativePath(imageUrl, config) {
+    if (typeof imageUrl !== 'string' || !imageUrl) {
+        return null;
+    }
+
+    const baseUrl = buildWebdavBaseUrl(config);
+    const normalizedImageUrl = imageUrl.trim();
+    let relativePath = normalizedImageUrl;
+
+    if (baseUrl && normalizedImageUrl.startsWith(`${baseUrl}/`)) {
+        relativePath = normalizedImageUrl.slice(baseUrl.length + 1);
+    }
+
+    relativePath = relativePath.split('#')[0].split('?')[0].replace(/^\/+/, '');
+    if (!relativePath) {
+        return null;
+    }
+
+    try {
+        relativePath = decodeURIComponent(relativePath);
+    } catch {
+        // 解碼失敗時保留原始路徑
+    }
+
+    if (!isImageDirectoryPath(relativePath)) {
+        return null;
+    }
+
+    return relativePath;
+}
+
+function collectReferencedImagePaths(syncData, config) {
+    const referencedPaths = new Set();
+    const chats = syncData?.chats ?? [];
+
+    const imageUrls = chats.flatMap(chat =>
+        (chat.messages ?? []).flatMap(message =>
+            (Array.isArray(message.content) ? message.content : [])
+                .filter(item => item?.type === 'image_url' && item?.image_url?.url)
+                .map(item => item.image_url.url)
+        )
+    );
+
+    for (const url of imageUrls) {
+        const relativePath = extractImageReferenceRelativePath(url, config);
+        if (relativePath) {
+            referencedPaths.add(relativePath);
+        }
+    }
+
+    return referencedPaths;
+}
+
+function normalizeImageReconcileMeta(meta) {
+    return {
+        syncSinceFull: Number.isFinite(meta?.syncSinceFull) ? Math.max(0, meta.syncSinceFull) : 0,
+        lastFullReconcileAt: typeof meta?.lastFullReconcileAt === 'string' ? meta.lastFullReconcileAt : null,
+        lastRunAt: typeof meta?.lastRunAt === 'string' ? meta.lastRunAt : null
+    };
+}
+
+function shouldRunFullImageReconcile(meta, now = Date.now()) {
+    const lastFullTimestamp = Date.parse(meta?.lastFullReconcileAt);
+    if (!Number.isFinite(lastFullTimestamp)) {
+        return true;
+    }
+    return (now - lastFullTimestamp) >= IMAGE_FULL_RECONCILE_INTERVAL_MS
+        || (meta.syncSinceFull || 0) >= IMAGE_FULL_RECONCILE_INTERVAL_SYNCS;
+}
+
+/**
+ * 創建圖片校正結果物件的工廠函數
+ * @param {Object} overrides - 覆蓋預設值的屬性
+ * @returns {Object} 校正結果物件
+ */
+function createReconcileResult(overrides = {}) {
+    return {
+        mode: 'skipped',
+        trigger: 'manual',
+        referencedCount: 0,
+        remoteManagedCount: 0,
+        orphanCount: 0,
+        deleteAttemptedCount: 0,
+        deletedCount: 0,
+        deleteFailedCount: 0,
+        deleteSkippedCount: 0,
+        cappedByLimit: false,
+        error: null,
+        ...overrides
+    };
 }
 
 function cloneData(value) {
@@ -608,8 +704,8 @@ class WebDAVClient {
     /**
      * 获取远端文件列表
      */
-    async listFiles() {
-        const response = await this.fetchWithTimeout(this.getFullUrl(), {
+    async listFileNamesAtPath(relativePath = '') {
+        const response = await this.fetchWithTimeout(this.getFullUrl(relativePath), {
             method: 'PROPFIND',
             headers: {
                 ...this.getAuthHeaders(),
@@ -617,12 +713,15 @@ class WebDAVClient {
             }
         });
 
+        if (response.status === HTTP_STATUS.NOT_FOUND || response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
+            return [];
+        }
+
         if (!response.ok && response.status !== HTTP_STATUS.MULTI_STATUS) {
             throw new Error(`获取文件列表失败: HTTP ${response.status}`);
         }
 
         const text = await response.text();
-        // 解析 WebDAV XML 响应
         const parser = new DOMParser();
         const doc = parser.parseFromString(text, 'text/xml');
         const responses = doc.getElementsByTagNameNS('DAV:', 'response');
@@ -630,16 +729,37 @@ class WebDAVClient {
         const files = [];
         for (let i = 0; i < responses.length; i++) {
             const href = responses[i].getElementsByTagNameNS('DAV:', 'href')[0];
-            if (href) {
-                const path = decodeURIComponent(href.textContent);
-                const filename = path.split('/').filter(Boolean).pop();
-                if (filename && filename.endsWith('.json')) {
-                    files.push(filename);
-                }
+            if (!href?.textContent) {
+                continue;
+            }
+
+            let path = href.textContent;
+            try {
+                path = decodeURIComponent(path);
+            } catch {
+                // 解碼失敗時保留原始路徑
+            }
+
+            const normalizedPath = path.replace(/[?#].*$/, '');
+            const filename = normalizedPath.split('/').filter(Boolean).pop();
+            if (!filename) {
+                continue;
+            }
+
+            const resourceType = responses[i].getElementsByTagNameNS('DAV:', 'resourcetype')[0];
+            const collectionElements = resourceType?.getElementsByTagNameNS('DAV:', 'collection');
+            const isCollection = (collectionElements?.length > 0) || /\/$/.test(normalizedPath);
+            if (!isCollection) {
+                files.push(filename);
             }
         }
 
         return files;
+    }
+
+    async listFiles() {
+        const files = await this.listFileNamesAtPath();
+        return files.filter((filename) => filename.endsWith('.json'));
     }
 }
 
@@ -675,6 +795,111 @@ class WebDAVSyncManager {
         this._cachedLocalData = null;
         this._cachedLocalHash = null;
         this._cacheTimestamp = 0;
+    }
+
+    async getImageReconcileMeta() {
+        try {
+            const result = await storageAdapter.get(WEBDAV_IMAGE_RECONCILE_META_KEY);
+            return normalizeImageReconcileMeta(result?.[WEBDAV_IMAGE_RECONCILE_META_KEY]);
+        } catch (error) {
+            console.warn('[WebDAV] 读取图片校正元数据失败:', error);
+            return normalizeImageReconcileMeta();
+        }
+    }
+
+    async saveImageReconcileMeta(meta) {
+        try {
+            await storageAdapter.set({
+                [WEBDAV_IMAGE_RECONCILE_META_KEY]: normalizeImageReconcileMeta(meta)
+            });
+        } catch (error) {
+            console.warn('[WebDAV] 保存圖片校正元數據失敗:', error);
+        }
+    }
+
+    async runImageReconcile(syncData, options = {}) {
+        const trigger = options.trigger || 'manual';
+        if (!syncData || !Array.isArray(syncData.chats)) {
+            return createReconcileResult({ trigger, error: 'invalid-sync-data' });
+        }
+
+        try {
+            const meta = await this.getImageReconcileMeta();
+            const now = Date.now();
+            const runFullReconcile = shouldRunFullImageReconcile(meta, now);
+            const mode = runFullReconcile ? 'full' : 'lightweight';
+
+            let dataForReconcile = syncData;
+            if (runFullReconcile) {
+                try {
+                    const remoteResult = await this.client.downloadData('cerebr.json');
+                    if (remoteResult?.data && Array.isArray(remoteResult.data.chats)) {
+                        dataForReconcile = remoteResult.data;
+                    } else {
+                        console.warn('[WebDAV] 全量圖片校正回退：遠端 cerebr.json 不可用');
+                    }
+                } catch (error) {
+                    console.warn('[WebDAV] 全量圖片校正回退：拉取遠端數據失敗', error);
+                }
+            }
+
+            const referencedPathSet = collectReferencedImagePaths(dataForReconcile, this.config);
+            const remoteFiles = await this.client.listFileNamesAtPath(IMAGE_DIRECTORY);
+            const remoteManagedPaths = remoteFiles
+                .filter((filename) => filename.startsWith(IMAGE_FILENAME_PREFIX))
+                .map((filename) => `${IMAGE_DIRECTORY}/${filename}`);
+
+            const orphanPaths = remoteManagedPaths.filter((path) => !referencedPathSet.has(path));
+            const deleteTargets = orphanPaths.slice(0, IMAGE_ORPHAN_DELETE_MAX_PER_RUN);
+
+            // 並行刪除孤兒圖片以提升效能
+            const deleteResults = await Promise.allSettled(
+                deleteTargets.map(path => this.client.deleteFile(path))
+            );
+            const deletedCount = deleteResults.filter(r => r.status === 'fulfilled').length;
+            const deleteFailedCount = deleteResults.filter(r => r.status === 'rejected').length;
+
+            // 記錄刪除失敗的詳細信息
+            deleteResults.forEach((result, index) => {
+                if (result.status === 'rejected') {
+                    console.warn(`[WebDAV] 刪除孤兒圖片失敗: ${deleteTargets[index]}`, result.reason);
+                }
+            });
+
+            const nowIso = new Date(now).toISOString();
+            const nextMeta = runFullReconcile
+                ? {
+                    syncSinceFull: 0,
+                    lastFullReconcileAt: nowIso,
+                    lastRunAt: nowIso
+                }
+                : {
+                    syncSinceFull: (meta.syncSinceFull || 0) + 1,
+                    lastFullReconcileAt: meta.lastFullReconcileAt,
+                    lastRunAt: nowIso
+                };
+            await this.saveImageReconcileMeta(nextMeta);
+
+            return createReconcileResult({
+                mode,
+                trigger,
+                referencedCount: referencedPathSet.size,
+                remoteManagedCount: remoteManagedPaths.length,
+                orphanCount: orphanPaths.length,
+                deleteAttemptedCount: deleteTargets.length,
+                deletedCount,
+                deleteFailedCount,
+                deleteSkippedCount: Math.max(0, orphanPaths.length - deleteTargets.length),
+                cappedByLimit: orphanPaths.length > IMAGE_ORPHAN_DELETE_MAX_PER_RUN
+            });
+        } catch (error) {
+            console.warn('[WebDAV] 圖片校正失敗:', error);
+            return createReconcileResult({
+                mode: 'failed',
+                trigger,
+                error: error?.message || 'unknown-error'
+            });
+        }
     }
 
     async prepareSyncDataWithImageReferences(syncData) {
@@ -979,6 +1204,8 @@ class WebDAVSyncManager {
                 [WEBDAV_LAST_SYNC_TIMESTAMP_KEY]: syncData.timestamp
             });
 
+            const imageReconcileResult = await this.runImageReconcile(syncData, { trigger: 'upload' });
+
             const chats = localData.chats || [];
             this.notifyListeners('sync-complete', {
                 direction: 'upload',
@@ -986,12 +1213,16 @@ class WebDAVSyncManager {
                 chatCount: chats.length,
                 includesApiConfig: this.config.syncApiConfig,
                 imageFileCount: imagePrepareResult.imageFiles.length,
-                replacedImageCount: imagePrepareResult.replacedImageCount
+                replacedImageCount: imagePrepareResult.replacedImageCount,
+                imageReconcileResult
             });
 
             let message = `已上传 ${chats.length} 个对话`;
             if (this.config.syncApiConfig) {
                 message += '<br>（含 API 配置）';
+            }
+            if (imageReconcileResult.deletedCount > 0) {
+                message += `<br>（已清理 ${imageReconcileResult.deletedCount} 张未引用图片）`;
             }
 
             // 清除缓存，因为同步完成后数据状态已确定
@@ -1117,17 +1348,23 @@ class WebDAVSyncManager {
                 [WEBDAV_LAST_SYNC_TIMESTAMP_KEY]: syncData.timestamp || lastSync
             });
 
+            const imageReconcileResult = await this.runImageReconcile(syncData, { trigger: 'download' });
+
             this.notifyListeners('sync-complete', {
                 direction: 'download',
                 timestamp: lastSync,
                 chatCount: syncData.chats.length,
                 apiConfigSynced,
-                restoredImageCount
+                restoredImageCount,
+                imageReconcileResult
             });
 
             let message = `已下载 ${syncData.chats.length} 个对话`;
             if (apiConfigSynced) {
                 message += '<br>（含 API 配置）';
+            }
+            if (imageReconcileResult.deletedCount > 0) {
+                message += `<br>（已清理 ${imageReconcileResult.deletedCount} 张未引用图片）`;
             }
 
             return {
