@@ -36,7 +36,40 @@
                 opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 初始狀態：縮小並隱藏 */
+/* 圖片下載中：在整個預覽層顯示微動畫，避免內容尚未有尺寸時看不到 */
+.image-preview-modal.image-loading::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.08);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.image-preview-modal.image-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 24px;
+    height: 24px;
+    margin-top: -12px;
+    margin-left: -12px;
+    border: 3px solid rgba(120, 120, 120, 0.28);
+    border-top-color: var(--cerebr-primary-color);
+    border-radius: 50%;
+    animation: image-preview-loading-spin 0.72s linear infinite;
+    pointer-events: none;
+    z-index: 2;
+}
+
+@keyframes image-preview-loading-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Initial state: scaled down and hidden */
 .image-preview-modal:not(.visible) .image-preview-content {
     transform: scale(0.3);
     opacity: 0;

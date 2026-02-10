@@ -36,6 +36,10 @@ let tavilyApiUrl = '';
 let exaApiKey = '';
 let exaApiUrl = '';
 
+function isHttpImageUrl(url) {
+    return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
+}
+
  document.addEventListener('DOMContentLoaded', async () => {
      const chatContainer = document.getElementById('chat-container');
     const messageInput = document.getElementById('message-input');
@@ -79,9 +83,9 @@ let exaApiUrl = '';
             previewImage
         },
         imageTag: {
-            onImageClick: (base64Data, sourceElement) => {
+            onImageClick: (imageSource, sourceElement) => {
                 showImagePreview({
-                    base64Data,
+                    imageSource,
                     config: uiConfig.imagePreview,
                     sourceElement
                 });
@@ -358,13 +362,19 @@ let exaApiUrl = '';
                         });
                     }
                     imageTags.forEach(tag => {
-                        const base64Data = tag.getAttribute('data-image');
-                        if (base64Data) {
+                        const imageSource = tag.getAttribute('data-image');
+                        const thumbnailSource = tag.getAttribute('data-thumbnail') || imageSource;
+                        if (imageSource) {
+                            const imageUrl = {
+                                url: imageSource
+                            };
+                            if (thumbnailSource && !isHttpImageUrl(imageSource)) {
+                                imageUrl.thumbnail = thumbnailSource;
+                            }
+
                             content.push({
                                 type: "image_url",
-                                image_url: {
-                                    url: base64Data
-                                }
+                                image_url: imageUrl
                             });
                         }
                     });
@@ -520,7 +530,7 @@ let exaApiUrl = '';
 
         try {
             // 构建消息内容
-            const content = buildMessageContent(message, imageTags, previewImages);
+            const content = await buildMessageContent(message, imageTags, previewImages);
 
             // 构建用户消息
             const userMessage = {

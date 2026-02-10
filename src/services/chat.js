@@ -324,6 +324,14 @@ export async function callAPI({
                 if (item.type === 'text' && item.text) {
                     return { ...item, text: extractAndReplaceUrls(item.text, urlToIdMap, idToUrlMap) };
                 }
+                if (item.type === 'image_url' && item.image_url?.url) {
+                    return {
+                        type: 'image_url',
+                        image_url: {
+                            url: item.image_url.url
+                        }
+                    };
+                }
                 return item;
             });
         }

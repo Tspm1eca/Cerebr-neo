@@ -340,10 +340,12 @@ export function handleImageDrop(e, config) {
                     try {
                         // 壓縮圖片
                         const compressedData = await compressImage(reader.result);
+                        const thumbnailData = await createThumbnailImage(compressedData);
 
                         // 使用新的预览区域显示图片
                         addImageToPreview({
-                            base64Data: compressedData,
+                            imageSource: compressedData,
+                            thumbnailSource: thumbnailData,
                             fileName: file.name,
                             onImageClick,
                             onDelete: () => {
@@ -378,10 +380,12 @@ export function handleImageDrop(e, config) {
                     if (imageData.type === 'image') {
                         // 壓縮圖片
                         const compressedData = await compressImage(imageData.data);
+                        const thumbnailData = await createThumbnailImage(compressedData);
 
                         // 使用新的预览区域显示图片
                         addImageToPreview({
-                            base64Data: compressedData,
+                            imageSource: compressedData,
+                            thumbnailSource: thumbnailData,
                             fileName: imageData.name,
                             onImageClick,
                             onDelete: () => {
@@ -456,4 +460,24 @@ export function insertImageToInput({ messageInput, createImageTag, imageData }) 
 
     // 触发输入事件以调整高度
     messageInput.dispatchEvent(new Event('input'));
+}
+
+/**
+ * 生成消息缩略图（用于聊天气泡快速展示）
+ * @param {string} base64Data - 原始图片 data URL
+ * @returns {Promise<string>} 缩略图 data URL
+ */
+export async function createThumbnailImage(base64Data) {
+    if (typeof base64Data !== 'string' || !base64Data.startsWith('data:image/')) {
+        return base64Data;
+    }
+
+    return await compressImage(base64Data, {
+        maxWidth: 128,
+        maxHeight: 128,
+        quality: 0.62,
+        maxSizeKB: 24,
+        preferAVIF: false,
+        preserveTransparency: true
+    });
 }

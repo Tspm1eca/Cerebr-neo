@@ -145,7 +145,7 @@ export function initChatContainer({
             const isImageClick = imageElement && messageElement.classList.contains('ai-message');
             copyImageButton.style.display = isImageClick ? 'flex' : 'none';
             if (isImageClick) {
-                copyImageButton.dataset.src = imageElement.src;
+                copyImageButton.dataset.src = imageElement.getAttribute('data-original-src') || imageElement.src;
             }
 
             showContextMenu({
@@ -596,7 +596,8 @@ export function initChatContainer({
             if (!imageUrl) return;
 
             // Find the actual image element in the message
-            const imgElement = currentMessageElement.querySelector(`img[src="${imageUrl}"]`);
+            const imgElement = currentMessageElement.querySelector(`img[data-original-src="${imageUrl}"]`) ||
+                currentMessageElement.querySelector(`img[src="${imageUrl}"]`);
 
             try {
                 let blob = imgElement ? imgElement.cachedBlob : null;
@@ -604,8 +605,9 @@ export function initChatContainer({
                 // If not cached, fetch it on-demand
                 if (!blob) {
                     console.warn("Image was not pre-cached, fetching on demand.");
-                    if (imageUrl.startsWith('data:')) {
-                        const response = await fetch(imageUrl);
+                    const activeImageUrl = imgElement?.src || imageUrl;
+                    if (activeImageUrl.startsWith('data:') || activeImageUrl.startsWith('blob:')) {
+                        const response = await fetch(activeImageUrl);
                         blob = await response.blob();
                     } else {
                         // Use the proxy for on-demand fetching as well

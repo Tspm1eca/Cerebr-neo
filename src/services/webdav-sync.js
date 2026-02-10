@@ -43,10 +43,54 @@ const DEFAULT_CONFIG = {
     encryptionPassword: '' // 加密密码（仅存储在本地，不同步）
 };
 
-const WEBDAV_IMAGE_PREFIX = 'webdav-image://';
 const IMAGE_FILENAME_PREFIX = 'cerebr-img-';
 const IMAGE_DIRECTORY = 'images';
 const DATA_IMAGE_URL_REGEX = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/i;
+
+function normalizeSyncPath(syncPath = '') {
+    return syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
+}
+
+function buildWebdavBaseUrl(config) {
+    const serverUrl = (config?.serverUrl || '').replace(/\/+$/, '');
+    const syncPath = normalizeSyncPath(config?.syncPath || '');
+    if (!serverUrl || !syncPath) {
+        return '';
+    }
+
+    return `${serverUrl}/${syncPath}`;
+}
+
+function isImageDirectoryPath(relativePath) {
+    return typeof relativePath === 'string' && relativePath.startsWith(`${IMAGE_DIRECTORY}/`);
+}
+
+function toWebdavImageAbsoluteUrl(relativePath, config) {
+    const baseUrl = buildWebdavBaseUrl(config);
+    if (!baseUrl) {
+        return '';
+    }
+
+    return `${baseUrl}/${relativePath.replace(/^\/+/, '')}`;
+}
+
+function normalizeWebdavImageAbsoluteUrl(imageUrl, config) {
+    if (typeof imageUrl !== 'string' || !imageUrl) {
+        return null;
+    }
+
+    const baseUrl = buildWebdavBaseUrl(config);
+    if (!baseUrl || !imageUrl.startsWith(`${baseUrl}/`)) {
+        return null;
+    }
+
+    const relativePath = imageUrl.slice(baseUrl.length + 1).replace(/^\/+/, '');
+    if (!isImageDirectoryPath(relativePath)) {
+        return null;
+    }
+
+    return `${baseUrl}/${relativePath}`;
+}
 
 function cloneData(value) {
     if (typeof structuredClone === 'function') {
@@ -116,31 +160,6 @@ function getImageExtensionFromMimeType(mimeType) {
     }
 
     return 'bin';
-}
-
-function getMimeTypeFromFilename(filename) {
-    const extension = filename.split('.').pop()?.toLowerCase();
-    const map = {
-        jpg: 'image/jpeg',
-        jpeg: 'image/jpeg',
-        png: 'image/png',
-        webp: 'image/webp',
-        avif: 'image/avif',
-        gif: 'image/gif',
-        bmp: 'image/bmp',
-        svg: 'image/svg+xml'
-    };
-
-    return map[extension] || 'application/octet-stream';
-}
-
-function blobToDataUrl(blob) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error || new Error('图片转码失败'));
-        reader.readAsDataURL(blob);
-    });
 }
 
 /**
@@ -688,9 +707,20 @@ class WebDAVSyncManager {
                     if (item?.type !== 'image_url' || !item?.image_url?.url) {
                         continue;
                     }
+                    const normalizedAbsoluteUrl = normalizeWebdavImageAbsoluteUrl(item.image_url.url, this.config);
+                    if (normalizedAbsoluteUrl) {
+                        item.image_url.url = normalizedAbsoluteUrl;
+                        if (Object.prototype.hasOwnProperty.call(item.image_url, 'thumbnail')) {
+                            delete item.image_url.thumbnail;
+                        }
+                        continue;
+                    }
 
                     const parsedImage = parseDataImageUrl(item.image_url.url);
                     if (!parsedImage) {
+                        if (Object.prototype.hasOwnProperty.call(item.image_url, 'thumbnail')) {
+                            delete item.image_url.thumbnail;
+                        }
                         continue;
                     }
 
@@ -708,7 +738,11 @@ class WebDAVSyncManager {
                         });
                     }
 
-                    item.image_url.url = `${WEBDAV_IMAGE_PREFIX}${relativePath}`;
+                    const absoluteImageUrl = toWebdavImageAbsoluteUrl(relativePath, this.config);
+                    item.image_url.url = absoluteImageUrl || item.image_url.url;
+                    if (Object.prototype.hasOwnProperty.call(item.image_url, 'thumbnail')) {
+                        delete item.image_url.thumbnail;
+                    }
                     replacedImageCount++;
                 }
             }
@@ -716,7 +750,7 @@ class WebDAVSyncManager {
 
         preparedData.imageRefs = {
             version: 1,
-            scheme: WEBDAV_IMAGE_PREFIX,
+            scheme: 'absolute-http-url',
             directory: IMAGE_DIRECTORY,
             fileCount: imageFileMap.size,
             replacedImageCount
@@ -745,7 +779,6 @@ class WebDAVSyncManager {
     }
 
     async restoreImagesFromReferences(syncData) {
-        const imageCache = new Map();
         let restoredImageCount = 0;
 
         const chats = Array.isArray(syncData?.chats) ? syncData.chats : [];
@@ -761,42 +794,10 @@ class WebDAVSyncManager {
                         continue;
                     }
 
-                    const imageRef = item.image_url.url;
-                    if (!imageRef.startsWith(WEBDAV_IMAGE_PREFIX)) {
-                        continue;
-                    }
-
-                    const filename = imageRef.slice(WEBDAV_IMAGE_PREFIX.length);
-                    if (!filename) {
-                        continue;
-                    }
-
-                    try {
-                        let dataUrl = imageCache.get(filename);
-
-                        if (!dataUrl) {
-                            const downloadResult = await this.client.downloadBinary(filename);
-                            if (!downloadResult.blob) {
-                                console.warn(`[WebDAV] 图片文件不存在: ${filename}`);
-                                continue;
-                            }
-
-                            let blob = downloadResult.blob;
-                            if (!blob.type || blob.type === 'application/octet-stream') {
-                                const fallbackType = getMimeTypeFromFilename(filename);
-                                if (fallbackType.startsWith('image/')) {
-                                    blob = new Blob([await blob.arrayBuffer()], { type: fallbackType });
-                                }
-                            }
-
-                            dataUrl = await blobToDataUrl(blob);
-                            imageCache.set(filename, dataUrl);
-                        }
-
-                        item.image_url.url = dataUrl;
+                    const normalizedAbsoluteUrl = normalizeWebdavImageAbsoluteUrl(item.image_url.url, this.config);
+                    if (normalizedAbsoluteUrl && normalizedAbsoluteUrl !== item.image_url.url) {
+                        item.image_url.url = normalizedAbsoluteUrl;
                         restoredImageCount++;
-                    } catch (error) {
-                        console.warn(`[WebDAV] 还原图片失败: ${filename}`, error);
                     }
                 }
             }

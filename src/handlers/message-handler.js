@@ -1,7 +1,17 @@
 import { chatManager } from '../utils/chat-manager.js';
 import { showImagePreview, createImageTag, removeImageFromChatManager } from '../utils/ui.js';
+import { createThumbnailImage } from '../utils/image.js';
+import { syncStorageAdapter } from '../utils/storage-adapter.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
 import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
+
+const WEBDAV_CONFIG_KEY = 'webdav_config';
+const WEBDAV_CONFIG_CACHE_TTL = 15000;
+
+const webdavConfigCache = {
+    value: null,
+    timestamp: 0
+};
 
 /**
  * 處理消息中的連結：標記引用連結為 citation-link，設置外部連結屬性
@@ -33,7 +43,7 @@ export function processMessageLinks(container) {
 async function preloadAndCacheImage(imgElement) {
     const imageUrl = imgElement.src;
     // Don't preload base64 images, or if already cached
-    if (!imageUrl || imageUrl.startsWith('data:') || imgElement.cachedBlob) {
+    if (!imageUrl || imageUrl.startsWith('data:') || imageUrl.startsWith('blob:') || imgElement.cachedBlob) {
         return;
     }
 
@@ -105,17 +115,23 @@ export async function appendMessage({
     let messageHtml = '';
     let imagesHtml = '';  // 單獨存放圖片 HTML
     if (Array.isArray(textContent)) {
-        textContent.forEach(item => {
+        for (const item of textContent) {
             if (item.type === "text") {
                 messageHtml += item.text;
                 textContent = item.text;
             } else if (item.type === "image_url") {
+                const imageSource = getImageItemSource(item.image_url);
+                let thumbnailSource = getImageItemThumbnail(item.image_url);
+                if (!item.image_url?.thumbnail && isHttpImageUrl(imageSource)) {
+                    thumbnailSource = await ensureMessageImageThumbnail(item.image_url);
+                }
                 const imageTag = createImageTag({
-                    base64Data: item.image_url.url,
+                    imageSource,
+                    thumbnailSource,
                     config: {
-                        onImageClick: (base64Data, sourceElement) => {
+                        onImageClick: (targetImageSource, sourceElement) => {
                             showImagePreview({
-                                base64Data,
+                                imageSource: targetImageSource,
                                 config: {
                                     previewModal,
                                     previewImage
@@ -131,7 +147,7 @@ export async function appendMessage({
                 });
                 imagesHtml += imageTag.outerHTML;  // 圖片單獨收集
             }
-        });
+        }
     } else {
         messageHtml = textContent;
     }
@@ -218,15 +234,15 @@ export async function appendMessage({
     messageDiv.querySelectorAll('.image-tag').forEach(tag => {
         const img = tag.querySelector('img');
         const deleteBtn = tag.querySelector('.delete-btn');
-        const base64Data = tag.getAttribute('data-image');
+        const imageSource = tag.getAttribute('data-image');
 
         // 綁定圖片點擊預覽事件
-        if (img && base64Data) {
+        if (img && imageSource) {
             img.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 showImagePreview({
-                    base64Data,
+                    imageSource,
                     config: {
                         previewModal,
                         previewImage
@@ -237,7 +253,7 @@ export async function appendMessage({
         }
 
         // 綁定刪除按鈕事件
-        if (deleteBtn && base64Data) {
+        if (deleteBtn && imageSource) {
             deleteBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -259,7 +275,7 @@ export async function appendMessage({
                 removeImageFromChatManager({
                     chatManager,
                     messageIndex,
-                    base64Data
+                    imageSource
                 });
             });
         }
@@ -707,4 +723,137 @@ export async function updateAIMessage({
         });
         return true;
     }
+}
+
+function isHttpImageUrl(url) {
+    return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
+}
+
+async function getWebdavConfig(forceRefresh = false) {
+    const now = Date.now();
+    if (
+        !forceRefresh &&
+        webdavConfigCache.value &&
+        (now - webdavConfigCache.timestamp) < WEBDAV_CONFIG_CACHE_TTL
+    ) {
+        return webdavConfigCache.value;
+    }
+
+    try {
+        const result = await syncStorageAdapter.get(WEBDAV_CONFIG_KEY);
+        webdavConfigCache.value = result?.[WEBDAV_CONFIG_KEY] || null;
+        webdavConfigCache.timestamp = now;
+        return webdavConfigCache.value;
+    } catch (error) {
+        console.warn('[Message] 读取 WebDAV 配置失败:', error);
+        return null;
+    }
+}
+
+function normalizeSyncPath(syncPath = '') {
+    return syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
+}
+
+function buildWebdavBaseUrl(webdavConfig) {
+    const serverUrl = (webdavConfig?.serverUrl || '').replace(/\/+$/, '');
+    const syncPath = normalizeSyncPath(webdavConfig?.syncPath || '');
+    if (!serverUrl || !syncPath) {
+        return '';
+    }
+
+    return `${serverUrl}/${syncPath}`;
+}
+
+async function fetchImageBlob(imageSource) {
+    if (!isHttpImageUrl(imageSource)) {
+        throw new Error('不支持的远端图片地址');
+    }
+
+    const webdavConfig = await getWebdavConfig();
+    const baseUrl = buildWebdavBaseUrl(webdavConfig);
+
+    if (webdavConfig?.enabled && baseUrl && imageSource.startsWith(`${baseUrl}/`) && webdavConfig.username) {
+        const credentials = btoa(`${webdavConfig.username}:${webdavConfig.password || ''}`);
+        const response = await fetch(imageSource, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Basic ${credentials}`,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            credentials: 'omit'
+        });
+
+        if (!response.ok) {
+            throw new Error(`拉取远端图片失败: HTTP ${response.status}`);
+        }
+
+        return await response.blob();
+    }
+
+    const response = await fetch(imageSource);
+    if (!response.ok) {
+        throw new Error(`拉取远端图片失败: HTTP ${response.status}`);
+    }
+
+    return await response.blob();
+}
+
+function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error('图片转码失败'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function ensureMessageImageThumbnail(imageItem) {
+    if (!imageItem || typeof imageItem !== 'object') {
+        return '';
+    }
+
+    if (typeof imageItem.thumbnail === 'string' && imageItem.thumbnail) {
+        return imageItem.thumbnail;
+    }
+
+    const imageSource = getImageItemSource(imageItem);
+    if (!isHttpImageUrl(imageSource)) {
+        return imageSource;
+    }
+
+    try {
+        const blob = await fetchImageBlob(imageSource);
+        const dataUrl = await blobToDataUrl(blob);
+        const thumbnail = await createThumbnailImage(dataUrl);
+        imageItem.thumbnail = thumbnail;
+
+        if (chatManager?.saveChats) {
+            await chatManager.saveChats();
+        }
+
+        return thumbnail;
+    } catch (error) {
+        console.warn('[Message] 生成远端图片缩图失败:', error);
+        return imageSource;
+    }
+}
+
+function getImageItemSource(imageItem) {
+    if (!imageItem || typeof imageItem !== 'object') {
+        return '';
+    }
+
+    return typeof imageItem.url === 'string' ? imageItem.url : '';
+}
+
+function getImageItemThumbnail(imageItem) {
+    if (!imageItem || typeof imageItem !== 'object') {
+        return '';
+    }
+
+    if (typeof imageItem.thumbnail === 'string' && imageItem.thumbnail) {
+        return imageItem.thumbnail;
+    }
+
+    return getImageItemSource(imageItem);
 }

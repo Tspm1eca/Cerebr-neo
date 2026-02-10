@@ -4,7 +4,7 @@
  */
 
 import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePreview, addImageToPreview, clearImagePreview, getPreviewImages, updatePreviewVisibility } from '../utils/ui.js';
-import { handleImageDrop, compressImage } from '../utils/image.js';
+import { handleImageDrop, compressImage, createThumbnailImage } from '../utils/image.js';
 
 // 跟踪输入法状态
 let isComposing = false;
@@ -587,14 +587,16 @@ export function initMessageInput(config) {
             reader.onload = async () => {
                 // 壓縮圖片
                 const compressedData = await compressImage(reader.result);
+                const thumbnailData = await createThumbnailImage(compressedData);
 
                 // 添加到预览区域
                 addImageToPreview({
-                    base64Data: compressedData,
+                    imageSource: compressedData,
+                    thumbnailSource: thumbnailData,
                     fileName: file.name,
                     onImageClick: (data, sourceElement) => {
                         showImagePreview({
-                            base64Data: data,
+                            imageSource: data,
                             config: uiConfig.imagePreview,
                             sourceElement
                         });
@@ -638,9 +640,9 @@ export function initMessageInput(config) {
         handleImageDrop(e, {
             messageInput,
             createImageTag,
-            onImageClick: (base64Data, sourceElement) => {
+            onImageClick: (imageSource, sourceElement) => {
                 showImagePreview({
-                    base64Data,
+                    imageSource,
                     config: uiConfig.imagePreview,
                     sourceElement
                 });
@@ -738,7 +740,7 @@ export function getFormattedMessageContent(messageInput) {
  * @param {Array} [previewImages] - 预览区域的图片数组
  * @returns {string|Array} 格式化后的消息内容
  */
-export function buildMessageContent(message, imageTags, previewImages = []) {
+export async function buildMessageContent(message, imageTags, previewImages = []) {
     const hasImages = imageTags.length > 0 || previewImages.length > 0;
 
     if (hasImages) {
@@ -750,28 +752,50 @@ export function buildMessageContent(message, imageTags, previewImages = []) {
             });
         }
         // 添加输入框内的图片
-        imageTags.forEach(tag => {
-            const base64Data = tag.getAttribute('data-image');
-            if (base64Data) {
-                content.push({
-                    type: "image_url",
-                    image_url: {
-                        url: base64Data
-                    }
-                });
+        for (const tag of imageTags) {
+            const imageSource = tag.getAttribute('data-image');
+            const thumbnailSource = tag.getAttribute('data-thumbnail') || imageSource;
+            if (!imageSource) {
+                continue;
             }
-        });
+
+            let finalThumbnail = thumbnailSource;
+            if (!finalThumbnail && imageSource.startsWith('data:image/')) {
+                finalThumbnail = await createThumbnailImage(imageSource);
+            }
+
+            const imageUrl = { url: imageSource };
+            if (finalThumbnail && !isHttpImageUrl(imageSource)) {
+                imageUrl.thumbnail = finalThumbnail;
+            }
+
+            content.push({
+                type: "image_url",
+                image_url: imageUrl
+            });
+        }
         // 添加预览区域的图片
-        previewImages.forEach(img => {
-            if (img.base64Data) {
-                content.push({
-                    type: "image_url",
-                    image_url: {
-                        url: img.base64Data
-                    }
-                });
+        for (const img of previewImages) {
+            const imageSource = img.imageSource || img.base64Data;
+            if (!imageSource) {
+                continue;
             }
-        });
+
+            let finalThumbnail = img.thumbnailSource;
+            if (!finalThumbnail && imageSource.startsWith('data:image/')) {
+                finalThumbnail = await createThumbnailImage(imageSource);
+            }
+
+            const imageUrl = { url: imageSource };
+            if (finalThumbnail && !isHttpImageUrl(imageSource)) {
+                imageUrl.thumbnail = finalThumbnail;
+            }
+
+            content.push({
+                type: "image_url",
+                image_url: imageUrl
+            });
+        }
         return content;
     } else {
         return message;
@@ -827,14 +851,17 @@ export function handleWindowMessage(event, config) {
             const rawBase64Data = imageData.data.startsWith('data:') ? imageData.data : `data:image/png;base64,${imageData.data}`;
 
             // 壓縮圖片
-            compressImage(rawBase64Data).then(compressedData => {
+            compressImage(rawBase64Data).then(async compressedData => {
+                const thumbnailData = await createThumbnailImage(compressedData);
+
                 // 使用新的预览区域显示图片
                 addImageToPreview({
-                    base64Data: compressedData,
+                    imageSource: compressedData,
+                    thumbnailSource: thumbnailData,
                     fileName: imageData.name,
                     onImageClick: (data, sourceElement) => {
                         showImagePreview({
-                            base64Data: data,
+                            imageSource: data,
                             config: uiConfig.imagePreview,
                             sourceElement
                         });
@@ -877,4 +904,8 @@ export function handleWindowMessage(event, config) {
         newChatButton.click();
         messageInput.focus();
     }
+}
+
+function isHttpImageUrl(url) {
+    return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
 }

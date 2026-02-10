@@ -3,6 +3,36 @@ import { storageAdapter, browserAdapter, isExtensionEnvironment } from '../utils
 import { toggleQuickChatOptions } from './quick-chat.js';
 
 // 渲染历史
+function isHttpImageUrl(url) {
+    return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
+}
+
+function hasPendingRemoteImageThumbnail(chat) {
+    if (!chat || !Array.isArray(chat.messages)) {
+        return false;
+    }
+
+    for (const message of chat.messages) {
+        if (!Array.isArray(message?.content)) {
+            continue;
+        }
+
+        for (const item of message.content) {
+            if (item?.type !== 'image_url') {
+                continue;
+            }
+
+            const imageSource = item.image_url?.url;
+            const thumbnailSource = item.image_url?.thumbnail;
+            if (isHttpImageUrl(imageSource) && !(typeof thumbnailSource === 'string' && thumbnailSource)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 export async function renderChatList(chatManager, chatCards, searchTerm = '') {
     const template = chatCards.querySelector('.chat-card.template');
     const lowerCaseSearchTerm = searchTerm.toLowerCase();
@@ -88,39 +118,51 @@ export async function renderChatList(chatManager, chatCards, searchTerm = '') {
 // 加载对话内容
 export async function loadChatContent(chat, chatContainer) {
     chatContainer.innerHTML = '';
-    // 确定要遍历的消息范围
-    const messages = chat.messages;
-    // console.log('loadChatContent', JSON.stringify(messages));
-
-    // 使用 DocumentFragment 批量插入，減少重排次數
-    const fragment = document.createDocumentFragment();
-
-    for (let i = 0; i < messages.length; i++) {
-        const message = messages[i];
-        if (message.content) {
-            await appendMessage({
-                text: message,
-                sender: message.role === 'user' ? 'user' : 'ai',
-                chatContainer,
-                skipHistory: true,
-                fragment,
-            });
-        }
+    const shouldShowImageLoading = hasPendingRemoteImageThumbnail(chat);
+    if (shouldShowImageLoading) {
+        chatContainer.classList.add('history-images-loading');
+        await new Promise(resolve => requestAnimationFrame(resolve));
     }
 
-    // 一次性插入所有訊息到 DOM
-    chatContainer.appendChild(fragment);
+    try {
+        // Determine message range
+        const messages = chat.messages;
+        // console.log('loadChatContent', JSON.stringify(messages));
 
-    // 歷史訊息直接顯示，跳過入場動畫並釋放 GPU 合成層
-    requestAnimationFrame(() => {
-        const batchMessages = chatContainer.querySelectorAll('.message.batch-load');
-        batchMessages.forEach(msg => {
-            msg.classList.add('show', 'rendered');
+        // Use DocumentFragment to reduce reflow
+        const fragment = document.createDocumentFragment();
+
+        for (let i = 0; i < messages.length; i++) {
+            const message = messages[i];
+            if (message.content) {
+                await appendMessage({
+                    text: message,
+                    sender: message.role === 'user' ? 'user' : 'ai',
+                    chatContainer,
+                    skipHistory: true,
+                    fragment,
+                });
+            }
+        }
+
+        // Insert all messages into DOM once
+        chatContainer.appendChild(fragment);
+
+        // Show batch messages without entry animation
+        requestAnimationFrame(() => {
+            const batchMessages = chatContainer.querySelectorAll('.message.batch-load');
+            batchMessages.forEach(msg => {
+                msg.classList.add('show', 'rendered');
+            });
         });
-    });
+    } finally {
+        if (shouldShowImageLoading) {
+            chatContainer.classList.remove('history-images-loading');
+        }
+    }
 }
 
-// 切换到指定对话
+// Switch to target chat
 export async function switchToChat(chatId, chatManager) {
     // console.log('switchToChat', chatId);
     const chat = await chatManager.switchChat(chatId);
@@ -163,21 +205,41 @@ export function initChatListEvents({
     chatManager,
     onHide
 }) {
-    // 为每个卡片添加点击事件
+    let switchingChatId = null;
+
+    // Chat card click handler
     chatCards.addEventListener('click', async (e) => {
         const card = e.target.closest('.chat-card');
         if (!card || card.classList.contains('template')) return;
 
         if (!e.target.closest('.delete-btn')) {
-            await switchToChat(card.dataset.chatId, chatManager);
-            if (onHide) onHide();
+            const targetChatId = card.dataset.chatId;
+            if (!targetChatId || switchingChatId) {
+                return;
+            }
+
+            const targetChat = chatManager.getAllChats().find(chat => chat.id === targetChatId);
+            const shouldShowLoading = hasPendingRemoteImageThumbnail(targetChat);
+            switchingChatId = targetChatId;
+
+            if (shouldShowLoading) {
+                card.classList.add('loading');
+            }
+
+            try {
+                await switchToChat(targetChatId, chatManager);
+                if (onHide) onHide();
+            } finally {
+                card.classList.remove('loading');
+                switchingChatId = null;
+            }
         }
     });
 
-    // 为删除按钮添加点击事件
+    // Delete button click handler
     chatCards.addEventListener('click', async (e) => {
         const deleteBtn = e.target.closest('.delete-btn');
-        if (!deleteBtn) return;
+        if (!deleteBtn || switchingChatId) return;
 
         const card = deleteBtn.closest('.chat-card');
         if (!card || card.classList.contains('template')) return;
