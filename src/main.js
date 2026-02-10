@@ -32,6 +32,43 @@ let selectedConfigIndex = 0;
 
 // 网络搜索配置
 let searchProvider = 'tavily'; // 'tavily' | 'exa'
+
+/**
+ * 光暈收縮進氣泡的過渡效果：移除呼吸光暈動畫時，
+ * 先用 inline style 凍結當前光暈狀態，再透過 CSS transition 平滑收縮至基底樣式。
+ */
+function fadeOutGlow(messageEl) {
+    const isSearch = messageEl.classList.contains('search-used');
+    const c = isSearch ? '34, 197, 94' : '106, 161, 220';
+
+    // 1. 用 inline style 凍結光暈起始狀態（取呼吸動畫的靜止幀值）
+    messageEl.style.boxShadow =
+        `0 0 3px rgba(${c}, 0.3), 0 0 6px rgba(${c}, 0.2), 0 0 9px rgba(${c}, 0.1)`;
+    messageEl.style.borderColor = `rgba(${c}, 0.5)`;
+
+    // 2. 移除動畫 class，加上帶 transition 的 glow-fading class
+    messageEl.classList.remove('waiting', 'updating');
+    messageEl.classList.add('glow-fading');
+
+    // 3. 強制 reflow，確保瀏覽器記錄起始值
+    void messageEl.offsetWidth;
+
+    // 4. 清除 inline style → CSS transition 平滑收縮至基底 box-shadow / border-color
+    messageEl.style.boxShadow = '';
+    messageEl.style.borderColor = '';
+
+    // 5. transition 結束後清理
+    const cleanup = () => {
+        messageEl.classList.remove('glow-fading');
+        messageEl.removeEventListener('transitionend', onEnd);
+    };
+    const onEnd = (e) => {
+        if (e.propertyName === 'box-shadow') cleanup();
+    };
+    messageEl.addEventListener('transitionend', onEnd);
+    setTimeout(cleanup, 600); // fallback
+}
+
 let tavilyApiKey = '';
 let tavilyApiUrl = '';
 let exaApiKey = '';
@@ -301,8 +338,6 @@ let exaApiUrl = '';
             currentController.abort();
             currentController = null;
             abortControllerRef.current = null;
-            updatingMessage.classList.remove('updating');
-            updatingMessage.classList.remove('waiting');
             updatingMessage.style.height = '';
             if (updatingMessage._heightAnim) {
                 if (updatingMessage._heightAnim.rafId) cancelAnimationFrame(updatingMessage._heightAnim.rafId);
@@ -310,7 +345,10 @@ let exaApiUrl = '';
             }
 
             if (isWaiting) {
+                updatingMessage.classList.remove('waiting', 'updating');
                 updatingMessage.remove();
+            } else {
+                fadeOutGlow(updatingMessage);
             }
         }
         if (abortControllerRef) abortControllerRef.pendingAbort = false;
@@ -496,7 +534,7 @@ let exaApiUrl = '';
             if (currentRequestId === activeRequestId) {
                 const lastMessage = chatContainer.querySelector('.ai-message:last-child');
                 if (lastMessage) {
-                    lastMessage.classList.remove('updating');
+                    fadeOutGlow(lastMessage);
                     lastMessage.style.height = '';
                     if (lastMessage._heightAnim) {
                         if (lastMessage._heightAnim.rafId) cancelAnimationFrame(lastMessage._heightAnim.rafId);
@@ -521,8 +559,6 @@ let exaApiUrl = '';
             currentController.abort();
             currentController = null;
             abortControllerRef.current = null; // 同步更新引用对象
-            updatingMessage.classList.remove('updating');
-            updatingMessage.classList.remove('waiting');
             updatingMessage.style.height = '';
             if (updatingMessage._heightAnim) {
                 if (updatingMessage._heightAnim.rafId) cancelAnimationFrame(updatingMessage._heightAnim.rafId);
@@ -530,7 +566,10 @@ let exaApiUrl = '';
             }
 
             if (isWaiting) {
+                updatingMessage.classList.remove('waiting', 'updating');
                 updatingMessage.remove();
+            } else {
+                fadeOutGlow(updatingMessage);
             }
         }
         if (abortControllerRef) abortControllerRef.pendingAbort = false;
@@ -677,7 +716,7 @@ let exaApiUrl = '';
             if (currentRequestId === activeRequestId) {
                 const lastMessage = chatContainer.querySelector('.ai-message:last-child');
                 if (lastMessage) {
-                    lastMessage.classList.remove('updating');
+                    fadeOutGlow(lastMessage);
                     lastMessage.style.height = '';
                     if (lastMessage._heightAnim) {
                         if (lastMessage._heightAnim.rafId) cancelAnimationFrame(lastMessage._heightAnim.rafId);
