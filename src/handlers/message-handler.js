@@ -2,6 +2,7 @@ import { chatManager } from '../utils/chat-manager.js';
 import { showImagePreview, createImageTag, removeImageFromChatManager, applyImageTagThumbnail } from '../utils/ui.js';
 import { createThumbnailImage } from '../utils/image.js';
 import { syncStorageAdapter } from '../utils/storage-adapter.js';
+import { isHttpImageUrl, buildWebdavBaseUrl, blobToDataUrl } from '../utils/url.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
 import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
 
@@ -719,10 +720,6 @@ export async function updateAIMessage({
     }
 }
 
-function isHttpImageUrl(url) {
-    return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
-}
-
 async function getWebdavConfig(forceRefresh = false) {
     const now = Date.now();
     if (
@@ -742,20 +739,6 @@ async function getWebdavConfig(forceRefresh = false) {
         console.warn('[Message] 读取 WebDAV 配置失败:', error);
         return null;
     }
-}
-
-function normalizeSyncPath(syncPath = '') {
-    return syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
-}
-
-function buildWebdavBaseUrl(webdavConfig) {
-    const serverUrl = (webdavConfig?.serverUrl || '').replace(/\/+$/, '');
-    const syncPath = normalizeSyncPath(webdavConfig?.syncPath || '');
-    if (!serverUrl || !syncPath) {
-        return '';
-    }
-
-    return `${serverUrl}/${syncPath}`;
 }
 
 async function fetchImageBlob(imageSource) {
@@ -790,15 +773,6 @@ async function fetchImageBlob(imageSource) {
     }
 
     return await response.blob();
-}
-
-function blobToDataUrl(blob) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error || new Error('图片转码失败'));
-        reader.readAsDataURL(blob);
-    });
 }
 
 async function ensureMessageImageThumbnail(imageItem) {

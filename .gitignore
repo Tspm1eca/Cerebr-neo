@@ -1,6 +1,7 @@
 .vercel
 .vscode
 .wrangler
+diff
 plans
 node_modules
 package-lock.json

@@ -1,12 +1,13 @@
 import { appendMessage } from '../handlers/message-handler.js';
 import { storageAdapter, browserAdapter, isExtensionEnvironment } from '../utils/storage-adapter.js';
 import { toggleQuickChatOptions } from './quick-chat.js';
+import { isHttpImageUrl } from '../utils/url.js';
 
-// 渲染历史
-function isHttpImageUrl(url) {
-    return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
-}
-
+/**
+ * 檢查聊天是否有待生成縮略圖的遠端圖片
+ * @param {Object} chat - 聊天對象
+ * @returns {boolean} 是否有待處理的遠端圖片
+ */
 function hasPendingRemoteImageThumbnail(chat) {
     if (!chat || !Array.isArray(chat.messages)) {
         return false;
@@ -24,7 +25,7 @@ function hasPendingRemoteImageThumbnail(chat) {
 
             const imageSource = item.image_url?.url;
             const thumbnailSource = item.image_url?.thumbnail;
-            if (isHttpImageUrl(imageSource) && !(typeof thumbnailSource === 'string' && thumbnailSource)) {
+            if (isHttpImageUrl(imageSource) && !thumbnailSource) {
                 return true;
             }
         }

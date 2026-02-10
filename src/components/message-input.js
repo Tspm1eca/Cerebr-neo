@@ -5,6 +5,7 @@
 
 import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePreview, addImageToPreview, clearImagePreview, getPreviewImages, updatePreviewVisibility } from '../utils/ui.js';
 import { handleImageDrop, compressImage, createThumbnailImage } from '../utils/image.js';
+import { isHttpImageUrl } from '../utils/url.js';
 
 // 跟踪输入法状态
 let isComposing = false;
@@ -904,8 +905,4 @@ export function handleWindowMessage(event, config) {
         newChatButton.click();
         messageInput.focus();
     }
-}
-
-function isHttpImageUrl(url) {
-    return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
 }

@@ -9,6 +9,7 @@ import { initAPICard } from './components/api-card.js';
 import { DEFAULT_SYSTEM_PROMPT } from './constants/prompts.js';
 import { storageAdapter, syncStorageAdapter, browserAdapter, isExtensionEnvironment } from './utils/storage-adapter.js';
 import { initMessageInput, getFormattedMessageContent, buildMessageContent, clearMessageInput, handleWindowMessage, updatePermanentPlaceholder } from './components/message-input.js';
+import { isHttpImageUrl } from './utils/url.js';
 import './utils/viewport.js';
 import {
     hideChatList,
@@ -35,10 +36,6 @@ let tavilyApiKey = '';
 let tavilyApiUrl = '';
 let exaApiKey = '';
 let exaApiUrl = '';
-
-function isHttpImageUrl(url) {
-    return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
-}
 
  document.addEventListener('DOMContentLoaded', async () => {
      const chatContainer = document.getElementById('chat-container');

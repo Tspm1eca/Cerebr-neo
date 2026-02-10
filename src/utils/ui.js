@@ -1,4 +1,5 @@
 import { syncStorageAdapter } from './storage-adapter.js';
+import { isHttpImageUrl, buildWebdavBaseUrl } from './url.js';
 
 const WEBDAV_CONFIG_KEY = 'webdav_config';
 const WEBDAV_CONFIG_CACHE_TTL = 15000;
@@ -10,23 +11,6 @@ const webdavConfigCache = {
 };
 const imagePreviewBlobCache = new Map();
 let previewRequestToken = 0;
-
-function isHttpImageUrl(url) {
-    return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
-}
-
-function normalizeSyncPath(syncPath = '') {
-    return syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
-}
-
-function buildWebdavBaseUrl(webdavConfig) {
-    const serverUrl = (webdavConfig?.serverUrl || '').replace(/\/+$/, '');
-    const syncPath = normalizeSyncPath(webdavConfig?.syncPath || '');
-    if (!serverUrl || !syncPath) {
-        return '';
-    }
-    return `${serverUrl}/${syncPath}`;
-}
 
 function toDisplayImageSource(imageSource) {
     if (typeof imageSource !== 'string' || !imageSource) {

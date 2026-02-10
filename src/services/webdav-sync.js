@@ -5,6 +5,7 @@
 
 import { storageAdapter, syncStorageAdapter } from '../utils/storage-adapter.js';
 import { encrypt, decrypt, isEncrypted, encryptPasswordForStorage, decryptPasswordFromStorage, isEncryptedPassword } from '../utils/crypto.js';
+import { normalizeSyncPath, buildWebdavBaseUrl } from '../utils/url.js';
 
 // WebDAV 配置键
 const WEBDAV_CONFIG_KEY = 'webdav_config';
@@ -46,20 +47,6 @@ const DEFAULT_CONFIG = {
 const IMAGE_FILENAME_PREFIX = 'cerebr-img-';
 const IMAGE_DIRECTORY = 'images';
 const DATA_IMAGE_URL_REGEX = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/i;
-
-function normalizeSyncPath(syncPath = '') {
-    return syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
-}
-
-function buildWebdavBaseUrl(config) {
-    const serverUrl = (config?.serverUrl || '').replace(/\/+$/, '');
-    const syncPath = normalizeSyncPath(config?.syncPath || '');
-    if (!serverUrl || !syncPath) {
-        return '';
-    }
-
-    return `${serverUrl}/${syncPath}`;
-}
 
 function isImageDirectoryPath(relativePath) {
     return typeof relativePath === 'string' && relativePath.startsWith(`${IMAGE_DIRECTORY}/`);
