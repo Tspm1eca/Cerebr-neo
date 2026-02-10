@@ -14,6 +14,31 @@ const webdavConfigCache = {
     timestamp: 0
 };
 
+// 氣泡拉伸動畫參數（欠阻尼彈簧 F = -k*x - c*v, ζ = c/(2√k)）
+const SPRING = {
+    STIFFNESS: 180,
+    DAMPING_H: 24,   // ζ ≈ 0.89，高度帶含蓄彈性
+    DAMPING_W: 21,   // ζ ≈ 0.78，寬度帶可感知的彈性過衝
+    MIN_STRETCH_H: 24,
+    MIN_STRETCH_W: 36,
+    MIN_SIZE: 8,
+    KICK: 5,
+};
+
+/** 快取元素的 padding + border 額外空間（border-box → content-box 轉換） */
+function ensureBoxExtra(el) {
+    if (!el._boxExtra) {
+        const cs = getComputedStyle(el);
+        el._boxExtra = {
+            h: parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) +
+               parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth),
+            w: parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) +
+               parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth)
+        };
+    }
+    return el._boxExtra;
+}
+
 /**
  * 處理消息中的連結：標記引用連結為 citation-link，設置外部連結屬性
  * 支援 Text Fragment 格式 (#:~:text=) 和舊版 cite: 格式
@@ -481,9 +506,10 @@ export async function updateAIMessage({
         waitingMessage._waitingHeight = rect.height;
         waitingMessage._waitingWidth = rect.width;
 
-        // 鎖定起始尺寸，防止移除 waiting 類和 dots 時尺寸跳變
-        waitingMessage.style.width = `${rect.width}px`;
-        waitingMessage.style.height = `${rect.height}px`;
+        // 鎖定起始尺寸（content-box），防止移除 waiting 類和 dots 時尺寸跳變
+        const bx = ensureBoxExtra(waitingMessage);
+        waitingMessage.style.width = `${rect.width - bx.w}px`;
+        waitingMessage.style.height = `${rect.height - bx.h}px`;
         waitingMessage.style.overflow = 'hidden';
 
         // 檢查是否使用了搜索並更新樣式（在等待訊息轉換前就添加）
@@ -522,6 +548,7 @@ export async function updateAIMessage({
             lastMessage._waitingHeight = rect.height;
             lastMessage._waitingWidth = rect.width;
         }
+        ensureBoxExtra(lastMessage);
         if (!lastMessage.classList.contains('updating')) {
             lastMessage.classList.add('updating');
         }
@@ -545,8 +572,9 @@ export async function updateAIMessage({
 
             // 記錄更新前的氣泡尺寸，用於平滑拉伸動畫
             // 優先使用等待氣泡的原始尺寸（dots 移除前），確保從三點動畫平滑過渡
-            const prevBubbleHeight = lastMessage._waitingHeight || lastMessage.getBoundingClientRect().height;
-            const prevBubbleWidth = lastMessage._waitingWidth || lastMessage.getBoundingClientRect().width;
+            const bx = ensureBoxExtra(lastMessage);
+            const prevBubbleHeight = (lastMessage._waitingHeight || lastMessage.getBoundingClientRect().height) - bx.h;
+            const prevBubbleWidth = (lastMessage._waitingWidth || lastMessage.getBoundingClientRect().width) - bx.w;
             delete lastMessage._waitingHeight;
             delete lastMessage._waitingWidth;
 
@@ -652,22 +680,32 @@ export async function updateAIMessage({
                 addCopyButtonToCodeBlocks(mainContent);
             }
 
-            // 平滑拉伸動畫：使用 requestAnimationFrame + 臨界阻尼彈簧 (SmoothDamp)
-            // 同時動畫 width 和 height，保持速度連續性
+            // 平滑拉伸動畫：使用 requestAnimationFrame + 欠阻尼彈簧（underdamped spring）
+            // 高度 ζ≈0.89 含蓄彈性；寬度 ζ≈0.78 可感知的彈性過衝
             lastMessage.style.width = '';
             lastMessage.style.height = 'auto';
             lastMessage.style.overflow = '';
-            const targetHeight = lastMessage.offsetHeight;
-            const targetWidth = lastMessage.getBoundingClientRect().width;
+            const targetHeight = lastMessage.offsetHeight - lastMessage._boxExtra.h;
+            const targetWidth = lastMessage.offsetWidth - lastMessage._boxExtra.w;
 
             if (!lastMessage._sizeAnim) {
+                // 等待→內容的初始過渡：確保最小拉伸距離，避免尺寸相近時動畫不可見
+                // dots 氣泡 (~68×40) 和首個 chunk (~68×41) 幾乎同尺寸，
+                // 需要人為拉開起始位置，製造「壓縮→彈開」的視覺張力
+                const startH = (targetHeight - prevBubbleHeight) < SPRING.MIN_STRETCH_H
+                    ? Math.max(targetHeight - SPRING.MIN_STRETCH_H, SPRING.MIN_SIZE)
+                    : prevBubbleHeight;
+                const startW = (targetWidth - prevBubbleWidth) < SPRING.MIN_STRETCH_W
+                    ? Math.max(targetWidth - SPRING.MIN_STRETCH_W, SPRING.MIN_SIZE)
+                    : prevBubbleWidth;
+
                 lastMessage._sizeAnim = {
-                    currentH: prevBubbleHeight,
-                    currentW: prevBubbleWidth,
+                    currentH: startH,
+                    currentW: startW,
                     targetH: targetHeight,
                     targetW: targetWidth,
-                    velocityH: 0,
-                    velocityW: 0,
+                    velocityH: (targetHeight - startH) * SPRING.KICK,
+                    velocityW: (targetWidth - startW) * SPRING.KICK,
                     rafId: 0,
                     lastTime: 0
                 };
@@ -680,7 +718,6 @@ export async function updateAIMessage({
             lastMessage.style.overflow = 'hidden';
 
             if (!anim.rafId) {
-                const SMOOTH_TIME = 0.2;
                 const tick = (timestamp) => {
                     if (!anim.lastTime) anim.lastTime = timestamp;
                     const dt = Math.min((timestamp - anim.lastTime) / 1000, 0.04);
@@ -700,22 +737,15 @@ export async function updateAIMessage({
                         return;
                     }
 
-                    // Critically damped spring (SmoothDamp)
-                    const omega = 2 / SMOOTH_TIME;
-                    const x = omega * dt;
-                    const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+                    // Height — 輕微欠阻尼，含蓄彈性
+                    const accH = -SPRING.STIFFNESS * (anim.currentH - anim.targetH) - SPRING.DAMPING_H * anim.velocityH;
+                    anim.velocityH += accH * dt;
+                    anim.currentH += anim.velocityH * dt;
 
-                    // Height
-                    const changeH = anim.currentH - anim.targetH;
-                    const tempH = (anim.velocityH + omega * changeH) * dt;
-                    anim.velocityH = (anim.velocityH - omega * tempH) * exp;
-                    anim.currentH = anim.targetH + (changeH + tempH) * exp;
-
-                    // Width
-                    const changeW = anim.currentW - anim.targetW;
-                    const tempW = (anim.velocityW + omega * changeW) * dt;
-                    anim.velocityW = (anim.velocityW - omega * tempW) * exp;
-                    anim.currentW = anim.targetW + (changeW + tempW) * exp;
+                    // Width — 欠阻尼，可感知的彈性展開
+                    const accW = -SPRING.STIFFNESS * (anim.currentW - anim.targetW) - SPRING.DAMPING_W * anim.velocityW;
+                    anim.velocityW += accW * dt;
+                    anim.currentW += anim.velocityW * dt;
 
                     lastMessage.style.height = `${Math.round(anim.currentH)}px`;
                     lastMessage.style.width = `${Math.round(anim.currentW)}px`;

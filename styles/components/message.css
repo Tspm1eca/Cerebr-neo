@@ -81,9 +81,9 @@
     will-change: transform, opacity;
 }
 
-/* 流式更新時的平滑拉伸動畫（高度由 JS rAF 驅動，此處僅裁切溢出） */
+/* 流式更新時的平滑拉伸動畫（尺寸由 JS rAF 彈簧驅動，裁切雙向溢出避免空行閃現） */
 .message.ai-message.updating {
-    overflow-y: hidden;
+    overflow: hidden;
 }
 
 .user-message {
