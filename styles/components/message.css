@@ -81,6 +81,11 @@
     will-change: transform, opacity;
 }
 
+/* 流式更新時的平滑拉伸動畫（高度由 JS rAF 驅動，此處僅裁切溢出） */
+.message.ai-message.updating {
+    overflow-y: hidden;
+}
+
 .user-message {
     background-color: var(--cerebr-message-user-bg);
     margin-left: auto;

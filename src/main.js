@@ -303,6 +303,11 @@ let exaApiUrl = '';
             abortControllerRef.current = null;
             updatingMessage.classList.remove('updating');
             updatingMessage.classList.remove('waiting');
+            updatingMessage.style.height = '';
+            if (updatingMessage._heightAnim) {
+                if (updatingMessage._heightAnim.rafId) cancelAnimationFrame(updatingMessage._heightAnim.rafId);
+                delete updatingMessage._heightAnim;
+            }
 
             if (isWaiting) {
                 updatingMessage.remove();
@@ -492,6 +497,11 @@ let exaApiUrl = '';
                 const lastMessage = chatContainer.querySelector('.ai-message:last-child');
                 if (lastMessage) {
                     lastMessage.classList.remove('updating');
+                    lastMessage.style.height = '';
+                    if (lastMessage._heightAnim) {
+                        if (lastMessage._heightAnim.rafId) cancelAnimationFrame(lastMessage._heightAnim.rafId);
+                        delete lastMessage._heightAnim;
+                    }
                     // 流式更新結束後，標記為已渲染以釋放 GPU 合成層
                     lastMessage.classList.add('rendered');
                 }
@@ -513,6 +523,11 @@ let exaApiUrl = '';
             abortControllerRef.current = null; // 同步更新引用对象
             updatingMessage.classList.remove('updating');
             updatingMessage.classList.remove('waiting');
+            updatingMessage.style.height = '';
+            if (updatingMessage._heightAnim) {
+                if (updatingMessage._heightAnim.rafId) cancelAnimationFrame(updatingMessage._heightAnim.rafId);
+                delete updatingMessage._heightAnim;
+            }
 
             if (isWaiting) {
                 updatingMessage.remove();
@@ -663,6 +678,11 @@ let exaApiUrl = '';
                 const lastMessage = chatContainer.querySelector('.ai-message:last-child');
                 if (lastMessage) {
                     lastMessage.classList.remove('updating');
+                    lastMessage.style.height = '';
+                    if (lastMessage._heightAnim) {
+                        if (lastMessage._heightAnim.rafId) cancelAnimationFrame(lastMessage._heightAnim.rafId);
+                        delete lastMessage._heightAnim;
+                    }
                     // 流式更新結束後，標記為已渲染以釋放 GPU 合成層
                     lastMessage.classList.add('rendered');
                 }

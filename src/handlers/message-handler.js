@@ -476,24 +476,22 @@ export async function updateAIMessage({
 
     // 不是等待动画，如果有等待消息，将其转换为普通消息
     if (waitingMessage) {
+        // 動畫處理：記錄原始尺寸並鎖定，防止 content swap 時閃跳
+        const rect = waitingMessage.getBoundingClientRect();
+        waitingMessage._waitingHeight = rect.height;
+        waitingMessage._waitingWidth = rect.width;
+
+        // 鎖定起始尺寸，防止移除 waiting 類和 dots 時尺寸跳變
+        waitingMessage.style.width = `${rect.width}px`;
+        waitingMessage.style.height = `${rect.height}px`;
+        waitingMessage.style.overflow = 'hidden';
+
         // 檢查是否使用了搜索並更新樣式（在等待訊息轉換前就添加）
         if (typeof text === 'object' && text.isSearchUsed) {
             if (!waitingMessage.classList.contains('search-used')) {
                 waitingMessage.classList.add('search-used');
             }
         }
-
-        // 动画处理：记录原始尺寸（三点动画时的尺寸）
-        const rect = waitingMessage.getBoundingClientRect();
-
-        // 锁定起始尺寸，准备过渡
-        waitingMessage.style.width = `${rect.width}px`;
-        waitingMessage.style.height = `${rect.height}px`;
-        waitingMessage.style.overflow = 'hidden';
-        waitingMessage.style.transition = 'none'; // 暂时不开启过渡，等待内容更新后统一处理
-
-        // 强制重绘
-        waitingMessage.offsetHeight;
 
         waitingMessage.classList.remove('waiting');
 
@@ -508,8 +506,6 @@ export async function updateAIMessage({
             waitingMessage.classList.add('updating');
         }
 
-        // 标记该消息正在进行过渡动画
-        waitingMessage._isTransitioning = true;
     }
 
     // 優先尋找正在更新中的 AI 消息
@@ -520,6 +516,12 @@ export async function updateAIMessage({
     // 这处理了从 waiting 状态直接转换的情况，确保不会创建重复消息
     if (!lastMessage && waitingMessage) {
         lastMessage = waitingMessage;
+        // 記錄等待氣泡尺寸（若主路徑未記錄）
+        if (!lastMessage._waitingHeight) {
+            const rect = lastMessage.getBoundingClientRect();
+            lastMessage._waitingHeight = rect.height;
+            lastMessage._waitingWidth = rect.width;
+        }
         if (!lastMessage.classList.contains('updating')) {
             lastMessage.classList.add('updating');
         }
@@ -541,24 +543,12 @@ export async function updateAIMessage({
         // 注意：如果是从 waiting 状态刚恢复过来，lastMessage 就是 waitingMessage，我们需要更新它的内容
         if (textContent !== currentText || reasoningContent || lastMessage.innerHTML === '') {
 
-            // 如果正在过渡中，先锁定当前视觉尺寸，防止内容更新导致闪跳
-            if (lastMessage._isTransitioning) {
-                const computedStyle = window.getComputedStyle(lastMessage);
-                const currentWidth = computedStyle.width;
-                const currentHeight = computedStyle.height;
-
-                // 移除旧的 cleanup (如果存在)，手动接管
-                if (lastMessage._animCleanup) {
-                    lastMessage.removeEventListener('transitionend', lastMessage._animCleanup);
-                }
-
-                lastMessage.style.width = currentWidth;
-                lastMessage.style.height = currentHeight;
-                lastMessage.style.transition = 'none';
-
-                // 强制重绘以应用锁定
-                lastMessage.offsetHeight;
-            }
+            // 記錄更新前的氣泡尺寸，用於平滑拉伸動畫
+            // 優先使用等待氣泡的原始尺寸（dots 移除前），確保從三點動畫平滑過渡
+            const prevBubbleHeight = lastMessage._waitingHeight || lastMessage.getBoundingClientRect().height;
+            const prevBubbleWidth = lastMessage._waitingWidth || lastMessage.getBoundingClientRect().width;
+            delete lastMessage._waitingHeight;
+            delete lastMessage._waitingWidth;
 
             // 更新原始文本属性
             lastMessage.setAttribute('data-original-text', textContent);
@@ -662,44 +652,76 @@ export async function updateAIMessage({
                 addCopyButtonToCodeBlocks(mainContent);
             }
 
-            // 内容更新完毕，处理尺寸过渡动画
-            if (lastMessage._isTransitioning) {
-                // 测量新内容尺寸
-                // 使用 cloneNode 确保样式上下文一致
-                const clone = lastMessage.cloneNode(true);
-                clone.style.width = 'fit-content';
-                clone.style.height = 'auto';
-                clone.style.position = 'absolute';
-                clone.style.visibility = 'hidden';
-                clone.style.maxHeight = 'none'; // 防止高度受限
-                clone.style.maxWidth = 'calc(100% - 32px)'; // 保持与CSS一致
+            // 平滑拉伸動畫：使用 requestAnimationFrame + 臨界阻尼彈簧 (SmoothDamp)
+            // 同時動畫 width 和 height，保持速度連續性
+            lastMessage.style.width = '';
+            lastMessage.style.height = 'auto';
+            lastMessage.style.overflow = '';
+            const targetHeight = lastMessage.offsetHeight;
+            const targetWidth = lastMessage.getBoundingClientRect().width;
 
-                // 插入到容器中测量
-                chatContainer.appendChild(clone);
-                const newRect = clone.getBoundingClientRect();
-                clone.remove();
-
-                // 强制重绘
-                lastMessage.offsetHeight;
-
-                // 设置新动画目标
-                lastMessage.style.transition = 'width 0.3s ease, height 0.3s ease';
-                lastMessage.style.width = `${newRect.width}px`;
-                lastMessage.style.height = `${newRect.height}px`;
-
-                // 绑定 cleanup
-                const cleanup = () => {
-                    lastMessage.style.width = '';
-                    lastMessage.style.height = '';
-                    lastMessage.style.transition = '';
-                    lastMessage.style.overflow = '';
-                    lastMessage.removeEventListener('transitionend', cleanup);
-                    delete lastMessage._isTransitioning;
-                    delete lastMessage._animCleanup;
+            if (!lastMessage._sizeAnim) {
+                lastMessage._sizeAnim = {
+                    currentH: prevBubbleHeight,
+                    currentW: prevBubbleWidth,
+                    targetH: targetHeight,
+                    targetW: targetWidth,
+                    velocityH: 0,
+                    velocityW: 0,
+                    rafId: 0,
+                    lastTime: 0
                 };
+            }
+            const anim = lastMessage._sizeAnim;
+            anim.targetH = targetHeight;
+            anim.targetW = targetWidth;
+            lastMessage.style.height = `${Math.round(anim.currentH)}px`;
+            lastMessage.style.width = `${Math.round(anim.currentW)}px`;
+            lastMessage.style.overflow = 'hidden';
 
-                lastMessage._animCleanup = cleanup;
-                lastMessage.addEventListener('transitionend', cleanup);
+            if (!anim.rafId) {
+                const SMOOTH_TIME = 0.2;
+                const tick = (timestamp) => {
+                    if (!anim.lastTime) anim.lastTime = timestamp;
+                    const dt = Math.min((timestamp - anim.lastTime) / 1000, 0.04);
+                    anim.lastTime = timestamp;
+
+                    const diffH = anim.targetH - anim.currentH;
+                    const diffW = anim.targetW - anim.currentW;
+                    if (Math.abs(diffH) < 0.5 && Math.abs(anim.velocityH) < 0.5 &&
+                        Math.abs(diffW) < 0.5 && Math.abs(anim.velocityW) < 0.5) {
+                        anim.currentH = anim.targetH;
+                        anim.currentW = anim.targetW;
+                        lastMessage.style.height = '';
+                        lastMessage.style.width = '';
+                        lastMessage.style.overflow = '';
+                        anim.rafId = 0;
+                        anim.lastTime = 0;
+                        return;
+                    }
+
+                    // Critically damped spring (SmoothDamp)
+                    const omega = 2 / SMOOTH_TIME;
+                    const x = omega * dt;
+                    const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+
+                    // Height
+                    const changeH = anim.currentH - anim.targetH;
+                    const tempH = (anim.velocityH + omega * changeH) * dt;
+                    anim.velocityH = (anim.velocityH - omega * tempH) * exp;
+                    anim.currentH = anim.targetH + (changeH + tempH) * exp;
+
+                    // Width
+                    const changeW = anim.currentW - anim.targetW;
+                    const tempW = (anim.velocityW + omega * changeW) * dt;
+                    anim.velocityW = (anim.velocityW - omega * tempW) * exp;
+                    anim.currentW = anim.targetW + (changeW + tempW) * exp;
+
+                    lastMessage.style.height = `${Math.round(anim.currentH)}px`;
+                    lastMessage.style.width = `${Math.round(anim.currentW)}px`;
+                    anim.rafId = requestAnimationFrame(tick);
+                };
+                anim.rafId = requestAnimationFrame(tick);
             }
 
             return true;
