@@ -118,48 +118,36 @@ export async function renderChatList(chatManager, chatCards, searchTerm = '') {
 // 加载对话内容
 export async function loadChatContent(chat, chatContainer) {
     chatContainer.innerHTML = '';
-    const shouldShowImageLoading = hasPendingRemoteImageThumbnail(chat);
-    if (shouldShowImageLoading) {
-        chatContainer.classList.add('history-images-loading');
-        await new Promise(resolve => requestAnimationFrame(resolve));
-    }
+    // Determine message range
+    const messages = chat.messages;
+    // console.log('loadChatContent', JSON.stringify(messages));
 
-    try {
-        // Determine message range
-        const messages = chat.messages;
-        // console.log('loadChatContent', JSON.stringify(messages));
+    // Use DocumentFragment to reduce reflow
+    const fragment = document.createDocumentFragment();
 
-        // Use DocumentFragment to reduce reflow
-        const fragment = document.createDocumentFragment();
-
-        for (let i = 0; i < messages.length; i++) {
-            const message = messages[i];
-            if (message.content) {
-                await appendMessage({
-                    text: message,
-                    sender: message.role === 'user' ? 'user' : 'ai',
-                    chatContainer,
-                    skipHistory: true,
-                    fragment,
-                });
-            }
-        }
-
-        // Insert all messages into DOM once
-        chatContainer.appendChild(fragment);
-
-        // Show batch messages without entry animation
-        requestAnimationFrame(() => {
-            const batchMessages = chatContainer.querySelectorAll('.message.batch-load');
-            batchMessages.forEach(msg => {
-                msg.classList.add('show', 'rendered');
+    for (let i = 0; i < messages.length; i++) {
+        const message = messages[i];
+        if (message.content) {
+            await appendMessage({
+                text: message,
+                sender: message.role === 'user' ? 'user' : 'ai',
+                chatContainer,
+                skipHistory: true,
+                fragment,
             });
-        });
-    } finally {
-        if (shouldShowImageLoading) {
-            chatContainer.classList.remove('history-images-loading');
         }
     }
+
+    // Insert all messages into DOM once
+    chatContainer.appendChild(fragment);
+
+    // Show batch messages without entry animation
+    requestAnimationFrame(() => {
+        const batchMessages = chatContainer.querySelectorAll('.message.batch-load');
+        batchMessages.forEach(msg => {
+            msg.classList.add('show', 'rendered');
+        });
+    });
 }
 
 // Switch to target chat

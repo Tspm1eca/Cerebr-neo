@@ -144,7 +144,7 @@ async function resolvePreviewImageSource(imageSource) {
     }
 }
 
-function setImageElementSource(imgElement, imageSource) {
+export function setImageElementSource(imgElement, imageSource) {
     const displaySource = toDisplayImageSource(imageSource);
     imgElement.removeAttribute('data-webdav-auth-retried');
     if (displaySource) {
@@ -348,21 +348,30 @@ export function createImageTag({
     base64Data,
     imageSource,
     thumbnailSource,
+    isThumbnailLoading = false,
     fileName = '图片',
-    config
+    config = {}
 }) {
     const resolvedImageSource = typeof imageSource === 'string' ? imageSource : base64Data;
-    const resolvedThumbnailSource = thumbnailSource || resolvedImageSource;
+    const resolvedThumbnailSource = typeof thumbnailSource === 'string' ? thumbnailSource : '';
+    const shouldWaitThumbnail = Boolean(isThumbnailLoading && !resolvedThumbnailSource);
+    const effectiveThumbnailSource = shouldWaitThumbnail ? '' : (resolvedThumbnailSource || resolvedImageSource);
 
     const container = document.createElement('span');
     container.className = 'image-tag';
+    if (shouldWaitThumbnail) {
+        container.classList.add('thumbnail-loading');
+        container.setAttribute('data-thumbnail-pending', '1');
+    }
     container.contentEditable = false;
     container.setAttribute('data-image', resolvedImageSource || '');
-    container.setAttribute('data-thumbnail', resolvedThumbnailSource || '');
+    container.setAttribute('data-thumbnail', effectiveThumbnailSource || '');
     container.title = fileName;
 
     const thumbnail = document.createElement('img');
-    setImageElementSource(thumbnail, resolvedThumbnailSource);
+    if (effectiveThumbnailSource) {
+        setImageElementSource(thumbnail, effectiveThumbnailSource);
+    }
     thumbnail.alt = fileName;
 
     const deleteBtn = document.createElement('button');
@@ -392,6 +401,25 @@ export function createImageTag({
     });
 
     return container;
+}
+
+export function applyImageTagThumbnail(container, thumbnailSource) {
+    if (!(container instanceof HTMLElement) || !container.classList.contains('image-tag')) {
+        return;
+    }
+
+    const resolvedThumbnailSource = typeof thumbnailSource === 'string' ? thumbnailSource : '';
+    const imageSource = container.getAttribute('data-image') || '';
+    const finalThumbnailSource = resolvedThumbnailSource || imageSource;
+    const thumbnail = container.querySelector('img');
+
+    if (thumbnail && finalThumbnailSource) {
+        setImageElementSource(thumbnail, finalThumbnailSource);
+    }
+
+    container.setAttribute('data-thumbnail', finalThumbnailSource);
+    container.classList.remove('thumbnail-loading');
+    container.removeAttribute('data-thumbnail-pending');
 }
 
 /**

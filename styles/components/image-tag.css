@@ -44,6 +44,36 @@
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.image-tag.thumbnail-loading {
+    cursor: default;
+}
+
+.image-tag.thumbnail-loading img {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.image-tag.thumbnail-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 14px;
+    height: 14px;
+    transform: translate(-50%, -50%);
+    border: 2px solid rgba(120, 120, 120, 0.35);
+    border-top-color: var(--cerebr-primary-color);
+    border-radius: 50%;
+    animation: image-tag-thumbnail-spin 0.75s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes image-tag-thumbnail-spin {
+    to {
+        transform: translate(-50%, -50%) rotate(360deg);
+    }
+}
+
 .image-tag:hover img {
     filter: brightness(0.7);
 }

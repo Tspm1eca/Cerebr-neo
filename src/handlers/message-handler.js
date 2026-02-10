@@ -1,5 +1,5 @@
 import { chatManager } from '../utils/chat-manager.js';
-import { showImagePreview, createImageTag, removeImageFromChatManager } from '../utils/ui.js';
+import { showImagePreview, createImageTag, removeImageFromChatManager, applyImageTagThumbnail } from '../utils/ui.js';
 import { createThumbnailImage } from '../utils/image.js';
 import { syncStorageAdapter } from '../utils/storage-adapter.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
@@ -110,10 +110,9 @@ export async function appendMessage({
 
     const previewModal = document.querySelector('.image-preview-modal');
     const previewImage = previewModal.querySelector('img');
-    const messageInput = document.getElementById('message-input');
 
     let messageHtml = '';
-    let imagesHtml = '';  // 單獨存放圖片 HTML
+    const imageTags = [];
     if (Array.isArray(textContent)) {
         for (const item of textContent) {
             if (item.type === "text") {
@@ -121,31 +120,26 @@ export async function appendMessage({
                 textContent = item.text;
             } else if (item.type === "image_url") {
                 const imageSource = getImageItemSource(item.image_url);
-                let thumbnailSource = getImageItemThumbnail(item.image_url);
-                if (!item.image_url?.thumbnail && isHttpImageUrl(imageSource)) {
-                    thumbnailSource = await ensureMessageImageThumbnail(item.image_url);
-                }
+                const hasThumbnail = typeof item.image_url?.thumbnail === 'string' && item.image_url.thumbnail;
+                const shouldGenerateThumbnail = Boolean(item.image_url && isHttpImageUrl(imageSource) && !hasThumbnail);
+                const thumbnailSource = shouldGenerateThumbnail ? '' : getImageItemThumbnail(item.image_url);
                 const imageTag = createImageTag({
                     imageSource,
                     thumbnailSource,
-                    config: {
-                        onImageClick: (targetImageSource, sourceElement) => {
-                            showImagePreview({
-                                imageSource: targetImageSource,
-                                config: {
-                                    previewModal,
-                                    previewImage
-                                },
-                                sourceElement
-                            });
-                        },
-                        onDeleteClick: (container) => {
-                            container.remove();
-                            messageInput.dispatchEvent(new Event('input'));
-                        }
-                    }
+                    isThumbnailLoading: shouldGenerateThumbnail
                 });
-                imagesHtml += imageTag.outerHTML;  // 圖片單獨收集
+
+                if (shouldGenerateThumbnail) {
+                    void ensureMessageImageThumbnail(item.image_url).then((generatedThumbnailSource) => {
+                        applyImageTagThumbnail(imageTag, generatedThumbnailSource);
+                        const generatedImg = imageTag.querySelector('img');
+                        if (generatedImg) {
+                            preloadAndCacheImage(generatedImg);
+                        }
+                    });
+                }
+
+                imageTags.push(imageTag);
             }
         }
     } else {
@@ -192,10 +186,10 @@ export async function appendMessage({
     }
 
     // 如果有圖片，先添加圖片容器（用戶消息時圖片在文字上方）
-    if (imagesHtml && sender === 'user') {
+    if (imageTags.length > 0 && sender === 'user') {
         const imagesContainer = document.createElement('div');
         imagesContainer.className = 'message-images';
-        imagesContainer.innerHTML = imagesHtml;
+        imageTags.forEach(tag => imagesContainer.appendChild(tag));
         messageDiv.appendChild(imagesContainer);
         // 添加 has-images class 以便文字右對齊
         messageDiv.classList.add('has-images');
@@ -208,10 +202,10 @@ export async function appendMessage({
     messageDiv.appendChild(mainContent);
 
     // 如果是 AI 消息且有圖片，圖片放在文字下方
-    if (imagesHtml && sender === 'ai') {
+    if (imageTags.length > 0 && sender === 'ai') {
         const imagesContainer = document.createElement('div');
         imagesContainer.className = 'message-images';
-        imagesContainer.innerHTML = imagesHtml;
+        imageTags.forEach(tag => imagesContainer.appendChild(tag));
         messageDiv.appendChild(imagesContainer);
     }
 
