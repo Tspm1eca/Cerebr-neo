@@ -16,7 +16,7 @@ export const DEFAULT_QUICK_CHAT_OPTIONS = [
     {
         id: 'option-3',
         title: '列出新聞',
-        prompt: '```markdown\\n**你的任務**\\n以表格方式列出不少於20條最重要的新聞。\\n*   表格標題必須是：「中文標題」、「原文標題」。\\n*   在「中文標題」欄中，附上至少一個從該新聞摘要或內文中提取的引用內容。\\n*   在「原文標題」欄中，使用 `URLREF` 格式創建指向原文的連結。\\n\\n**表格範例格式**\\n| 中文標題 | 原文標題 |\\n| :--- | :--- |\\n| 這是第一則新聞的中文標題 [1](#:~:text=This is a direct quote from the first news article.) | [Original Title of First News](URLREF1) |\\n| 這是第二則新聞的中文標題 [2](#:~:text=This is a quote from the second article.) [3](#:~:text=This is another quote from the second article.) | [Original Title of Second News](URLREF2) |\\n```',
+        prompt: '```markdown\n**你的任務**\n以表格方式列出不少於20條最重要的新聞。\n*   表格標題必須是：「中文標題」、「原文標題」。\n*   在「中文標題」欄中，附上至少一個從該新聞摘要或內文中提取的引用內容（使用 Text Fragment 格式）。\n*   在「原文標題」欄中，使用 `URLREF` 格式創建指向原文的連結。\n\n**表格格式**\n| 中文標題 | 原文標題 |\n| :--- | :--- |\n| 新聞中文標題 [1] | [原文標題](URLREF1) |\n| 新聞中文標題 [2] | [原文標題](URLREF2) |\n```',
         icon: '📰'
     }
 ].map((option) => ({
