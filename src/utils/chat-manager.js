@@ -555,10 +555,9 @@ export class ChatManager {
                 this.generateAndSaveTitle(currentChat);
             }
             await this.flushSaveChat(chatId);
-        } else {
-            // 流式中間更新：只更新記憶體，延遲寫入單一聊天
-            this._debouncedSaveChat(chatId);
         }
+        // 串流中間更新：只保留在記憶體中，不寫入 storage
+        // flushSaveChat 會在串流結束時一次性寫入
     }
 
     async popMessage() {

@@ -9,7 +9,6 @@ import { initAPICard } from './components/api-card.js';
 import { DEFAULT_SYSTEM_PROMPT } from './constants/prompts.js';
 import { storageAdapter, syncStorageAdapter, browserAdapter, isExtensionEnvironment } from './utils/storage-adapter.js';
 import { initMessageInput, getFormattedMessageContent, buildMessageContent, clearMessageInput, handleWindowMessage, updatePermanentPlaceholder } from './components/message-input.js';
-import { isHttpImageUrl } from './utils/url.js';
 import './utils/viewport.js';
 import {
     hideChatList,
@@ -404,18 +403,10 @@ let exaApiUrl = '';
                     }
                     imageTags.forEach(tag => {
                         const imageSource = tag.getAttribute('data-image');
-                        const thumbnailSource = tag.getAttribute('data-thumbnail') || imageSource;
                         if (imageSource) {
-                            const imageUrl = {
-                                url: imageSource
-                            };
-                            if (thumbnailSource && !isHttpImageUrl(imageSource)) {
-                                imageUrl.thumbnail = thumbnailSource;
-                            }
-
                             content.push({
                                 type: "image_url",
-                                image_url: imageUrl
+                                image_url: { url: imageSource }
                             });
                         }
                     });
@@ -1851,6 +1842,11 @@ let exaApiUrl = '';
     let syncOnCloseExecuted = false; // 去重標記，防止 visibilitychange 和 pagehide 重複觸發
     document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'hidden') {
+            // 頁面被隱藏時，立即寫入當前對話（防止串流中途丟失資料）
+            const currentChatId = chatManager.getCurrentChat()?.id;
+            if (currentChatId) {
+                await chatManager.flushSaveChat(currentChatId);
+            }
             // 頁面被隱藏（可能是關閉、切換標籤頁或最小化）
             // 使用 5 秒防抖，過濾快速切換標籤頁的情況
             syncOnCloseExecuted = false;

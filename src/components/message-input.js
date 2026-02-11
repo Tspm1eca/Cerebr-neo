@@ -5,7 +5,6 @@
 
 import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePreview, addImageToPreview, clearImagePreview, getPreviewImages, updatePreviewVisibility } from '../utils/ui.js';
 import { handleImageDrop, compressImage, createThumbnailImage } from '../utils/image.js';
-import { isHttpImageUrl } from '../utils/url.js';
 
 // 跟踪输入法状态
 let isComposing = false;
@@ -755,24 +754,13 @@ export async function buildMessageContent(message, imageTags, previewImages = []
         // 添加输入框内的图片
         for (const tag of imageTags) {
             const imageSource = tag.getAttribute('data-image');
-            const thumbnailSource = tag.getAttribute('data-thumbnail') || imageSource;
             if (!imageSource) {
                 continue;
             }
 
-            let finalThumbnail = thumbnailSource;
-            if (!finalThumbnail && imageSource.startsWith('data:image/')) {
-                finalThumbnail = await createThumbnailImage(imageSource);
-            }
-
-            const imageUrl = { url: imageSource };
-            if (finalThumbnail && !isHttpImageUrl(imageSource)) {
-                imageUrl.thumbnail = finalThumbnail;
-            }
-
             content.push({
                 type: "image_url",
-                image_url: imageUrl
+                image_url: { url: imageSource }
             });
         }
         // 添加预览区域的图片
@@ -782,19 +770,9 @@ export async function buildMessageContent(message, imageTags, previewImages = []
                 continue;
             }
 
-            let finalThumbnail = img.thumbnailSource;
-            if (!finalThumbnail && imageSource.startsWith('data:image/')) {
-                finalThumbnail = await createThumbnailImage(imageSource);
-            }
-
-            const imageUrl = { url: imageSource };
-            if (finalThumbnail && !isHttpImageUrl(imageSource)) {
-                imageUrl.thumbnail = finalThumbnail;
-            }
-
             content.push({
                 type: "image_url",
-                image_url: imageUrl
+                image_url: { url: imageSource }
             });
         }
         return content;

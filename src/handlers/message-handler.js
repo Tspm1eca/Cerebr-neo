@@ -16,6 +16,12 @@ const SPRING = {
     KICK: 5,
 };
 
+// 記憶體內縮圖快取（不持久化，僅本地瀏覽器會話內有效）
+const _thumbnailCache = new Map();
+const THUMBNAIL_CACHE_MAX = 200;
+// 正在生成中的縮圖 promise（防止同一張圖片並發 fetch）
+const _thumbnailInflight = new Map();
+
 /** 快取元素的 padding + border 額外空間（border-box → content-box 轉換） */
 function ensureBoxExtra(el) {
     if (!el._boxExtra) {
@@ -137,9 +143,9 @@ export async function appendMessage({
                 textContent = item.text;
             } else if (item.type === "image_url") {
                 const imageSource = getImageItemSource(item.image_url);
-                const hasThumbnail = typeof item.image_url?.thumbnail === 'string' && item.image_url.thumbnail;
-                const shouldGenerateThumbnail = Boolean(item.image_url && isHttpImageUrl(imageSource) && !hasThumbnail);
-                const thumbnailSource = shouldGenerateThumbnail ? '' : getImageItemThumbnail(item.image_url);
+                const cachedThumbnail = _thumbnailCache.get(imageSource);
+                const shouldGenerateThumbnail = !cachedThumbnail && isHttpImageUrl(imageSource);
+                const thumbnailSource = cachedThumbnail || (shouldGenerateThumbnail ? '' : imageSource);
                 const imageTag = createImageTag({
                     imageSource,
                     thumbnailSource,
@@ -777,38 +783,45 @@ async function fetchImageBlob(imageSource) {
 }
 
 async function ensureMessageImageThumbnail(imageItem) {
-    if (!imageItem || typeof imageItem !== 'object') {
-        return '';
-    }
-
-    if (typeof imageItem.thumbnail === 'string' && imageItem.thumbnail) {
-        return imageItem.thumbnail;
-    }
-
     const imageSource = getImageItemSource(imageItem);
+    if (!imageSource) return '';
+
+    // 檢查記憶體快取
+    if (_thumbnailCache.has(imageSource)) {
+        return _thumbnailCache.get(imageSource);
+    }
+
     if (!isHttpImageUrl(imageSource)) {
         return imageSource;
     }
 
-    try {
-        const blob = await fetchImageBlob(imageSource);
-        const dataUrl = await blobToDataUrl(blob);
-        const thumbnail = await createThumbnailImage(dataUrl);
-        imageItem.thumbnail = thumbnail;
-
-        if (chatManager?.saveChat) {
-            const currentChatId = chatManager.getCurrentChat()?.id;
-            if (currentChatId) {
-                chatManager.markChatDirty(currentChatId);
-                await chatManager.saveChat(currentChatId);
-            }
-        }
-
-        return thumbnail;
-    } catch (error) {
-        console.warn('[Message] 生成远端图片缩图失败:', error);
-        return imageSource;
+    // 同一張圖片正在生成中，直接等待既有 promise
+    if (_thumbnailInflight.has(imageSource)) {
+        return _thumbnailInflight.get(imageSource);
     }
+
+    const promise = (async () => {
+        try {
+            const blob = await fetchImageBlob(imageSource);
+            const dataUrl = await blobToDataUrl(blob);
+            const thumbnail = await createThumbnailImage(dataUrl);
+            // 快取淘汰：超過上限時刪除最早的 entry
+            if (_thumbnailCache.size >= THUMBNAIL_CACHE_MAX) {
+                const firstKey = _thumbnailCache.keys().next().value;
+                _thumbnailCache.delete(firstKey);
+            }
+            _thumbnailCache.set(imageSource, thumbnail);
+            return thumbnail;
+        } catch (error) {
+            console.warn('[Message] 生成远端图片缩图失败:', error);
+            return imageSource;
+        } finally {
+            _thumbnailInflight.delete(imageSource);
+        }
+    })();
+
+    _thumbnailInflight.set(imageSource, promise);
+    return promise;
 }
 
 function getImageItemSource(imageItem) {
@@ -819,14 +832,3 @@ function getImageItemSource(imageItem) {
     return typeof imageItem.url === 'string' ? imageItem.url : '';
 }
 
-function getImageItemThumbnail(imageItem) {
-    if (!imageItem || typeof imageItem !== 'object') {
-        return '';
-    }
-
-    if (typeof imageItem.thumbnail === 'string' && imageItem.thumbnail) {
-        return imageItem.thumbnail;
-    }
-
-    return getImageItemSource(imageItem);
-}

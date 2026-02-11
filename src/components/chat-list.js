@@ -1,38 +1,6 @@
 import { appendMessage } from '../handlers/message-handler.js';
 import { storageAdapter, browserAdapter, isExtensionEnvironment } from '../utils/storage-adapter.js';
 import { toggleQuickChatOptions } from './quick-chat.js';
-import { isHttpImageUrl } from '../utils/url.js';
-
-/**
- * 檢查聊天是否有待生成縮略圖的遠端圖片
- * @param {Object} chat - 聊天對象
- * @returns {boolean} 是否有待處理的遠端圖片
- */
-function hasPendingRemoteImageThumbnail(chat) {
-    if (!chat || !Array.isArray(chat.messages)) {
-        return false;
-    }
-
-    for (const message of chat.messages) {
-        if (!Array.isArray(message?.content)) {
-            continue;
-        }
-
-        for (const item of message.content) {
-            if (item?.type !== 'image_url') {
-                continue;
-            }
-
-            const imageSource = item.image_url?.url;
-            const thumbnailSource = item.image_url?.thumbnail;
-            if (isHttpImageUrl(imageSource) && !thumbnailSource) {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
 
 export async function renderChatList(chatManager, chatCards, searchTerm = '') {
     const template = chatCards.querySelector('.chat-card.template');
@@ -210,7 +178,7 @@ export function initChatListEvents({
             }
 
             const targetChat = chatManager.getAllChats().find(chat => chat.id === targetChatId);
-            const shouldShowLoading = hasPendingRemoteImageThumbnail(targetChat) || targetChat?._remoteOnly;
+            const shouldShowLoading = targetChat?._remoteOnly;
             switchingChatId = targetChatId;
 
             if (shouldShowLoading) {
