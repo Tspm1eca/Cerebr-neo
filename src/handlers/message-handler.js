@@ -1,18 +1,9 @@
 import { chatManager } from '../utils/chat-manager.js';
 import { showImagePreview, createImageTag, removeImageFromChatManager, applyImageTagThumbnail } from '../utils/ui.js';
 import { createThumbnailImage } from '../utils/image.js';
-import { syncStorageAdapter } from '../utils/storage-adapter.js';
-import { isHttpImageUrl, buildWebdavBaseUrl, blobToDataUrl } from '../utils/url.js';
+import { isHttpImageUrl, blobToDataUrl } from '../utils/url.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
 import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
-
-const WEBDAV_CONFIG_KEY = 'webdav_config';
-const WEBDAV_CONFIG_CACHE_TTL = 15000;
-
-const webdavConfigCache = {
-    value: null,
-    timestamp: 0
-};
 
 // 氣泡拉伸動畫參數（欠阻尼彈簧 F = -k*x - c*v, ζ = c/(2√k)）
 const SPRING = {
@@ -772,51 +763,9 @@ export async function updateAIMessage({
     }
 }
 
-async function getWebdavConfig(forceRefresh = false) {
-    const now = Date.now();
-    if (
-        !forceRefresh &&
-        webdavConfigCache.value &&
-        (now - webdavConfigCache.timestamp) < WEBDAV_CONFIG_CACHE_TTL
-    ) {
-        return webdavConfigCache.value;
-    }
-
-    try {
-        const result = await syncStorageAdapter.get(WEBDAV_CONFIG_KEY);
-        webdavConfigCache.value = result?.[WEBDAV_CONFIG_KEY] || null;
-        webdavConfigCache.timestamp = now;
-        return webdavConfigCache.value;
-    } catch (error) {
-        console.warn('[Message] 读取 WebDAV 配置失败:', error);
-        return null;
-    }
-}
-
 async function fetchImageBlob(imageSource) {
     if (!isHttpImageUrl(imageSource)) {
         throw new Error('不支持的远端图片地址');
-    }
-
-    const webdavConfig = await getWebdavConfig();
-    const baseUrl = buildWebdavBaseUrl(webdavConfig);
-
-    if (webdavConfig?.enabled && baseUrl && imageSource.startsWith(`${baseUrl}/`) && webdavConfig.username) {
-        const credentials = btoa(`${webdavConfig.username}:${webdavConfig.password || ''}`);
-        const response = await fetch(imageSource, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Basic ${credentials}`,
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            credentials: 'omit'
-        });
-
-        if (!response.ok) {
-            throw new Error(`拉取远端图片失败: HTTP ${response.status}`);
-        }
-
-        return await response.blob();
     }
 
     const response = await fetch(imageSource);

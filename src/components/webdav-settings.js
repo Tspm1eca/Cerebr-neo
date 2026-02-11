@@ -547,12 +547,15 @@ class WebDAVSettingsController {
 
     /**
      * 执行开启时同步
+     * @param {Object} options - 选项
+     * @param {string} options.currentChatId - 當前聊天 ID（按需下載用）
      * @returns {Promise<Object>} 同步结果
      */
-    async performSyncOnOpen() {
+    async performSyncOnOpen(options = {}) {
         try {
             // 首先检查是否有冲突
             const syncResult = await webdavSyncManager.syncOnOpen({
+                currentChatId: options.currentChatId,
                 onConflict: async () => {
                     // 获取冲突信息，检查时间戳是否相同
                     const conflictInfo = await webdavSyncManager.getConflictInfo();
@@ -586,7 +589,9 @@ class WebDAVSettingsController {
                     result = await webdavSyncManager.syncToRemote();
                     return { synced: true, direction: 'upload', result, error: null };
                 } else {
-                    result = await webdavSyncManager.syncFromRemote();
+                    result = await webdavSyncManager.syncFromRemote({
+                        currentChatId: options.currentChatId
+                    });
                     // 如果是下载，触发回调以重新载入数据
                     if (result.needsReload && this.callbacks.onDataReload) {
                         await this.callbacks.onDataReload(result);

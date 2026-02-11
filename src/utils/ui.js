@@ -1,15 +1,5 @@
-import { syncStorageAdapter } from './storage-adapter.js';
-import { isHttpImageUrl, buildWebdavBaseUrl } from './url.js';
+import { isHttpImageUrl } from './url.js';
 
-const WEBDAV_CONFIG_KEY = 'webdav_config';
-const WEBDAV_CONFIG_CACHE_TTL = 15000;
-const MAX_PREVIEW_BLOB_CACHE = 80;
-
-const webdavConfigCache = {
-    value: null,
-    timestamp: 0
-};
-const imagePreviewBlobCache = new Map();
 let previewRequestToken = 0;
 
 function toDisplayImageSource(imageSource) {
@@ -28,136 +18,14 @@ function toDisplayImageSource(imageSource) {
     return `data:image/png;base64,${imageSource}`;
 }
 
-async function getWebdavConfig(forceRefresh = false) {
-    const now = Date.now();
-    if (
-        !forceRefresh &&
-        webdavConfigCache.value &&
-        (now - webdavConfigCache.timestamp) < WEBDAV_CONFIG_CACHE_TTL
-    ) {
-        return webdavConfigCache.value;
-    }
-
-    try {
-        const result = await syncStorageAdapter.get(WEBDAV_CONFIG_KEY);
-        webdavConfigCache.value = result?.[WEBDAV_CONFIG_KEY] || null;
-        webdavConfigCache.timestamp = now;
-        return webdavConfigCache.value;
-    } catch (error) {
-        console.warn('[UI] 读取 WebDAV 配置失败:', error);
-        return null;
-    }
-}
-
-function cachePreviewBlobUrl(imageUrl, blobUrl) {
-    imagePreviewBlobCache.set(imageUrl, blobUrl);
-    if (imagePreviewBlobCache.size <= MAX_PREVIEW_BLOB_CACHE) {
-        return;
-    }
-
-    const oldestItem = imagePreviewBlobCache.entries().next().value;
-    if (!oldestItem) {
-        return;
-    }
-
-    const [oldestKey, oldestBlobUrl] = oldestItem;
-    URL.revokeObjectURL(oldestBlobUrl);
-    imagePreviewBlobCache.delete(oldestKey);
-}
-
-async function tryFetchAuthenticatedWebdavBlob(imageUrl, cachedConfig = null) {
-    if (!isHttpImageUrl(imageUrl)) {
-        return null;
-    }
-
-    const webdavConfig = cachedConfig || await getWebdavConfig();
-    if (!webdavConfig?.enabled || !webdavConfig?.username) {
-        return null;
-    }
-
-    const baseUrl = buildWebdavBaseUrl(webdavConfig);
-    if (!baseUrl || !imageUrl.startsWith(`${baseUrl}/`)) {
-        return null;
-    }
-
-    const cachedBlobUrl = imagePreviewBlobCache.get(imageUrl);
-    if (cachedBlobUrl) {
-        return cachedBlobUrl;
-    }
-
-    const credentials = btoa(`${webdavConfig.username}:${webdavConfig.password || ''}`);
-    const response = await fetch(imageUrl, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Basic ${credentials}`,
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        credentials: 'omit'
-    });
-
-    if (!response.ok) {
-        throw new Error(`加载远端图片失败: HTTP ${response.status}`);
-    }
-
-    const blob = await response.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    cachePreviewBlobUrl(imageUrl, blobUrl);
-    return blobUrl;
-}
-
-async function resolvePreviewImageSource(imageSource) {
-    if (typeof imageSource !== 'string' || !imageSource) {
-        return '';
-    }
-
-    const displaySource = toDisplayImageSource(imageSource);
-    if (!displaySource) {
-        return '';
-    }
-
-    if (!isHttpImageUrl(displaySource)) {
-        return displaySource;
-    }
-
-    try {
-        const protectedBlobUrl = await tryFetchAuthenticatedWebdavBlob(displaySource);
-        return protectedBlobUrl || displaySource;
-    } catch (error) {
-        console.warn('[UI] 使用授权加载图片失败，将回退到原始 URL:', error);
-        return displaySource;
-    }
-}
-
 export function setImageElementSource(imgElement, imageSource) {
     const displaySource = toDisplayImageSource(imageSource);
-    imgElement.removeAttribute('data-webdav-auth-retried');
     if (displaySource) {
         imgElement.setAttribute('data-original-src', displaySource);
     } else {
         imgElement.removeAttribute('data-original-src');
     }
     imgElement.src = displaySource || '';
-
-    if (!isHttpImageUrl(displaySource)) {
-        return;
-    }
-
-    imgElement.addEventListener('error', async () => {
-        if (imgElement.getAttribute('data-webdav-auth-retried') === '1') {
-            return;
-        }
-
-        imgElement.setAttribute('data-webdav-auth-retried', '1');
-
-        try {
-            const blobUrl = await tryFetchAuthenticatedWebdavBlob(displaySource);
-            if (blobUrl) {
-                imgElement.src = blobUrl;
-            }
-        } catch (error) {
-            console.warn('[UI] 图片授权加载失败:', error);
-        }
-    }, { once: true });
 }
 
 function setPreviewLoadingState(previewModal, isLoading) {
@@ -300,19 +168,18 @@ export async function showImagePreview({
         return;
     }
 
-    const resolvedSource = await resolvePreviewImageSource(inputSource);
+    const resolvedSource = toDisplayImageSource(inputSource);
     if (currentToken !== previewRequestToken || !previewModal.classList.contains('visible')) {
         return;
     }
 
-    const finalSource = resolvedSource || toDisplayImageSource(inputSource);
-    if (!finalSource) {
+    if (!resolvedSource) {
         setPreviewLoadingState(previewModal, false);
         return;
     }
 
     bindPreviewImageLoadState(previewImage, previewModal, currentToken);
-    previewImage.src = finalSource;
+    previewImage.src = resolvedSource;
 
     if (previewImage.complete) {
         setPreviewLoadingState(previewModal, false);

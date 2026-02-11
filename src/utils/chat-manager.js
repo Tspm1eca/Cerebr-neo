@@ -10,7 +10,16 @@ export class ChatManager {
         this.currentChatId = null;
         this.chats = new Map();
         this.apiConfig = null; // 用于存储API配置
+        this.onDemandLoader = null; // WebDAV 按需下載回調
         this.initialize();
+    }
+
+    /**
+     * 設定按需下載回調（由 main.js 在 WebDAV 啟用時設定）
+     * @param {Function} loader - async (chatId) => chatData | null
+     */
+    setOnDemandLoader(loader) {
+        this.onDemandLoader = loader;
     }
 
     setApiConfig(config) {
@@ -62,6 +71,22 @@ export class ChatManager {
         if (!this.chats.has(chatId)) {
             throw new Error('对话不存在');
         }
+
+        const chat = this.chats.get(chatId);
+
+        // 按需載入：如果聊天標記為 _remoteOnly，從 WebDAV 下載完整內容
+        if (chat._remoteOnly && this.onDemandLoader) {
+            const fullChat = await this.onDemandLoader(chatId);
+            if (fullChat) {
+                delete fullChat._remoteOnly;
+                this.chats.set(chatId, fullChat);
+                await this.saveChats();
+            } else {
+                // 下載失敗，保持空殼狀態
+                console.warn(`[ChatManager] 按需下載聊天 ${chatId} 失敗`);
+            }
+        }
+
         this.currentChatId = chatId;
         await this.storage.set({ [CURRENT_CHAT_ID_KEY]: chatId });
         return this.chats.get(chatId);
@@ -73,6 +98,9 @@ export class ChatManager {
         }
         this.chats.delete(chatId);
         await this.saveChats();
+
+        // 通知 WebDAV 同步記錄刪除
+        document.dispatchEvent(new CustomEvent('chat-deleted', { detail: { chatId } }));
 
         // 如果删除的是当前对话，切换到其他对话
         if (chatId === this.currentChatId) {
@@ -149,6 +177,7 @@ export class ChatManager {
         const isFirstMessage = currentChat.isNew && currentChat.messages.length === 0;
 
         currentChat.messages.push(message);
+        currentChat.updatedAt = new Date().toISOString();
 
         // If there's webpage info, add the URLs to the chat
         if (webpageInfo && webpageInfo.pages) {
@@ -242,6 +271,7 @@ export class ChatManager {
         // 当流式响应结束时，触发标题生成
         if (isFinalUpdate) {
             delete lastMessage.updating;
+            currentChat.updatedAt = new Date().toISOString();
             // 检查是否是第一次AI回复（即对话中只有两条消息，一条user，一条assistant）
             if (currentChat.messages.length === 2) {
                 this.generateAndSaveTitle(currentChat);
@@ -257,6 +287,7 @@ export class ChatManager {
             throw new Error('对话不存在');
         }
         currentChat.messages.pop();
+        currentChat.updatedAt = new Date().toISOString();
         await this.saveChats();
     }
 
@@ -269,11 +300,18 @@ export class ChatManager {
         const currentChat = this.getCurrentChat();
         if (currentChat) {
             currentChat.messages = [];
+            currentChat.updatedAt = new Date().toISOString();
             await this.saveChats();
         }
     }
 
     async clearAllChats() {
+        // 通知 WebDAV 同步記錄所有刪除（批次發送一次事件）
+        const allIds = Array.from(this.chats.keys());
+        if (allIds.length > 0) {
+            document.dispatchEvent(new CustomEvent('chats-cleared', { detail: { chatIds: allIds } }));
+        }
+
         // 清除所有對話
         this.chats.clear();
 

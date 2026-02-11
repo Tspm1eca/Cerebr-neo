@@ -21,6 +21,7 @@ import {
 import { initWebpageMenu, getEnabledTabsContent } from './components/webpage-menu.js';
 import { initQuickChat, toggleQuickChatOptions } from './components/quick-chat.js';
 import { initWebDAVSettings, showToast as showWebDAVToast } from './components/webdav-settings.js';
+import { webdavSyncManager } from './services/webdav-sync.js';
 
 // 存储用户的问题历史
 let userQuestions = [];
@@ -1802,9 +1803,33 @@ let exaApiUrl = '';
     });
     await webdavSettingsController.initialize();
 
+    // WebDAV 按需下載：當用戶切換到 _remoteOnly 聊天時從 WebDAV 下載
+    chatManager.setOnDemandLoader((chatId) => webdavSyncManager.downloadChatFile(chatId));
+
+    // 監聯聊天刪除事件，記錄 tombstone 以便 WebDAV 同步
+    document.addEventListener('chat-deleted', async (e) => {
+        const { chatId } = e.detail;
+        if (webdavSyncManager.getConfig().enabled) {
+            await webdavSyncManager.addDeletedChatId(chatId);
+        }
+    });
+
+    // 監聽批次清除事件
+    document.addEventListener('chats-cleared', async (e) => {
+        const { chatIds } = e.detail;
+        if (webdavSyncManager.getConfig().enabled) {
+            for (const id of chatIds) {
+                await webdavSyncManager.addDeletedChatId(id);
+            }
+        }
+    });
+
     // WebDAV 同步函數 - 當用戶通過 Alt+Z 開啟插件時調用
     async function performWebDAVSyncOnOpen() {
-        await webdavSettingsController.performSyncOnOpen();
+        const currentChat = chatManager.getCurrentChat();
+        await webdavSettingsController.performSyncOnOpen({
+            currentChatId: currentChat?.id
+        });
     }
 
     // WebDAV 同步函數 - 當程序關閉時調用

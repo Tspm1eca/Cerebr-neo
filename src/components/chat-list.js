@@ -66,6 +66,8 @@ export async function renderChatList(chatManager, chatCards, searchTerm = '') {
     const filteredChats = allChats.filter(chat => {
         if (!searchTerm) return true; // 如果没有搜索词，则显示所有
         const titleMatch = chat.title.toLowerCase().includes(lowerCaseSearchTerm);
+        // _remoteOnly 的聊天只搜尋標題（messages 尚未下載）
+        if (chat._remoteOnly) return titleMatch;
         const contentMatch = chat.messages.some(message =>
             message.content &&
             (
@@ -208,7 +210,7 @@ export function initChatListEvents({
             }
 
             const targetChat = chatManager.getAllChats().find(chat => chat.id === targetChatId);
-            const shouldShowLoading = hasPendingRemoteImageThumbnail(targetChat);
+            const shouldShowLoading = hasPendingRemoteImageThumbnail(targetChat) || targetChat?._remoteOnly;
             switchingChatId = targetChatId;
 
             if (shouldShowLoading) {
