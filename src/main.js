@@ -433,7 +433,7 @@ let exaApiUrl = '';
                     });
                 }
             }
-            chatManager.saveChats();
+            chatManager.saveChat(currentChat.id);
 
             // 只移除AI消息（错误消息或旧的成功消息），保留用户消息
             if (aiMessageElement) {

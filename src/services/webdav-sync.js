@@ -20,7 +20,6 @@ const WEBDAV_LAST_SYNC_TIMESTAMP_KEY = 'webdav_last_sync_timestamp';
 const WEBDAV_DELETED_CHAT_IDS_KEY = 'webdav_deleted_chat_ids';
 const WEBDAV_CACHED_MANIFEST_KEY = 'webdav_cached_manifest';
 const WEBDAV_LOCAL_CHAT_HASHES_KEY = 'webdav_local_chat_hashes';
-const CHATS_KEY = 'cerebr_chats';
 
 // HTTP 状态码常量
 const HTTP_STATUS = {
@@ -921,9 +920,8 @@ class WebDAVSyncManager {
                 throw new Error('同步数据格式错误');
             }
 
-            // 載入本地聊天以進行比對
-            const localChatsResult = await storageAdapter.get(CHATS_KEY);
-            const localChats = localChatsResult[CHATS_KEY] || [];
+            // 載入本地聊天以進行比對（從 ChatManager 記憶體讀取，無 I/O）
+            const localChats = chatManager.getAllChatsArray();
             const localChatMap = new Map(localChats.map(c => [c.id, c]));
 
             // 載入 per-chat hash table（用查表取代重新計算 hash）
@@ -1001,8 +999,8 @@ class WebDAVSyncManager {
                 updatedHashes.delete(id);
             }
 
-            // 儲存合併後的聊天到本地
-            await storageAdapter.set({ [CHATS_KEY]: mergedChats });
+            // 儲存合併後的聊天到本地（per-chat key-value 格式）
+            await chatManager.replaceAllChats(mergedChats);
 
             // 恢復快速選項
             let quickChatOptionsSynced = false;
@@ -1143,8 +1141,7 @@ class WebDAVSyncManager {
         }
 
         try {
-            const result = await storageAdapter.get(CHATS_KEY);
-            const chats = result[CHATS_KEY] || [];
+            const chats = chatManager.getAllChatsArray();
 
             const quickChatResult = await syncStorageAdapter.get('quickChatOptions');
             const quickChatOptions = quickChatResult.quickChatOptions || [];

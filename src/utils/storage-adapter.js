@@ -34,31 +34,41 @@ function getDb() {
 
 // 存储适配器
 export const storageAdapter = {
-    // 获取存储的数据
-    async get(key) {
+    // 获取存储的数据（支援單一 key 或 key 陣列）
+    async get(keyOrKeys) {
         if (isExtensionEnvironment) {
-            return await chrome.storage.local.get(key);
+            return await chrome.storage.local.get(keyOrKeys);
         } else {
+            const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
             try {
                 const db = await getDb();
-                if (!db) return { [key]: undefined }; // 如果数据库打开失败
+                if (!db) return Object.fromEntries(keys.map(k => [k, undefined]));
 
                 return new Promise((resolve, reject) => {
                     const transaction = db.transaction([IDB_STORE_NAME], 'readonly');
                     const store = transaction.objectStore(IDB_STORE_NAME);
-                    const request = store.get(key);
+                    const result = {};
 
-                    request.onsuccess = () => {
-                        resolve({ [key]: request.result });
-                    };
-                    request.onerror = (event) => {
-                        console.error(`IndexedDB get error for key ${key}:`, event.target.error);
+                    for (const key of keys) {
+                        const request = store.get(key);
+                        request.onsuccess = () => {
+                            result[key] = request.result;
+                        };
+                        request.onerror = (event) => {
+                            console.error(`IndexedDB get error for key ${key}:`, event.target.error);
+                            reject(event.target.error);
+                        };
+                    }
+
+                    transaction.oncomplete = () => resolve(result);
+                    transaction.onerror = (event) => {
+                        console.error('IndexedDB get transaction error:', event.target.error);
                         reject(event.target.error);
                     };
                 });
             } catch (error) {
-                console.error('Failed to get data from IndexedDB for key ' + key + ':', error);
-                return { [key]: undefined };
+                console.error('Failed to get data from IndexedDB:', error);
+                return Object.fromEntries(keys.map(k => [k, undefined]));
             }
         }
     },
@@ -72,11 +82,8 @@ export const storageAdapter = {
                 const db = await getDb();
                 if (!db) throw new Error("IndexedDB not available");
 
-                // 假设 data 是一个对象，我们需要迭代它来存储每个键值对
-                // 或者，如果 ChatManager 总是用一个固定的主键（如 'cerebr_chats'）来保存所有聊天，
-                // 那么这里的逻辑可以简化。
-                // 当前 ChatManager 的 saveChats 是 this.storage.set({ [CHATS_KEY]: Array.from(this.chats.values()) });
-                // 所以 data 是 { 'cerebr_chats': [...] }
+                // data 是一個物件，迭代它來存儲每個鍵值對
+                // 例如：{ 'cerebr_chat_123': chatObj, 'cerebr_chat_index': [...] }
 
                 const entries = Object.entries(data);
                 if (entries.length === 0) return Promise.resolve();
@@ -84,20 +91,12 @@ export const storageAdapter = {
                 return new Promise((resolve, reject) => {
                     const transaction = db.transaction([IDB_STORE_NAME], 'readwrite');
                     const store = transaction.objectStore(IDB_STORE_NAME);
-                    let completedOperations = 0;
 
                     entries.forEach(([key, value]) => {
                         const request = store.put(value, key);
-                        request.onsuccess = () => {
-                            completedOperations++;
-                            if (completedOperations === entries.length) {
-                                // resolve(); // 事务完成后再 resolve
-                            }
-                        };
                         request.onerror = (event) => {
-                            // 如果任何一个 put 失败，我们应该中止事务并 reject
                             console.error(`IndexedDB set error for key ${key}:`, event.target.error);
-                            transaction.abort(); // 中止事务
+                            transaction.abort();
                             reject(event.target.error);
                         };
                     });
@@ -118,6 +117,43 @@ export const storageAdapter = {
             } catch (error) {
                 console.error('Failed to set data in IndexedDB:', error);
                 // 根据应用的需要决定如何处理这个错误，例如向上抛出
+                throw error;
+            }
+        }
+    },
+
+    // 刪除存儲的數據（支援單一 key 或 key 陣列）
+    async remove(keys) {
+        const keyArray = Array.isArray(keys) ? keys : [keys];
+        if (keyArray.length === 0) return;
+
+        if (isExtensionEnvironment) {
+            await chrome.storage.local.remove(keyArray);
+        } else {
+            try {
+                const db = await getDb();
+                if (!db) throw new Error("IndexedDB not available");
+
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction([IDB_STORE_NAME], 'readwrite');
+                    const store = transaction.objectStore(IDB_STORE_NAME);
+
+                    for (const key of keyArray) {
+                        store.delete(key);
+                    }
+
+                    transaction.oncomplete = () => resolve();
+                    transaction.onerror = (event) => {
+                        console.error('IndexedDB remove transaction error:', event.target.error);
+                        reject(event.target.error);
+                    };
+                    transaction.onabort = (event) => {
+                        console.error('IndexedDB remove transaction aborted:', event.target.error);
+                        reject(new Error('Transaction aborted'));
+                    };
+                });
+            } catch (error) {
+                console.error('Failed to remove data from IndexedDB:', error);
                 throw error;
             }
         }

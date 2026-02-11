@@ -444,7 +444,7 @@ export function initChatContainer({
                                     textItem.text = newText;
                                 }
                             }
-                            chatManager.saveChats();
+                            chatManager.saveChat(chatManager.currentChatId);
                         }
                     } else {
                         // 如果文本没有变化或为空，恢复原始内容
@@ -519,7 +519,7 @@ export function initChatContainer({
                                     textItem.text = newText;
                                 }
                             }
-                            chatManager.saveChats();
+                            chatManager.saveChat(chatManager.currentChatId);
                         }
 
                         // 触发重新生成消息
@@ -659,7 +659,7 @@ export function initChatContainer({
                 const currentChat = chatManager.getCurrentChat();
                 if (currentChat && messageIndex !== -1) {
                     currentChat.messages.splice(messageIndex, 1);
-                    chatManager.saveChats();
+                    chatManager.saveChat(chatManager.currentChatId);
                 }
 
                 // 隐藏右键菜单

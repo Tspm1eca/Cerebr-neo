@@ -1,7 +1,8 @@
 import { storageAdapter } from './storage-adapter.js';
 import { generateTitle } from '../services/title-generator.js';
 
-const CHATS_KEY = 'cerebr_chats';
+const CHAT_KEY_PREFIX = 'cerebr_chat_'; // Per-chat key 前綴
+const CHAT_INDEX_KEY = 'cerebr_chat_index'; // 輕量索引
 const CURRENT_CHAT_ID_KEY = 'cerebr_current_chat_id';
 const DIRTY_CHAT_IDS_KEY = 'cerebr_dirty_chat_ids';
 
@@ -13,9 +14,74 @@ export class ChatManager {
         this.apiConfig = null; // 用于存储API配置
         this.onDemandLoader = null; // WebDAV 按需下載回調
         this._dirtyChatIds = new Set(); // WebDAV 同步用：追蹤被修改的聊天
-        this._saveDebounceTimer = null; // 流式更新時的 debounce 計時器
+        this._saveDebounceTimers = new Map(); // 流式更新時的 per-chat debounce 計時器
+        this._chatIndex = []; // 記憶體中維護的輕量索引
         this.initialize();
     }
+
+    // ==================== Per-Chat 儲存輔助方法 ====================
+
+    /**
+     * 建構 per-chat 的 storage key
+     */
+    _chatKey(chatId) {
+        return CHAT_KEY_PREFIX + chatId;
+    }
+
+    /**
+     * 從 chat 物件建構輕量索引條目（不含 messages）
+     */
+    _buildIndexEntry(chat) {
+        return {
+            id: chat.id,
+            title: chat.title,
+            createdAt: chat.createdAt,
+            updatedAt: chat.updatedAt || chat.createdAt,
+            webpageUrls: chat.webpageUrls || [],
+            messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0,
+            _remoteOnly: chat._remoteOnly || false
+        };
+    }
+
+    /**
+     * 從目前記憶體中的 chats Map 重建完整索引（僅用於批次操作）
+     */
+    _buildCurrentIndex() {
+        this._chatIndex = Array.from(this.chats.values())
+            .filter(chat => !chat.isNew)
+            .map(chat => this._buildIndexEntry(chat));
+        return this._chatIndex;
+    }
+
+    /**
+     * 增量更新索引中的單一條目（O(1) 查找 + 更新）
+     * @param {string} chatId - 要更新的聊天 ID
+     */
+    _updateIndexEntry(chatId) {
+        const chat = this.chats.get(chatId);
+        if (!chat || chat.isNew) return;
+
+        const entry = this._buildIndexEntry(chat);
+        const idx = this._chatIndex.findIndex(e => e.id === chatId);
+        if (idx !== -1) {
+            this._chatIndex[idx] = entry;
+        } else {
+            this._chatIndex.push(entry);
+        }
+    }
+
+    /**
+     * 從索引中移除指定的條目
+     * @param {string} chatId - 要移除的聊天 ID
+     */
+    _removeIndexEntry(chatId) {
+        const idx = this._chatIndex.findIndex(e => e.id === chatId);
+        if (idx !== -1) {
+            this._chatIndex.splice(idx, 1);
+        }
+    }
+
+    // ==================== WebDAV Dirty Flag 管理 ====================
 
     /**
      * 設定按需下載回調（由 main.js 在 WebDAV 啟用時設定）
@@ -60,19 +126,22 @@ export class ChatManager {
         this.apiConfig = config;
     }
 
-    async initialize() {
-        // 加载所有对话
-        const result = await this.storage.get(CHATS_KEY);
-        const savedChats = result[CHATS_KEY] || [];
+    // ==================== 初始化 ====================
 
-        // 清空現有的對話 Map，確保刪除的對話不會殘留
+    async initialize() {
         this.chats.clear();
 
-        if (Array.isArray(savedChats)) {
-            savedChats.forEach(chat => {
-                this.chats.set(chat.id, chat);
-            });
+        // 載入 per-chat index
+        const indexResult = await this.storage.get(CHAT_INDEX_KEY);
+        const chatIndex = indexResult[CHAT_INDEX_KEY];
+
+        if (chatIndex && Array.isArray(chatIndex) && chatIndex.length > 0) {
+            await this._loadFromPerChatKeys(chatIndex);
         }
+        // 空陣列或不存在：chats Map 保持空（新安裝）
+
+        // 從載入的 chats 建構記憶體索引
+        this._buildCurrentIndex();
 
         // 获取当前对话ID
         const currentChatResult = await this.storage.get(CURRENT_CHAT_ID_KEY);
@@ -97,6 +166,151 @@ export class ChatManager {
         }
     }
 
+    /**
+     * 從 per-chat keys 載入聊天（新格式）
+     */
+    async _loadFromPerChatKeys(chatIndex) {
+        // 分離需要從儲存載入的聊天和 remoteOnly 空殼
+        const entriesToFetch = [];
+        const remoteOnlyEntries = [];
+
+        for (const entry of chatIndex) {
+            if (entry._remoteOnly) {
+                remoteOnlyEntries.push(entry);
+            } else {
+                entriesToFetch.push(entry);
+            }
+        }
+
+        // 批次讀取所有非 remoteOnly 的聊天
+        if (entriesToFetch.length > 0) {
+            const keys = entriesToFetch.map(e => this._chatKey(e.id));
+            const results = await this.storage.get(keys);
+
+            for (const entry of entriesToFetch) {
+                const chatData = results[this._chatKey(entry.id)];
+                if (chatData) {
+                    this.chats.set(entry.id, chatData);
+                }
+                // 若 chatData 缺失（孤兒索引），跳過
+            }
+        }
+
+        // 重建 remoteOnly 空殼
+        for (const entry of remoteOnlyEntries) {
+            this.chats.set(entry.id, {
+                id: entry.id,
+                title: entry.title,
+                createdAt: entry.createdAt,
+                updatedAt: entry.updatedAt,
+                webpageUrls: entry.webpageUrls || [],
+                messages: [],
+                _remoteOnly: true
+            });
+        }
+    }
+
+    // ==================== Per-Chat 儲存操作 ====================
+
+    /**
+     * 儲存單一聊天 — 只寫入該聊天的 key 和增量更新索引
+     * @param {string} chatId - 要儲存的聊天 ID
+     */
+    async saveChat(chatId) {
+        const chat = this.chats.get(chatId);
+        if (!chat || chat.isNew) return;
+
+        this._updateIndexEntry(chatId);
+        await this.storage.set({
+            [this._chatKey(chatId)]: chat,
+            [CHAT_INDEX_KEY]: this._chatIndex
+        });
+    }
+
+    /**
+     * 延遲儲存單一聊天 — 用於流式更新期間，避免頻繁寫入。
+     * 每個 chatId 獨立計時，多次呼叫只會在最後一次呼叫後 500ms 執行一次寫入。
+     */
+    _debouncedSaveChat(chatId) {
+        const existingTimer = this._saveDebounceTimers.get(chatId);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
+        const timer = setTimeout(() => {
+            this._saveDebounceTimers.delete(chatId);
+            this.saveChat(chatId);
+        }, 500);
+        this._saveDebounceTimers.set(chatId, timer);
+    }
+
+    /**
+     * 立即寫入單一聊天並取消待處理的 debounce — 用於流式結束時的最終儲存。
+     */
+    async flushSaveChat(chatId) {
+        if (!chatId) return;
+        const existingTimer = this._saveDebounceTimers.get(chatId);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+            this._saveDebounceTimers.delete(chatId);
+        }
+        await this.saveChat(chatId);
+    }
+
+    // ==================== WebDAV 同步用輔助方法 ====================
+
+    /**
+     * 回傳所有聊天的陣列（從記憶體 Map 讀取，無 I/O）
+     * 供 WebDAV 同步層使用
+     */
+    getAllChatsArray() {
+        return Array.from(this.chats.values()).filter(chat => !chat.isNew);
+    }
+
+    /**
+     * 替換所有本地聊天（供 WebDAV 同步下載後使用）
+     * 寫入所有 per-chat keys + 清理孤兒 keys + 更新索引
+     * @param {Array} chatsArray - 合併後的聊天陣列
+     */
+    async replaceAllChats(chatsArray) {
+        // 記錄舊的 chat IDs，用於清理孤兒 keys
+        const oldChatIds = new Set(this.chats.keys());
+
+        this.chats.clear();
+
+        const dataToWrite = {};
+        const indexEntries = [];
+        const newChatIds = new Set();
+
+        for (const chat of chatsArray) {
+            this.chats.set(chat.id, chat);
+            newChatIds.add(chat.id);
+            if (!chat.isNew) {
+                if (!chat._remoteOnly) {
+                    dataToWrite[this._chatKey(chat.id)] = chat;
+                }
+                indexEntries.push(this._buildIndexEntry(chat));
+            }
+        }
+        dataToWrite[CHAT_INDEX_KEY] = indexEntries;
+        this._chatIndex = indexEntries;
+
+        // 寫入新資料
+        await this.storage.set(dataToWrite);
+
+        // 清理孤兒 keys（舊的 chat 不在新列表中）
+        const orphanedKeys = [];
+        for (const oldId of oldChatIds) {
+            if (!newChatIds.has(oldId)) {
+                orphanedKeys.push(this._chatKey(oldId));
+            }
+        }
+        if (orphanedKeys.length > 0) {
+            await this.storage.remove(orphanedKeys);
+        }
+    }
+
+    // ==================== CRUD 操作 ====================
+
     createNewChat(title = '新对话') {
         const chatId = Date.now().toString();
         const chat = {
@@ -108,7 +322,6 @@ export class ChatManager {
             isNew: true // 添加一个标记来识别新创建的、尚未保存的对话
         };
         this.chats.set(chatId, chat);
-        // this.saveChats(); // 不再立即保存
         return chat;
     }
 
@@ -126,7 +339,7 @@ export class ChatManager {
                 delete fullChat._remoteOnly;
                 this.chats.set(chatId, fullChat);
                 this.markChatDirty(chatId);
-                await this.saveChats();
+                await this.saveChat(chatId);
             } else {
                 // 下載失敗，保持空殼狀態
                 console.warn(`[ChatManager] 按需下載聊天 ${chatId} 失敗`);
@@ -143,7 +356,11 @@ export class ChatManager {
             throw new Error('对话不存在');
         }
         this.chats.delete(chatId);
-        await this.saveChats();
+        this._removeIndexEntry(chatId);
+
+        // 更新索引並移除 per-chat key
+        await this.storage.set({ [CHAT_INDEX_KEY]: this._chatIndex });
+        this.storage.remove(this._chatKey(chatId)).catch(() => {});
 
         // 通知 WebDAV 同步記錄刪除
         document.dispatchEvent(new CustomEvent('chat-deleted', { detail: { chatId } }));
@@ -196,20 +413,31 @@ export class ChatManager {
             // getAllChats 返回的是按創建時間降序排列的，所以最舊的在最後
             const chatsToDelete = allChats.slice(-excessCount);
 
-            let deletedCount = 0;
+            const deletedIds = [];
             for (const chat of chatsToDelete) {
                 // 不刪除當前正在使用的對話
                 if (chat.id !== this.currentChatId) {
                     this.chats.delete(chat.id);
-                    deletedCount++;
+                    this._removeIndexEntry(chat.id);
+                    deletedIds.push(chat.id);
                 }
             }
 
-            if (deletedCount > 0) {
-                await this.saveChats();
+            if (deletedIds.length > 0) {
+                // 清理 dirty flags，避免 WebDAV 同步嘗試同步已刪除的聊天
+                this.clearDirtyChatIds(deletedIds);
+
+                // 通知 WebDAV 同步記錄刪除
+                for (const id of deletedIds) {
+                    document.dispatchEvent(new CustomEvent('chat-deleted', { detail: { chatId: id } }));
+                }
+
+                const keysToRemove = deletedIds.map(id => this._chatKey(id));
+                await this.storage.set({ [CHAT_INDEX_KEY]: this._chatIndex });
+                this.storage.remove(keysToRemove).catch(() => {});
             }
 
-            return deletedCount;
+            return deletedIds.length;
         }
         return 0;
     }
@@ -268,7 +496,7 @@ export class ChatManager {
             }, 0);
         }
 
-        await this.saveChats();
+        await this.saveChat(currentChat.id);
     }
 
     async generateAndSaveTitle(chat) {
@@ -284,7 +512,7 @@ export class ChatManager {
         if (newTitle && newTitle !== chat.title) {
             chat.title = newTitle;
             this.markChatDirty(chat.id);
-            await this.saveChats();
+            await this.saveChat(chat.id);
             // 通知UI更新
             document.dispatchEvent(new CustomEvent('chat-title-updated', { detail: { chatId: chat.id, newTitle } }));
         }
@@ -326,10 +554,10 @@ export class ChatManager {
             if (currentChat.messages.length === 2) {
                 this.generateAndSaveTitle(currentChat);
             }
-            await this.flushSaveChats();
+            await this.flushSaveChat(chatId);
         } else {
-            // 流式中間更新：只更新記憶體，延遲寫入 IndexedDB
-            this._debouncedSaveChats();
+            // 流式中間更新：只更新記憶體，延遲寫入單一聊天
+            this._debouncedSaveChat(chatId);
         }
     }
 
@@ -341,37 +569,7 @@ export class ChatManager {
         currentChat.messages.pop();
         currentChat.updatedAt = new Date().toISOString();
         this.markChatDirty(currentChat.id);
-        await this.saveChats();
-    }
-
-    async saveChats() {
-        const chatsToSave = Array.from(this.chats.values()).filter(chat => !chat.isNew);
-        await this.storage.set({ [CHATS_KEY]: chatsToSave });
-    }
-
-    /**
-     * 延遲儲存 — 用於流式更新期間，避免每 100ms 都寫入 IndexedDB。
-     * 多次呼叫只會在最後一次呼叫後 500ms 執行一次寫入。
-     */
-    _debouncedSaveChats() {
-        if (this._saveDebounceTimer) {
-            clearTimeout(this._saveDebounceTimer);
-        }
-        this._saveDebounceTimer = setTimeout(() => {
-            this._saveDebounceTimer = null;
-            this.saveChats();
-        }, 500);
-    }
-
-    /**
-     * 立即寫入並取消任何待處理的 debounce — 用於流式結束時的最終儲存。
-     */
-    async flushSaveChats() {
-        if (this._saveDebounceTimer) {
-            clearTimeout(this._saveDebounceTimer);
-            this._saveDebounceTimer = null;
-        }
-        await this.saveChats();
+        await this.saveChat(this.currentChatId);
     }
 
     async clearCurrentChat() {
@@ -380,7 +578,7 @@ export class ChatManager {
             currentChat.messages = [];
             currentChat.updatedAt = new Date().toISOString();
             this.markChatDirty(currentChat.id);
-            await this.saveChats();
+            await this.saveChat(this.currentChatId);
         }
     }
 
@@ -391,11 +589,18 @@ export class ChatManager {
             document.dispatchEvent(new CustomEvent('chats-cleared', { detail: { chatIds: allIds } }));
         }
 
-        // 清除所有對話
+        // 移除所有 per-chat keys
+        const keysToRemove = allIds.map(id => this._chatKey(id));
+        if (keysToRemove.length > 0) {
+            await this.storage.remove(keysToRemove);
+        }
+
+        // 清除記憶體
         this.chats.clear();
 
-        // 保存空的對話列表到存儲
-        await this.saveChats();
+        // 寫入空索引
+        this._chatIndex = [];
+        await this.storage.set({ [CHAT_INDEX_KEY]: [] });
 
         // 創建一個新的默認對話
         const defaultChat = this.createNewChat('默认对话');
