@@ -797,6 +797,10 @@ async function ensureMessageImageThumbnail(imageItem) {
         imageItem.thumbnail = thumbnail;
 
         if (chatManager?.saveChats) {
+            const currentChatId = chatManager.getCurrentChat()?.id;
+            if (currentChatId) {
+                chatManager.markChatDirty(currentChatId);
+            }
             await chatManager.saveChats();
         }
 

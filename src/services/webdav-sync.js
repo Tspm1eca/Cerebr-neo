@@ -9,6 +9,7 @@
 
 import { storageAdapter, syncStorageAdapter } from '../utils/storage-adapter.js';
 import { encrypt, decrypt, isEncrypted, encryptPasswordForStorage, decryptPasswordFromStorage, isEncryptedPassword } from '../utils/crypto.js';
+import { chatManager } from '../utils/chat-manager.js';
 
 // WebDAV 配置键
 const WEBDAV_CONFIG_KEY = 'webdav_config';
@@ -18,6 +19,7 @@ const WEBDAV_LOCAL_HASH_KEY = 'webdav_local_hash';
 const WEBDAV_LAST_SYNC_TIMESTAMP_KEY = 'webdav_last_sync_timestamp';
 const WEBDAV_DELETED_CHAT_IDS_KEY = 'webdav_deleted_chat_ids';
 const WEBDAV_CACHED_MANIFEST_KEY = 'webdav_cached_manifest';
+const WEBDAV_LOCAL_CHAT_HASHES_KEY = 'webdav_local_chat_hashes';
 const CHATS_KEY = 'cerebr_chats';
 
 // HTTP 状态码常量
@@ -76,8 +78,10 @@ function computeChatHash(chat) {
 
 /**
  * 從完整聊天物件建立 chatIndex entry（metadata only）
+ * @param {Object} chat - 聊天物件
+ * @param {string|null} precomputedHash - 預先計算的 hash（可選，避免重複計算）
  */
-function buildChatIndexEntry(chat) {
+function buildChatIndexEntry(chat, precomputedHash = null) {
     return {
         id: chat.id,
         title: chat.title,
@@ -85,7 +89,7 @@ function buildChatIndexEntry(chat) {
         updatedAt: chat.updatedAt || chat.createdAt || new Date().toISOString(),
         webpageUrls: chat.webpageUrls || [],
         messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0,
-        hash: computeChatHash(chat)
+        hash: precomputedHash || computeChatHash(chat)
     };
 }
 
@@ -520,6 +524,8 @@ class WebDAVSyncManager {
     clearCache() {
         this._cachedLocalData = null;
         this._cachedLocalHash = null;
+        this._cachedChatIndex = null;
+        this._cachedLocalChatHashes = null;
         this._cacheTimestamp = 0;
     }
 
@@ -539,6 +545,28 @@ class WebDAVSyncManager {
             await storageAdapter.set({ [WEBDAV_CACHED_MANIFEST_KEY]: manifest });
         } catch (e) {
             console.warn('[WebDAV] 快取 manifest 失敗:', e);
+        }
+    }
+
+    // ========== Per-Chat Hash Table ==========
+
+    async loadLocalChatHashes() {
+        try {
+            const result = await storageAdapter.get(WEBDAV_LOCAL_CHAT_HASHES_KEY);
+            const obj = result[WEBDAV_LOCAL_CHAT_HASHES_KEY];
+            return obj ? new Map(Object.entries(obj)) : new Map();
+        } catch {
+            return new Map();
+        }
+    }
+
+    async saveLocalChatHashes(hashMap) {
+        try {
+            await storageAdapter.set({
+                [WEBDAV_LOCAL_CHAT_HASHES_KEY]: Object.fromEntries(hashMap)
+            });
+        } catch (e) {
+            console.warn('[WebDAV] 儲存 local chat hashes 失敗:', e);
         }
     }
 
@@ -680,8 +708,6 @@ class WebDAVSyncManager {
 
     /**
      * 执行同步 - 上传本地数据到远端（v2 格式：分檔上傳）
-     * @param {Object} options - 选项
-     * @param {string} options.cachedHash - 已计算的本地 hash（可选）
      */
     async syncToRemote(options = {}) {
         if (!this.config.enabled) {
@@ -696,16 +722,17 @@ class WebDAVSyncManager {
         this.notifyListeners('sync-start', { direction: 'upload' });
 
         try {
-            const { data: localData, hash: localHash } = await this.getLocalSyncData();
+            // 快照當前 dirty IDs，同步完成後只清除這些（保留同步期間新增的）
+            const dirtySnapshot = new Set(chatManager.getDirtyChatIds());
+
+            const { data: localData, hash: localHash, chatIndex: prebuiltChatIndex, localChatHashes } =
+                await this.getLocalSyncData();
 
             if (!localData) {
                 throw new Error('无法获取本地数据');
             }
 
             const chats = localData.chats || [];
-
-            // 過濾掉 _remoteOnly 佔位聊天（尚未下載完整內容，不應上傳）
-            const localChats = chats.filter(c => !c._remoteOnly);
 
             // 載入上次的 manifest 以比對哪些聊天有變動
             const previousManifest = await this.loadCachedManifest();
@@ -717,16 +744,14 @@ class WebDAVSyncManager {
             const remoteOnlyEntries = (previousManifest?.chatIndex || [])
                 .filter(entry => chats.some(c => c.id === entry.id && c._remoteOnly));
 
-            // 建立 chatIndex 並找出變動的聊天
-            const chatIndex = [];
+            // 直接使用 getLocalSyncData 已建立的 chatIndex（消除重複計算）
+            const chatIndex = [...prebuiltChatIndex];
             const changedChats = [];
 
-            for (const chat of localChats) {
-                const entry = buildChatIndexEntry(chat);
-                chatIndex.push(entry);
-
-                if (entry.hash !== previousChatHashes.get(chat.id)) {
-                    changedChats.push(chat);
+            for (const entry of prebuiltChatIndex) {
+                if (entry.hash !== previousChatHashes.get(entry.id)) {
+                    const chat = chats.find(c => c.id === entry.id);
+                    if (chat) changedChats.push(chat);
                 }
             }
 
@@ -796,6 +821,12 @@ class WebDAVSyncManager {
             // 快取 manifest
             await this.saveCachedManifest(manifest);
 
+            // 儲存 per-chat hash table
+            await this.saveLocalChatHashes(localChatHashes);
+
+            // 清除同步開始時快照的 dirty flags（保留同步期間新增的）
+            chatManager.clearDirtyChatIds(dirtySnapshot);
+
             // 儲存已清理的 tombstone
             await this.saveDeletedChatIds(tombstones);
 
@@ -813,10 +844,9 @@ class WebDAVSyncManager {
             }
 
             // 儲存本地 Hash
-            const hashToSave = options.cachedHash || localHash;
-            if (hashToSave) {
+            if (localHash) {
                 try {
-                    await syncStorageAdapter.set({ [WEBDAV_LOCAL_HASH_KEY]: hashToSave });
+                    await syncStorageAdapter.set({ [WEBDAV_LOCAL_HASH_KEY]: localHash });
                 } catch (hashError) {
                     console.warn('[WebDAV] 储存本地 Hash 失败:', hashError);
                 }
@@ -875,6 +905,9 @@ class WebDAVSyncManager {
         this.notifyListeners('sync-start', { direction: 'download' });
 
         try {
+            // 快照當前 dirty IDs，同步完成後只清除這些（保留同步期間新增的）
+            const dirtySnapshot = new Set(chatManager.getDirtyChatIds());
+
             // 下載 manifest
             const downloadResult = await this.client.downloadData('cerebr.json');
             const syncData = downloadResult.data;
@@ -893,6 +926,9 @@ class WebDAVSyncManager {
             const localChats = localChatsResult[CHATS_KEY] || [];
             const localChatMap = new Map(localChats.map(c => [c.id, c]));
 
+            // 載入 per-chat hash table（用查表取代重新計算 hash）
+            const localChatHashes = await this.loadLocalChatHashes();
+
             // 處理 tombstone 刪除
             const deletedIds = new Set(
                 (syncData.deletedChatIds || []).map(t => t.id)
@@ -900,20 +936,28 @@ class WebDAVSyncManager {
 
             // 建立合併後的聊天列表
             const mergedChats = [];
+            const updatedHashes = new Map(localChatHashes);
             const currentChatId = options.currentChatId || null;
             const remoteEntryIds = new Set();
 
             for (const entry of syncData.chatIndex) {
-                if (deletedIds.has(entry.id)) continue;
+                if (deletedIds.has(entry.id)) {
+                    updatedHashes.delete(entry.id);
+                    continue;
+                }
                 remoteEntryIds.add(entry.id);
 
                 const localChat = localChatMap.get(entry.id);
                 const hasLocalFull = localChat && !localChat._remoteOnly;
-                const hashMatch = hasLocalFull && computeChatHash(localChat) === entry.hash;
+                // 用 stored hash 比對（不重新計算），比原來更正確：
+                // stored hash 代表上次同步狀態，若 remote hash 相同代表遠端沒變，保留本地版本
+                const storedHash = localChatHashes.get(entry.id);
+                const hashMatch = hasLocalFull && storedHash && storedHash === entry.hash;
 
                 // hash 相同，保留本地版本
                 if (hashMatch) {
                     mergedChats.push(localChat);
+                    updatedHashes.set(entry.id, entry.hash);
                     continue;
                 }
 
@@ -925,15 +969,23 @@ class WebDAVSyncManager {
                         );
                         if (chatResult.data) {
                             mergedChats.push(chatResult.data);
+                            updatedHashes.set(entry.id, entry.hash);
                             continue;
                         }
                     } catch (e) {
                         console.warn(`[WebDAV] 下載當前聊天 ${entry.id} 失敗:`, e);
                     }
                     // 下載失敗 fallback：有本地資料用本地，否則空殼
-                    mergedChats.push(hasLocalFull ? localChat : buildRemoteOnlyStub(entry));
+                    if (hasLocalFull) {
+                        mergedChats.push(localChat);
+                        updatedHashes.set(entry.id, computeChatHash(localChat));
+                    } else {
+                        mergedChats.push(buildRemoteOnlyStub(entry));
+                        updatedHashes.set(entry.id, entry.hash);
+                    }
                 } else {
                     mergedChats.push(buildRemoteOnlyStub(entry));
+                    updatedHashes.set(entry.id, entry.hash);
                 }
             }
 
@@ -942,6 +994,11 @@ class WebDAVSyncManager {
                 if (!remoteEntryIds.has(localChat.id) && !deletedIds.has(localChat.id) && !localChat._remoteOnly) {
                     mergedChats.push(localChat);
                 }
+            }
+
+            // 清理 hash table 中已刪除但不在 chatIndex 中的聊天（邊際情況：遠端已移除的 tombstone）
+            for (const id of deletedIds) {
+                updatedHashes.delete(id);
             }
 
             // 儲存合併後的聊天到本地
@@ -985,6 +1042,12 @@ class WebDAVSyncManager {
 
             // 快取 manifest
             await this.saveCachedManifest(syncData);
+
+            // 儲存更新後的 per-chat hash table
+            await this.saveLocalChatHashes(updatedHashes);
+
+            // 清除同步開始時快照的 dirty flags（保留同步期間新增的）
+            chatManager.clearDirtyChatIds(dirtySnapshot);
 
             // 清除本地數據快取
             this.clearCache();
@@ -1065,12 +1128,18 @@ class WebDAVSyncManager {
 
     /**
      * 获取本地同步数据（带缓存）
-     * hash 基於 chatIndex + quickChatOptions + apiSettings（不含 messages，速度更快）
+     * 使用 dirty flag + per-chat hash table 避免全量 hash 計算
+     * 回傳 chatIndex 和 localChatHashes 供 syncToRemote 直接使用，消除重複計算
      */
     async getLocalSyncData(forceRefresh = false) {
         const now = Date.now();
         if (!forceRefresh && this._cachedLocalData && this._cachedLocalHash && (now - this._cacheTimestamp) < 5000) {
-            return { data: this._cachedLocalData, hash: this._cachedLocalHash };
+            return {
+                data: this._cachedLocalData,
+                hash: this._cachedLocalHash,
+                chatIndex: this._cachedChatIndex,
+                localChatHashes: this._cachedLocalChatHashes
+            };
         }
 
         try {
@@ -1106,10 +1175,49 @@ class WebDAVSyncManager {
                 };
             }
 
-            // hash 基於 chatIndex（不含 messages）以加速計算
-            const chatIndexForHash = chats
-                .filter(c => !c._remoteOnly)
-                .map(c => buildChatIndexEntry(c));
+            // 使用 dirty flag + hash table 避免全量 hash
+            const localChatHashes = await this.loadLocalChatHashes();
+            const dirtyChatIds = chatManager.getDirtyChatIds();
+            let hashTableDirty = false;
+
+            const chatIndexForHash = [];
+            for (const chat of chats) {
+                if (chat._remoteOnly) continue;
+
+                let hash;
+                if (dirtyChatIds.has(chat.id)) {
+                    // dirty：重新計算 hash
+                    hash = computeChatHash(chat);
+                    localChatHashes.set(chat.id, hash);
+                    hashTableDirty = true;
+                } else {
+                    // 非 dirty：從 hash table 取（無則 fallback 計算）
+                    hash = localChatHashes.get(chat.id);
+                    if (!hash) {
+                        hash = computeChatHash(chat);
+                        localChatHashes.set(chat.id, hash);
+                        hashTableDirty = true;
+                    }
+                }
+
+                chatIndexForHash.push(buildChatIndexEntry(chat, hash));
+            }
+
+            // 清理 hash table 中已不存在的聊天
+            const currentChatIds = new Set(chats.map(c => c.id));
+            for (const id of localChatHashes.keys()) {
+                if (!currentChatIds.has(id)) {
+                    localChatHashes.delete(id);
+                    hashTableDirty = true;
+                }
+            }
+
+            // 若 hash table 有變動，立即持久化（避免重啟後遺失中間計算結果）
+            if (hashTableDirty) {
+                this.saveLocalChatHashes(localChatHashes);
+            }
+
+            // overall hash 基於 chatIndex（輕量：只含短 hash 字串）
             const hashSource = JSON.stringify({
                 chatIndex: chatIndexForHash,
                 quickChatOptions,
@@ -1125,12 +1233,14 @@ class WebDAVSyncManager {
 
             this._cachedLocalData = syncData;
             this._cachedLocalHash = hashString;
+            this._cachedChatIndex = chatIndexForHash;
+            this._cachedLocalChatHashes = localChatHashes;
             this._cacheTimestamp = now;
 
-            return { data: syncData, hash: hashString };
+            return { data: syncData, hash: hashString, chatIndex: chatIndexForHash, localChatHashes };
         } catch (error) {
             console.error('[WebDAV] 获取本地同步数据失败:', error);
-            return { data: null, hash: null };
+            return { data: null, hash: null, chatIndex: [], localChatHashes: new Map() };
         }
     }
 
@@ -1143,34 +1253,37 @@ class WebDAVSyncManager {
     }
 
     /**
-     * 检查同步状态 - 使用 ETag 和本地 Hash 实现双向检测
+     * 检查同步状态 - 使用 dirty flag 短路 + ETag 双向检测
      */
     async checkSyncStatus() {
         try {
             if (!this.client) {
-                return { needsSync: true, direction: 'upload', reason: '客户端未初始化', cachedHash: null };
+                return { needsSync: true, direction: 'upload', reason: '客户端未初始化' };
             }
+
+            // 使用 dirty flag 快速判斷本地是否有變更（零 hash 計算）
+            const dirtyChatIds = chatManager.getDirtyChatIds();
+            const hasDirtyChats = dirtyChatIds.size > 0;
 
             const now = Date.now();
             if (this._lastCheckSyncResult && (now - this._lastCheckSyncTime) < CHECK_SYNC_THROTTLE_MS) {
+                if (hasDirtyChats) {
+                    return { needsSync: true, direction: 'upload', reason: '节流期间：本地有新变更，需要上传' };
+                }
+                if (!this._lastCheckSyncResult.needsSync) {
+                    return { needsSync: false, direction: null, reason: '节流期间：本地和远端均无变化' };
+                }
+                return { ...this._lastCheckSyncResult };
+            }
+
+            // dirty flag 為主要判斷，overall hash 為 fallback（處理重啟後 dirty 遺失的邊際情況）
+            let localChanged = hasDirtyChats;
+            if (!localChanged) {
                 const currentLocalHash = await this.calculateLocalHash();
                 const hashResult = await syncStorageAdapter.get(WEBDAV_LOCAL_HASH_KEY);
                 const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];
-                const localChanged = currentLocalHash !== lastLocalHash;
-
-                if (!localChanged && !this._lastCheckSyncResult.needsSync) {
-                    return { needsSync: false, direction: null, reason: '节流期间：本地和远端均无变化', cachedHash: currentLocalHash };
-                }
-                if (localChanged) {
-                    return { needsSync: true, direction: 'upload', reason: '节流期间：本地有新变更，需要上传', cachedHash: currentLocalHash };
-                }
-                return { ...this._lastCheckSyncResult, cachedHash: currentLocalHash };
+                localChanged = currentLocalHash !== lastLocalHash;
             }
-
-            const currentLocalHash = await this.calculateLocalHash();
-            const hashResult = await syncStorageAdapter.get(WEBDAV_LOCAL_HASH_KEY);
-            const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];
-            const localChanged = currentLocalHash !== lastLocalHash;
 
             const remoteETag = await this.client.getRemoteETag('cerebr.json');
             const etagResult = await syncStorageAdapter.get(WEBDAV_REMOTE_ETAG_KEY);
@@ -1180,42 +1293,42 @@ class WebDAVSyncManager {
             this._lastCheckSyncTime = Date.now();
 
             if (remoteETag === null) {
-                const result = { needsSync: true, direction: 'upload', reason: '远端文件不存在，需要上传', cachedHash: currentLocalHash };
+                const result = { needsSync: true, direction: 'upload', reason: '远端文件不存在，需要上传' };
                 this._lastCheckSyncResult = result;
                 return result;
             }
 
-            if (!lastRemoteETag || !lastLocalHash) {
-                const result = { needsSync: true, direction: 'download', reason: '首次同步检查，需要建立基准', cachedHash: currentLocalHash };
+            if (!lastRemoteETag) {
+                const result = { needsSync: true, direction: 'download', reason: '首次同步检查，需要建立基准' };
                 this._lastCheckSyncResult = result;
                 return result;
             }
 
             if (!localChanged && !remoteChanged) {
-                const result = { needsSync: false, direction: null, reason: '本地和远端均无变化', cachedHash: currentLocalHash };
+                const result = { needsSync: false, direction: null, reason: '本地和远端均无变化' };
                 this._lastCheckSyncResult = result;
                 return result;
             }
 
             if (localChanged && !remoteChanged) {
-                const result = { needsSync: true, direction: 'upload', reason: '本地有新变更，需要上传', cachedHash: currentLocalHash };
+                const result = { needsSync: true, direction: 'upload', reason: '本地有新变更，需要上传' };
                 this._lastCheckSyncResult = result;
                 return result;
             }
 
             if (!localChanged && remoteChanged) {
-                const result = { needsSync: true, direction: 'download', reason: '远端有新变更，需要下载', cachedHash: currentLocalHash };
+                const result = { needsSync: true, direction: 'download', reason: '远端有新变更，需要下载' };
                 this._lastCheckSyncResult = result;
                 return result;
             }
 
-            const result = { needsSync: true, direction: 'conflict', reason: '本地和远端都有变更，需要比较时间戳', cachedHash: currentLocalHash };
+            const result = { needsSync: true, direction: 'conflict', reason: '本地和远端都有变更，需要比较时间戳' };
             this._lastCheckSyncResult = result;
             return result;
 
         } catch (error) {
             console.error('[WebDAV] 同步检查失败:', error);
-            return { needsSync: true, direction: 'upload', reason: `检查失败: ${error.message}`, cachedHash: null };
+            return { needsSync: true, direction: 'upload', reason: `检查失败: ${error.message}` };
         }
     }
 
@@ -1282,7 +1395,6 @@ class WebDAVSyncManager {
             }
 
             let direction = status.direction;
-            const cachedHash = status.cachedHash;
 
             if (direction === 'conflict') {
                 const conflictInfo = await this.getConflictInfo();
@@ -1307,7 +1419,7 @@ class WebDAVSyncManager {
             }
 
             if (direction === 'upload') {
-                const result = await this.syncToRemote({ cachedHash });
+                const result = await this.syncToRemote();
                 return { synced: true, direction: 'upload', result, error: null, conflict: null };
             } else if (direction === 'download') {
                 const result = await this.syncFromRemote({
@@ -1344,7 +1456,7 @@ class WebDAVSyncManager {
             const status = await this.checkSyncStatus();
 
             if (status.needsSync && (status.direction === 'upload' || status.direction === 'conflict')) {
-                const result = await this.syncToRemote({ cachedHash: status.cachedHash });
+                const result = await this.syncToRemote();
                 this._lastSyncOnCloseTime = Date.now();
                 this._lastCheckSyncResult = null;
                 return { synced: true, result, error: null };

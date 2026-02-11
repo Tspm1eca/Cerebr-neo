@@ -3,6 +3,7 @@ import { generateTitle } from '../services/title-generator.js';
 
 const CHATS_KEY = 'cerebr_chats';
 const CURRENT_CHAT_ID_KEY = 'cerebr_current_chat_id';
+const DIRTY_CHAT_IDS_KEY = 'cerebr_dirty_chat_ids';
 
 export class ChatManager {
     constructor() {
@@ -11,6 +12,8 @@ export class ChatManager {
         this.chats = new Map();
         this.apiConfig = null; // 用于存储API配置
         this.onDemandLoader = null; // WebDAV 按需下載回調
+        this._dirtyChatIds = new Set(); // WebDAV 同步用：追蹤被修改的聊天
+        this._saveDebounceTimer = null; // 流式更新時的 debounce 計時器
         this.initialize();
     }
 
@@ -20,6 +23,37 @@ export class ChatManager {
      */
     setOnDemandLoader(loader) {
         this.onDemandLoader = loader;
+    }
+
+    /**
+     * 標記聊天為 dirty（WebDAV 同步用）
+     * 只在 Set 新增元素時才持久化，避免 AI 串流期間重複寫入
+     */
+    markChatDirty(chatId) {
+        if (!chatId) return;
+        if (!this._dirtyChatIds.has(chatId)) {
+            this._dirtyChatIds.add(chatId);
+            this.storage.set({ [DIRTY_CHAT_IDS_KEY]: [...this._dirtyChatIds] }).catch(() => {});
+        }
+    }
+
+    getDirtyChatIds() {
+        return this._dirtyChatIds;
+    }
+
+    /**
+     * 清除指定的 dirty flags（同步完成後呼叫）
+     * @param {Iterable<string>} ids - 要清除的 chat IDs，不傳則清除全部
+     */
+    clearDirtyChatIds(ids) {
+        if (ids) {
+            for (const id of ids) {
+                this._dirtyChatIds.delete(id);
+            }
+        } else {
+            this._dirtyChatIds.clear();
+        }
+        this.storage.set({ [DIRTY_CHAT_IDS_KEY]: [...this._dirtyChatIds] }).catch(() => {});
     }
 
     setApiConfig(config) {
@@ -49,6 +83,17 @@ export class ChatManager {
             const defaultChat = this.createNewChat('默认对话');
             this.currentChatId = defaultChat.id;
             await this.storage.set({ [CURRENT_CHAT_ID_KEY]: this.currentChatId });
+        }
+
+        // 載入持久化的 dirty flags（處理擴充套件重啟）
+        try {
+            const dirtyResult = await this.storage.get(DIRTY_CHAT_IDS_KEY);
+            const savedDirty = dirtyResult[DIRTY_CHAT_IDS_KEY];
+            if (Array.isArray(savedDirty)) {
+                this._dirtyChatIds = new Set(savedDirty);
+            }
+        } catch {
+            // 載入失敗不影響正常運作
         }
     }
 
@@ -80,6 +125,7 @@ export class ChatManager {
             if (fullChat) {
                 delete fullChat._remoteOnly;
                 this.chats.set(chatId, fullChat);
+                this.markChatDirty(chatId);
                 await this.saveChats();
             } else {
                 // 下載失敗，保持空殼狀態
@@ -178,6 +224,7 @@ export class ChatManager {
 
         currentChat.messages.push(message);
         currentChat.updatedAt = new Date().toISOString();
+        this.markChatDirty(currentChat.id);
 
         // If there's webpage info, add the URLs to the chat
         if (webpageInfo && webpageInfo.pages) {
@@ -236,6 +283,7 @@ export class ChatManager {
         const newTitle = await generateTitle(chat.messages, this.apiConfig);
         if (newTitle && newTitle !== chat.title) {
             chat.title = newTitle;
+            this.markChatDirty(chat.id);
             await this.saveChats();
             // 通知UI更新
             document.dispatchEvent(new CustomEvent('chat-title-updated', { detail: { chatId: chat.id, newTitle } }));
@@ -268,6 +316,8 @@ export class ChatManager {
             lastMessage.isSearchUsed = true;
         }
 
+        this.markChatDirty(chatId);
+
         // 当流式响应结束时，触发标题生成
         if (isFinalUpdate) {
             delete lastMessage.updating;
@@ -276,9 +326,11 @@ export class ChatManager {
             if (currentChat.messages.length === 2) {
                 this.generateAndSaveTitle(currentChat);
             }
+            await this.flushSaveChats();
+        } else {
+            // 流式中間更新：只更新記憶體，延遲寫入 IndexedDB
+            this._debouncedSaveChats();
         }
-
-        await this.saveChats();
     }
 
     async popMessage() {
@@ -288,6 +340,7 @@ export class ChatManager {
         }
         currentChat.messages.pop();
         currentChat.updatedAt = new Date().toISOString();
+        this.markChatDirty(currentChat.id);
         await this.saveChats();
     }
 
@@ -296,11 +349,37 @@ export class ChatManager {
         await this.storage.set({ [CHATS_KEY]: chatsToSave });
     }
 
+    /**
+     * 延遲儲存 — 用於流式更新期間，避免每 100ms 都寫入 IndexedDB。
+     * 多次呼叫只會在最後一次呼叫後 500ms 執行一次寫入。
+     */
+    _debouncedSaveChats() {
+        if (this._saveDebounceTimer) {
+            clearTimeout(this._saveDebounceTimer);
+        }
+        this._saveDebounceTimer = setTimeout(() => {
+            this._saveDebounceTimer = null;
+            this.saveChats();
+        }, 500);
+    }
+
+    /**
+     * 立即寫入並取消任何待處理的 debounce — 用於流式結束時的最終儲存。
+     */
+    async flushSaveChats() {
+        if (this._saveDebounceTimer) {
+            clearTimeout(this._saveDebounceTimer);
+            this._saveDebounceTimer = null;
+        }
+        await this.saveChats();
+    }
+
     async clearCurrentChat() {
         const currentChat = this.getCurrentChat();
         if (currentChat) {
             currentChat.messages = [];
             currentChat.updatedAt = new Date().toISOString();
+            this.markChatDirty(currentChat.id);
             await this.saveChats();
         }
     }

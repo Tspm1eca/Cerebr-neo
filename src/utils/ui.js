@@ -430,6 +430,7 @@ export function removeImageFromChatManager({ chatManager, messageIndex, imageSou
             message.content = message.content[0].text;
         }
 
+        chatManager.markChatDirty(currentChat.id);
         chatManager.saveChats();
     }
 }

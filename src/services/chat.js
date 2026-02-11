@@ -743,6 +743,17 @@ export async function callAPI({
             return currentMessage;
         } catch (error) {
             if (error.name === 'AbortError') {
+                // 用戶中斷：將已接收的內容儲存到 IndexedDB，避免資料遺失
+                if (chatManager && chatId && (currentMessage.content || currentMessage.reasoning_content)) {
+                    const abortMessage = { ...currentMessage };
+                    if (abortMessage.content) {
+                        abortMessage.content = restoreUrls(abortMessage.content, idToUrlMap);
+                    }
+                    if (abortMessage.reasoning_content) {
+                        abortMessage.reasoning_content = restoreUrls(abortMessage.reasoning_content, idToUrlMap);
+                    }
+                    chatManager.updateLastMessage(chatId, abortMessage, true);
+                }
                 throw error;
             }
             throw error;
