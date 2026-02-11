@@ -10,6 +10,7 @@
 import { storageAdapter, syncStorageAdapter } from '../utils/storage-adapter.js';
 import { encrypt, decrypt, isEncrypted, encryptPasswordForStorage, decryptPasswordFromStorage, isEncryptedPassword } from '../utils/crypto.js';
 import { chatManager } from '../utils/chat-manager.js';
+import { computeChatHash } from '../utils/chat-hash.js';
 
 // WebDAV 配置键
 const WEBDAV_CONFIG_KEY = 'webdav_config';
@@ -56,42 +57,6 @@ const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 天
 const UPLOAD_CONCURRENCY = 5; // 並行上傳數量
 
 // ========== Helper Functions ==========
-
-/**
- * 計算聊天的 djb2 hash（用於變更偵測）
- * 只使用純文本內容計算 hash，排除 base64 圖片等非文本內容以提升效能
- * 注意：文本提取邏輯與 message-handler.js 中的 content 解析模式類似，
- *       若 message content 格式變動需同步修改。
- */
-function computeChatHash(chat) {
-    const textOnlyMessages = (chat.messages || []).map(msg => {
-        const content = msg.content;
-        if (typeof content === 'string') {
-            return { role: msg.role, content };
-        }
-        if (Array.isArray(content)) {
-            const text = content
-                .filter(item => item.type === 'text')
-                .map(item => item.text)
-                .join('');
-            return { role: msg.role, content: text };
-        }
-        return { role: msg.role, content: '' };
-    });
-
-    const jsonString = JSON.stringify({
-        id: chat.id,
-        title: chat.title,
-        messages: textOnlyMessages,
-        webpageUrls: chat.webpageUrls
-    });
-    let hash = 5381;
-    for (let i = 0; i < jsonString.length; i++) {
-        hash = ((hash << 5) + hash) + jsonString.charCodeAt(i);
-        hash = hash & hash;
-    }
-    return Math.abs(hash).toString(16);
-}
 
 /**
  * 從完整聊天物件建立 chatIndex entry（metadata only）
@@ -533,6 +498,8 @@ class WebDAVSyncManager {
         this._lastCheckSyncResult = null;
         // 节流：syncOnClose 上次执行时间
         this._lastSyncOnCloseTime = 0;
+        // 標記：啟動後是否已完成首次 hash fallback 檢查
+        this._initialHashCheckDone = false;
     }
 
     /**
@@ -925,8 +892,21 @@ class WebDAVSyncManager {
             // 快照當前 dirty IDs，同步完成後只清除這些（保留同步期間新增的）
             const dirtySnapshot = new Set(chatManager.getDirtyChatIds());
 
-            // 下載 manifest
-            const downloadResult = await this.client.downloadData('cerebr.json');
+            const currentChatId = options.currentChatId || null;
+
+            // 並行下載 manifest 和當前聊天（省一次 HTTP 往返）
+            const downloadPromises = [
+                this.client.downloadData('cerebr.json')
+            ];
+            if (currentChatId) {
+                downloadPromises.push(
+                    this.client.downloadData(`${CHAT_DIRECTORY}/${currentChatId}.json`).catch(() => null)
+                );
+            } else {
+                downloadPromises.push(Promise.resolve(null));
+            }
+
+            const [downloadResult, prefetchedCurrentChat] = await Promise.all(downloadPromises);
             const syncData = downloadResult.data;
             const downloadETag = downloadResult.etag;
 
@@ -953,7 +933,6 @@ class WebDAVSyncManager {
             // 建立合併後的聊天列表
             const mergedChats = [];
             const updatedHashes = new Map(localChatHashes);
-            const currentChatId = options.currentChatId || null;
             const remoteEntryIds = new Set();
 
             for (const entry of syncData.chatIndex) {
@@ -977,21 +956,15 @@ class WebDAVSyncManager {
                     continue;
                 }
 
-                // 需要遠端資料：當前聊天立刻下載，其他建立空殼
+                // 需要遠端資料：當前聊天使用預先下載的結果，其他建立空殼
                 if (entry.id === currentChatId) {
-                    try {
-                        const chatResult = await this.client.downloadData(
-                            `${CHAT_DIRECTORY}/${entry.id}.json`
-                        );
-                        if (chatResult.data) {
-                            mergedChats.push(chatResult.data);
-                            updatedHashes.set(entry.id, entry.hash);
-                            continue;
-                        }
-                    } catch (e) {
-                        console.warn(`[WebDAV] 下載當前聊天 ${entry.id} 失敗:`, e);
+                    const prefetchedData = prefetchedCurrentChat?.data;
+                    if (prefetchedData) {
+                        mergedChats.push(prefetchedData);
+                        updatedHashes.set(entry.id, entry.hash);
+                        continue;
                     }
-                    // 下載失敗 fallback：有本地資料用本地，否則空殼
+                    // 預先下載失敗 fallback：有本地資料用本地，否則空殼
                     if (hasLocalFull) {
                         mergedChats.push(localChat);
                         updatedHashes.set(entry.id, computeChatHash(localChat));
@@ -1291,9 +1264,11 @@ class WebDAVSyncManager {
                 return { ...this._lastCheckSyncResult };
             }
 
-            // dirty flag 為主要判斷，overall hash 為 fallback（處理重啟後 dirty 遺失的邊際情況）
+            // dirty flag 為主要判斷，overall hash 為 fallback（僅啟動後首次檢查，處理重啟後 dirty 遺失的邊際情況）
             let localChanged = hasDirtyChats;
-            if (!localChanged) {
+            const needHashFallback = !this._initialHashCheckDone;
+            this._initialHashCheckDone = true;
+            if (!localChanged && needHashFallback) {
                 const currentLocalHash = await this.calculateLocalHash();
                 const hashResult = await syncStorageAdapter.get(WEBDAV_LOCAL_HASH_KEY);
                 const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];

@@ -4,6 +4,7 @@ import { createThumbnailImage } from '../utils/image.js';
 import { isHttpImageUrl, blobToDataUrl } from '../utils/url.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
 import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
+import { storageAdapter } from '../utils/storage-adapter.js';
 
 // 氣泡拉伸動畫參數（欠阻尼彈簧 F = -k*x - c*v, ζ = c/(2√k)）
 const SPRING = {
@@ -16,11 +17,44 @@ const SPRING = {
     KICK: 5,
 };
 
-// 記憶體內縮圖快取（不持久化，僅本地瀏覽器會話內有效）
+// 縮圖持久化快取（啟動時從 storage 載入，新增時 debounce 寫回）
 const _thumbnailCache = new Map();
 const THUMBNAIL_CACHE_MAX = 200;
+const THUMBNAIL_PERSIST_MAX = 50; // 持久化上限（每筆 data URL 約 2-5KB）
+const THUMBNAIL_STORAGE_KEY = '_thumbnail_cache';
+let _thumbnailPersistTimer = null;
 // 正在生成中的縮圖 promise（防止同一張圖片並發 fetch）
 const _thumbnailInflight = new Map();
+
+/**
+ * 從 storage 載入持久化的縮圖快取（啟動時呼叫一次）
+ */
+export async function loadThumbnailCache() {
+    try {
+        const result = await storageAdapter.get(THUMBNAIL_STORAGE_KEY);
+        const stored = result[THUMBNAIL_STORAGE_KEY];
+        if (stored && typeof stored === 'object') {
+            for (const [key, value] of Object.entries(stored)) {
+                _thumbnailCache.set(key, value);
+            }
+        }
+    } catch (e) {
+        // 載入失敗不影響功能，快取會在使用時重新建立
+    }
+}
+
+/**
+ * 將縮圖快取 debounce 寫入 storage（只保留最近 THUMBNAIL_PERSIST_MAX 筆）
+ */
+function persistThumbnailCache() {
+    clearTimeout(_thumbnailPersistTimer);
+    _thumbnailPersistTimer = setTimeout(() => {
+        // 只持久化最近的 N 筆（Map 保持插入順序，取最後 N 筆）
+        const entries = [..._thumbnailCache.entries()];
+        const toStore = entries.slice(-THUMBNAIL_PERSIST_MAX);
+        storageAdapter.set({ [THUMBNAIL_STORAGE_KEY]: Object.fromEntries(toStore) }).catch(() => {});
+    }, 2000);
+}
 
 /** 快取元素的 padding + border 額外空間（border-box → content-box 轉換） */
 function ensureBoxExtra(el) {
@@ -811,6 +845,7 @@ async function ensureMessageImageThumbnail(imageItem) {
                 _thumbnailCache.delete(firstKey);
             }
             _thumbnailCache.set(imageSource, thumbnail);
+            persistThumbnailCache();
             return thumbnail;
         } catch (error) {
             console.warn('[Message] 生成远端图片缩图失败:', error);

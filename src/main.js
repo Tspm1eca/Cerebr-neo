@@ -1,7 +1,7 @@
 import { initDarkTheme } from './utils/theme.js';
 import { callAPI, TimeoutError } from './services/chat.js';
 import { chatManager } from './utils/chat-manager.js';
-import { appendMessage, createWaitingMessage } from './handlers/message-handler.js';
+import { appendMessage, createWaitingMessage, loadThumbnailCache } from './handlers/message-handler.js';
 import { hideContextMenu } from './components/context-menu.js';
 import { initChatContainer } from './components/chat-container.js';
 import { showImagePreview, hideImagePreview } from './utils/ui.js';
@@ -189,6 +189,9 @@ let exaApiUrl = '';
 
     // 初始化ChatManager
     await chatManager.initialize();
+
+    // 載入持久化的縮圖快取（非阻塞，不影響啟動速度）
+    loadThumbnailCache();
 
     // 初始化用户问题历史
     chatContainerManager.initializeUserQuestions();
@@ -1863,7 +1866,8 @@ let exaApiUrl = '';
     });
 
     // 監聽頁面卸載事件（作為備用方案，僅在真正卸載時觸發）
-    window.addEventListener('pagehide', async (event) => {
+    // 委託給 background service worker 執行同步，因為 SW 不受頁面生命週期影響
+    window.addEventListener('pagehide', (event) => {
         // pagehide 事件在頁面被卸載時觸發
         // persisted 為 true 表示頁面可能被緩存（bfcache）
         if (!event.persisted) {
@@ -1871,7 +1875,8 @@ let exaApiUrl = '';
             clearTimeout(syncOnCloseDebounceTimer);
             // 如果 visibilitychange 已經執行過同步，則跳過
             if (!syncOnCloseExecuted) {
-                await performWebDAVSyncOnClose();
+                // 委託給 service worker（訊息傳遞幾乎瞬間完成，SW 可在頁面關閉後繼續執行）
+                chrome.runtime.sendMessage({ type: 'WEBDAV_SYNC_UPLOAD' }).catch(() => {});
             }
         }
     });

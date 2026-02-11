@@ -1,3 +1,5 @@
+import { computeChatHash } from './src/utils/chat-hash.js';
+
 // 确保 Service Worker 立即激活
 self.addEventListener('install', (event) => {
   console.log('Service Worker 安装中...', new Date().toISOString());
@@ -349,6 +351,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
   }
 
+  // ========== WebDAV 關閉同步委託 ==========
+  if (message.type === 'WEBDAV_SYNC_UPLOAD') {
+      performWebDAVSyncUpload()
+          .then(() => sendResponse({ success: true }))
+          .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+  }
+
   return false;
 });
 
@@ -485,3 +495,134 @@ chrome.tabs.onActivated.addListener(activeInfo => {
     }
   });
 });
+
+// ========== WebDAV 關閉同步：Service Worker 自包含上傳 ==========
+
+/**
+ * Service Worker 自包含的 WebDAV 上傳同步
+ * 從 chrome.storage 讀取所有必要資料，執行上傳，更新狀態
+ * 用於頁面關閉時接替 side panel 完成同步
+ */
+async function performWebDAVSyncUpload() {
+    try {
+        // 1. 讀取 WebDAV 配置
+        const { webdav_config: config } = await chrome.storage.sync.get('webdav_config');
+        if (!config || !config.enabled) return;
+
+        // 2. 讀取 dirty chat IDs
+        const { cerebr_dirty_chat_ids: dirtyIds } = await chrome.storage.local.get('cerebr_dirty_chat_ids');
+        if (!dirtyIds || dirtyIds.length === 0) return;
+
+        // 3. 讀取 dirty chats + 同步狀態
+        const chatKeys = dirtyIds.map(id => `cerebr_chat_${id}`);
+        const localData = await chrome.storage.local.get([
+            ...chatKeys,
+            'webdav_cached_manifest',
+            'webdav_local_chat_hashes'
+        ]);
+
+        const cachedManifest = localData.webdav_cached_manifest;
+        const hashTable = new Map(Object.entries(localData.webdav_local_chat_hashes || {}));
+        const chatIndex = [...(cachedManifest?.chatIndex || [])];
+
+        // 4. 建立 WebDAV 請求基礎
+        const baseUrl = config.serverUrl.replace(/\/+$/, '');
+        const syncPath = config.syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
+        const getUrl = (path) => `${baseUrl}/${syncPath}/${path}`;
+        const credentials = btoa(`${config.username}:${config.password}`);
+        const headers = {
+            'Authorization': `Basic ${credentials}`,
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        };
+
+        // 5. 上傳 dirty chats 並更新 chatIndex
+        const uploadedIds = [];
+        for (const id of dirtyIds) {
+            const chat = localData[`cerebr_chat_${id}`];
+            if (!chat || chat._remoteOnly) continue;
+
+            try {
+                const response = await fetch(getUrl(`chats/${id}.json`), {
+                    method: 'PUT', headers, body: JSON.stringify(chat)
+                });
+                if (response.ok) {
+                    uploadedIds.push(id);
+
+                    const hash = computeChatHash(chat);
+                    hashTable.set(id, hash);
+
+                    const entry = {
+                        id: chat.id,
+                        title: chat.title || '',
+                        createdAt: chat.createdAt || new Date().toISOString(),
+                        updatedAt: chat.updatedAt || new Date().toISOString(),
+                        webpageUrls: chat.webpageUrls || [],
+                        messageCount: (chat.messages || []).length,
+                        hash
+                    };
+                    const existingIdx = chatIndex.findIndex(e => e.id === id);
+                    if (existingIdx >= 0) {
+                        chatIndex[existingIdx] = entry;
+                    } else {
+                        chatIndex.push(entry);
+                    }
+                }
+            } catch (e) {
+                console.error(`[WebDAV SW] 上傳聊天 ${id} 失敗:`, e);
+            }
+        }
+
+        if (uploadedIds.length === 0) return;
+
+        // 6. 建立並上傳 manifest
+        const manifest = {
+            version: 2,
+            timestamp: new Date().toISOString(),
+            chatIndex,
+            deletedChatIds: cachedManifest?.deletedChatIds || [],
+            quickChatOptions: cachedManifest?.quickChatOptions || []
+        };
+
+        // 保留快取 manifest 中的 API 設定（不在 SW 中重新加密）
+        if (cachedManifest?.apiSettings) {
+            manifest.apiSettings = cachedManifest.apiSettings;
+            if (cachedManifest.apiSettingsEncrypted) {
+                manifest.apiSettingsEncrypted = true;
+            }
+        }
+
+        const manifestResponse = await fetch(getUrl('cerebr.json'), {
+            method: 'PUT', headers, body: JSON.stringify(manifest)
+        });
+
+        if (!manifestResponse.ok) {
+            throw new Error(`manifest 上傳失敗: HTTP ${manifestResponse.status}`);
+        }
+
+        // 7. 更新同步狀態
+        const newETag = manifestResponse.headers.get('ETag') || manifestResponse.headers.get('Last-Modified') || null;
+
+        const syncUpdates = {};
+        if (newETag) syncUpdates.webdav_remote_etag = newETag;
+        syncUpdates.webdav_last_sync = manifest.timestamp;
+        syncUpdates.webdav_last_sync_timestamp = manifest.timestamp;
+        await chrome.storage.sync.set(syncUpdates);
+
+        // 清除已上傳的 dirty IDs，儲存更新後的狀態
+        const { cerebr_dirty_chat_ids: currentDirty } = await chrome.storage.local.get('cerebr_dirty_chat_ids');
+        const uploadedSet = new Set(uploadedIds);
+        const remaining = (currentDirty || []).filter(id => !uploadedSet.has(id));
+
+        await chrome.storage.local.set({
+            cerebr_dirty_chat_ids: remaining,
+            webdav_cached_manifest: manifest,
+            webdav_local_chat_hashes: Object.fromEntries(hashTable)
+        });
+
+        console.log(`[WebDAV SW] 關閉同步完成：已上傳 ${uploadedIds.length} 個聊天`);
+    } catch (e) {
+        console.error('[WebDAV SW] 同步上傳失敗:', e);
+        throw e;
+    }
+}
