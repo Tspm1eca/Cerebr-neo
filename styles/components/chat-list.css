@@ -134,13 +134,17 @@
     justify-content: center;
     width: 32px;
     height: 32px;
-    border-radius: 4px;
+    border-radius: 18px;
     position: relative;
 }
 
 .chat-card .card-button:hover {
     opacity: 1;
     background-color: var(--cerebr-button-hover-bg);
+}
+
+.chat-card .card-button.delete-btn:hover {
+    background-color: #ac0000;
 }
 
 .chat-card .card-button svg {
@@ -214,7 +218,7 @@
     width: 100%;
     padding: 10px 15px;
     font-size: 14px;
-    border-radius: 8px;
+    border-radius: 18px;
     border: 1px solid var(--cerebr-card-border-color);
     background: var(--cerebr-message-ai-bg);
     color: var(--cerebr-text-color);
@@ -246,13 +250,13 @@
     justify-content: center;
     width: 32px;
     height: 32px;
-    border-radius: 4px;
+    border-radius: 18px;
     margin-left: 8px;
 }
 
 .clear-all-btn:hover {
     opacity: 1;
-    background-color: var(--cerebr-button-hover-bg);
+    background-color: #ac0000;
 }
 
 .clear-all-btn svg {

@@ -397,7 +397,7 @@
 
 .quick-chat-option-button.delete:hover {
     opacity: 1;
-    background-color: var(--cerebr-button-hover-bg);
+    background-color: #ac0000;
 }
 
 .quick-chat-settings-actions {
@@ -432,8 +432,12 @@
     transform: scale(0.98);
 }
 
-.add-button:hover:not(:disabled), .reset-button:hover:not(:disabled) {
+.add-button:hover:not(:disabled) {
     background-color: var(--cerebr-button-hover-bg);
+}
+
+.reset-button:hover:not(:disabled) {
+    background-color: #ac0000;
 }
 
 .add-button:disabled, .reset-button:disabled {

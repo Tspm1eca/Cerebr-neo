@@ -114,6 +114,14 @@
     background-color: var(--cerebr-button-hover-bg);
 }
 
+.card-button.delete-btn:hover {
+    background-color: #ac0000;
+}
+
+.card-button.delete-profile-btn:hover {
+    background-color: #ac0000;
+}
+
 .card-button svg {
     width: 16px;
     height: 16px;
@@ -287,9 +295,10 @@
     transition: all 0.2s ease;
 }
 
-.reset-prompt-btn:hover {
+.system-prompt-actions .reset-prompt-btn:hover,
+.setting-header .reset-prompt-btn:hover {
     opacity: 1;
-    background-color: var(--cerebr-button-hover-bg);
+    background-color: #ac0000;
 }
 
 .system-prompt {
