@@ -22,6 +22,9 @@ const WEBDAV_DELETED_CHAT_IDS_KEY = 'webdav_deleted_chat_ids';
 const WEBDAV_CACHED_MANIFEST_KEY = 'webdav_cached_manifest';
 const WEBDAV_LOCAL_CHAT_HASHES_KEY = 'webdav_local_chat_hashes';
 const WEBDAV_KNOWN_DIRS_KEY = 'webdav_known_directories';
+// 跨分頁節流：共享 checkSyncStatus 的時間戳和結果（存儲在 chrome.storage.local）
+const WEBDAV_CROSS_TAB_CHECK_TIME_KEY = 'webdav_cross_tab_check_time';
+const WEBDAV_CROSS_TAB_CHECK_RESULT_KEY = 'webdav_cross_tab_check_result';
 
 // HTTP 状态码常量
 const HTTP_STATUS = {
@@ -556,6 +559,21 @@ class WebDAVSyncManager {
     }
 
     /**
+     * 保存 checkSyncStatus 結果到記憶體快取及跨分頁共享存儲
+     * @param {Object} result - checkSyncStatus 結果
+     */
+    _cacheCheckResult(result) {
+        this._lastCheckSyncTime = Date.now();
+        this._lastCheckSyncResult = result;
+        // 非同步寫入 chrome.storage.local，不阻塞返回
+        storageAdapter.set({
+            [WEBDAV_CROSS_TAB_CHECK_TIME_KEY]: this._lastCheckSyncTime,
+            [WEBDAV_CROSS_TAB_CHECK_RESULT_KEY]: result
+        }).catch(() => {});
+        return result;
+    }
+
+    /**
      * 清除本地数据缓存
      */
     clearCache() {
@@ -564,6 +582,8 @@ class WebDAVSyncManager {
         this._cachedChatIndex = null;
         this._cachedLocalChatHashes = null;
         this._cacheTimestamp = 0;
+        // 清除跨分頁節流快取
+        storageAdapter.remove([WEBDAV_CROSS_TAB_CHECK_TIME_KEY, WEBDAV_CROSS_TAB_CHECK_RESULT_KEY]).catch(() => {});
     }
 
     // ========== 目錄快取持久化 ==========
@@ -1352,7 +1372,25 @@ class WebDAVSyncManager {
             const hasDirtyChats = dirtyChatIds.size > 0;
 
             const now = Date.now();
-            if (this._lastCheckSyncResult && (now - this._lastCheckSyncTime) < CHECK_SYNC_THROTTLE_MS) {
+
+            // 跨分頁節流：檢查 chrome.storage.local 中的共享時間戳
+            // 當多個分頁同時開啟時，只有第一個分頁會發 HEAD 請求，其餘分頁使用快取結果
+            let throttled = this._lastCheckSyncResult && (now - this._lastCheckSyncTime) < CHECK_SYNC_THROTTLE_MS;
+            if (!throttled) {
+                try {
+                    const shared = await storageAdapter.get([WEBDAV_CROSS_TAB_CHECK_TIME_KEY, WEBDAV_CROSS_TAB_CHECK_RESULT_KEY]);
+                    const sharedTime = shared[WEBDAV_CROSS_TAB_CHECK_TIME_KEY];
+                    const sharedResult = shared[WEBDAV_CROSS_TAB_CHECK_RESULT_KEY];
+                    if (sharedResult && sharedTime && (now - sharedTime) < CHECK_SYNC_THROTTLE_MS) {
+                        // 其他分頁已在節流窗口內檢查過，同步本地快取
+                        this._lastCheckSyncTime = sharedTime;
+                        this._lastCheckSyncResult = sharedResult;
+                        throttled = true;
+                    }
+                } catch (_e) { /* storage 讀取失敗時不阻塞，走原有邏輯 */ }
+            }
+
+            if (throttled) {
                 if (hasDirtyChats) {
                     return { needsSync: true, direction: 'upload', reason: '节流期间：本地有新变更，需要上传' };
                 }
@@ -1386,41 +1424,27 @@ class WebDAVSyncManager {
                 remoteChanged = false;
             }
 
-            this._lastCheckSyncTime = Date.now();
-
             if (remoteETag === null) {
-                const result = { needsSync: true, direction: 'upload', reason: '远端文件不存在，需要上传' };
-                this._lastCheckSyncResult = result;
-                return result;
+                return this._cacheCheckResult({ needsSync: true, direction: 'upload', reason: '远端文件不存在，需要上传' });
             }
 
             if (!lastRemoteETag) {
-                const result = { needsSync: true, direction: 'download', reason: '首次同步检查，需要建立基准' };
-                this._lastCheckSyncResult = result;
-                return result;
+                return this._cacheCheckResult({ needsSync: true, direction: 'download', reason: '首次同步检查，需要建立基准' });
             }
 
             if (!localChanged && !remoteChanged) {
-                const result = { needsSync: false, direction: null, reason: '本地和远端均无变化' };
-                this._lastCheckSyncResult = result;
-                return result;
+                return this._cacheCheckResult({ needsSync: false, direction: null, reason: '本地和远端均无变化' });
             }
 
             if (localChanged && !remoteChanged) {
-                const result = { needsSync: true, direction: 'upload', reason: '本地有新变更，需要上传' };
-                this._lastCheckSyncResult = result;
-                return result;
+                return this._cacheCheckResult({ needsSync: true, direction: 'upload', reason: '本地有新变更，需要上传' });
             }
 
             if (!localChanged && remoteChanged) {
-                const result = { needsSync: true, direction: 'download', reason: '远端有新变更，需要下载' };
-                this._lastCheckSyncResult = result;
-                return result;
+                return this._cacheCheckResult({ needsSync: true, direction: 'download', reason: '远端有新变更，需要下载' });
             }
 
-            const result = { needsSync: true, direction: 'conflict', reason: '本地和远端都有变更，需要比较时间戳' };
-            this._lastCheckSyncResult = result;
-            return result;
+            return this._cacheCheckResult({ needsSync: true, direction: 'conflict', reason: '本地和远端都有变更，需要比较时间戳' });
 
         } catch (error) {
             console.error('[WebDAV] 同步检查失败:', error);
