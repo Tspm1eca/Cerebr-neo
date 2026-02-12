@@ -53,34 +53,6 @@ export class ChatManager {
         return this._chatIndex;
     }
 
-    /**
-     * 增量更新索引中的單一條目（O(1) 查找 + 更新）
-     * @param {string} chatId - 要更新的聊天 ID
-     */
-    _updateIndexEntry(chatId) {
-        const chat = this.chats.get(chatId);
-        if (!chat || chat.isNew) return;
-
-        const entry = this._buildIndexEntry(chat);
-        const idx = this._chatIndex.findIndex(e => e.id === chatId);
-        if (idx !== -1) {
-            this._chatIndex[idx] = entry;
-        } else {
-            this._chatIndex.push(entry);
-        }
-    }
-
-    /**
-     * 從索引中移除指定的條目
-     * @param {string} chatId - 要移除的聊天 ID
-     */
-    _removeIndexEntry(chatId) {
-        const idx = this._chatIndex.findIndex(e => e.id === chatId);
-        if (idx !== -1) {
-            this._chatIndex.splice(idx, 1);
-        }
-    }
-
     // ==================== WebDAV Dirty Flag 管理 ====================
 
     /**
@@ -94,12 +66,18 @@ export class ChatManager {
     /**
      * 標記聊天為 dirty（WebDAV 同步用）
      * 只在 Set 新增元素時才持久化，避免 AI 串流期間重複寫入
+     * 使用 Read-Merge-Write 模式：從 storage 讀取後合併，避免覆蓋其他分頁的 dirty flags
      */
     markChatDirty(chatId) {
         if (!chatId) return;
         if (!this._dirtyChatIds.has(chatId)) {
             this._dirtyChatIds.add(chatId);
-            this.storage.set({ [DIRTY_CHAT_IDS_KEY]: [...this._dirtyChatIds] }).catch(() => {});
+            this.storage.get(DIRTY_CHAT_IDS_KEY).then(result => {
+                const stored = result[DIRTY_CHAT_IDS_KEY] || [];
+                const merged = [...new Set([...stored, ...this._dirtyChatIds])];
+                this._dirtyChatIds = new Set(merged);
+                this.storage.set({ [DIRTY_CHAT_IDS_KEY]: merged });
+            }).catch(() => {});
         }
     }
 
@@ -109,17 +87,28 @@ export class ChatManager {
 
     /**
      * 清除指定的 dirty flags（同步完成後呼叫）
+     * 使用 Read-Merge-Write 模式：從 storage 讀取後刪除指定 ID，保留其他分頁新增的 flags
      * @param {Iterable<string>} ids - 要清除的 chat IDs，不傳則清除全部
      */
-    clearDirtyChatIds(ids) {
+    async clearDirtyChatIds(ids) {
+        // 先從 storage 讀取最新狀態，避免覆蓋其他分頁的新增
+        const result = await this.storage.get(DIRTY_CHAT_IDS_KEY);
+        const stored = new Set(result[DIRTY_CHAT_IDS_KEY] || []);
         if (ids) {
             for (const id of ids) {
+                stored.delete(id);
                 this._dirtyChatIds.delete(id);
             }
+            // 合併記憶體中尚未持久化的 dirty ID，避免遺失
+            for (const id of this._dirtyChatIds) {
+                stored.add(id);
+            }
         } else {
+            stored.clear();
             this._dirtyChatIds.clear();
         }
-        this.storage.set({ [DIRTY_CHAT_IDS_KEY]: [...this._dirtyChatIds] }).catch(() => {});
+        this._dirtyChatIds = stored;
+        await this.storage.set({ [DIRTY_CHAT_IDS_KEY]: [...stored] });
     }
 
     setApiConfig(config) {
@@ -143,6 +132,36 @@ export class ChatManager {
         // 從載入的 chats 建構記憶體索引
         this._buildCurrentIndex();
 
+        // ---- 孤兒聊天回復 ----
+        // 掃描 storage 中所有 cerebr_chat_ 前綴的 key，找出不在索引中的孤兒資料
+        // 這可修復之前多分頁競態條件導致的索引遺失問題
+        try {
+            const allData = await this.storage.get(null);
+            const indexedIds = new Set(this._chatIndex.map(e => e.id));
+            let orphansFound = false;
+
+            for (const key of Object.keys(allData)) {
+                if (key.startsWith(CHAT_KEY_PREFIX)) {
+                    const chatId = key.slice(CHAT_KEY_PREFIX.length);
+                    if (!indexedIds.has(chatId)) {
+                        const chat = allData[key];
+                        if (chat && chat.id && !chat.isNew) {
+                            this.chats.set(chatId, chat);
+                            orphansFound = true;
+                        }
+                    }
+                }
+            }
+
+            if (orphansFound) {
+                this._buildCurrentIndex();
+                await this.storage.set({ [CHAT_INDEX_KEY]: this._chatIndex });
+                console.log('[ChatManager] 已回復孤兒聊天到索引');
+            }
+        } catch {
+            // 孤兒掃描失敗不影響正常運作
+        }
+
         // 获取当前对话ID
         const currentChatResult = await this.storage.get(CURRENT_CHAT_ID_KEY);
         this.currentChatId = currentChatResult[CURRENT_CHAT_ID_KEY];
@@ -164,6 +183,9 @@ export class ChatManager {
         } catch {
             // 載入失敗不影響正常運作
         }
+
+        // 註冊跨分頁 storage 變更監聽器
+        this._setupStorageChangeListener();
     }
 
     /**
@@ -210,20 +232,108 @@ export class ChatManager {
         }
     }
 
+    // ==================== 跨分頁 Storage 同步 ====================
+
+    /**
+     * 設定 chrome.storage.onChanged 監聽器
+     * 當其他分頁寫入 storage 時，同步更新本分頁的記憶體狀態
+     * 避免讀取過期的記憶體快取
+     */
+    _setupStorageChangeListener() {
+        if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return;
+
+        chrome.storage.onChanged.addListener((changes, areaName) => {
+            if (areaName !== 'local') return;
+
+            // 同步 dirty flags：將其他分頁新增的 dirty IDs 合併到記憶體
+            if (changes[DIRTY_CHAT_IDS_KEY]) {
+                const newValue = changes[DIRTY_CHAT_IDS_KEY].newValue;
+                if (Array.isArray(newValue)) {
+                    for (const id of newValue) {
+                        this._dirtyChatIds.add(id);
+                    }
+                }
+            }
+
+            // 同步聊天索引：當其他分頁更新索引時，合併變更到記憶體
+            if (changes[CHAT_INDEX_KEY]) {
+                const newIndex = changes[CHAT_INDEX_KEY].newValue;
+                if (Array.isArray(newIndex)) {
+                    const localMap = new Map(this._chatIndex.map(e => [e.id, e]));
+                    const remoteIds = new Set();
+
+                    for (const entry of newIndex) {
+                        remoteIds.add(entry.id);
+                        if (!localMap.has(entry.id)) {
+                            // 其他分頁新增的聊天，加入本地索引
+                            this._chatIndex.push(entry);
+                            // 延遲載入聊天資料（只在需要時才從 storage 讀取）
+                            if (!this.chats.has(entry.id) && !entry._remoteOnly) {
+                                this.storage.get(this._chatKey(entry.id)).then(result => {
+                                    const chat = result[this._chatKey(entry.id)];
+                                    if (chat) {
+                                        this.chats.set(entry.id, chat);
+                                    }
+                                }).catch(() => {});
+                            }
+                        } else {
+                            // 其他分頁更新了現有條目（例如標題變更），同步到本地
+                            const idx = this._chatIndex.findIndex(e => e.id === entry.id);
+                            if (idx !== -1) {
+                                this._chatIndex[idx] = entry;
+                            }
+                        }
+                    }
+
+                    // 移除其他分頁已刪除的條目（保留當前聊天，避免影響正在編輯的對話）
+                    this._chatIndex = this._chatIndex.filter(
+                        e => remoteIds.has(e.id) || e.id === this.currentChatId
+                    );
+                }
+            }
+
+            // 同步個別聊天資料：當其他分頁儲存聊天時，更新記憶體 Map
+            for (const key of Object.keys(changes)) {
+                if (key.startsWith(CHAT_KEY_PREFIX)) {
+                    const chatId = key.slice(CHAT_KEY_PREFIX.length);
+                    const newValue = changes[key].newValue;
+                    if (newValue && chatId !== this.currentChatId) {
+                        // 只更新非當前聊天（避免覆蓋正在編輯的對話）
+                        this.chats.set(chatId, newValue);
+                    }
+                }
+            }
+        });
+    }
+
     // ==================== Per-Chat 儲存操作 ====================
 
     /**
      * 儲存單一聊天 — 只寫入該聊天的 key 和增量更新索引
+     * 使用 Read-Merge-Write 模式：先從 storage 讀取當前索引，合併後再寫入
+     * 避免覆蓋其他分頁新增的索引條目
      * @param {string} chatId - 要儲存的聊天 ID
      */
     async saveChat(chatId) {
         const chat = this.chats.get(chatId);
         if (!chat || chat.isNew) return;
 
-        this._updateIndexEntry(chatId);
+        const entry = this._buildIndexEntry(chat);
+
+        // 從 storage 讀取最新索引，合併本分頁的更新
+        const storedResult = await this.storage.get(CHAT_INDEX_KEY);
+        const currentIndex = storedResult[CHAT_INDEX_KEY] || [];
+        const idx = currentIndex.findIndex(e => e.id === chatId);
+        if (idx !== -1) {
+            currentIndex[idx] = entry;
+        } else {
+            currentIndex.push(entry);
+        }
+        this._chatIndex = currentIndex;
+
         await this.storage.set({
             [this._chatKey(chatId)]: chat,
-            [CHAT_INDEX_KEY]: this._chatIndex
+            [CHAT_INDEX_KEY]: currentIndex
         });
     }
 
@@ -356,10 +466,13 @@ export class ChatManager {
             throw new Error('对话不存在');
         }
         this.chats.delete(chatId);
-        this._removeIndexEntry(chatId);
 
-        // 更新索引並移除 per-chat key
-        await this.storage.set({ [CHAT_INDEX_KEY]: this._chatIndex });
+        // 從 storage 讀取最新索引，移除該條目後寫回（避免覆蓋其他分頁的新增）
+        const storedResult = await this.storage.get(CHAT_INDEX_KEY);
+        const currentIndex = (storedResult[CHAT_INDEX_KEY] || []).filter(e => e.id !== chatId);
+        this._chatIndex = currentIndex;
+
+        await this.storage.set({ [CHAT_INDEX_KEY]: currentIndex });
         this.storage.remove(this._chatKey(chatId)).catch(() => {});
 
         // 通知 WebDAV 同步記錄刪除
@@ -418,22 +531,27 @@ export class ChatManager {
                 // 不刪除當前正在使用的對話
                 if (chat.id !== this.currentChatId) {
                     this.chats.delete(chat.id);
-                    this._removeIndexEntry(chat.id);
                     deletedIds.push(chat.id);
                 }
             }
 
             if (deletedIds.length > 0) {
                 // 清理 dirty flags，避免 WebDAV 同步嘗試同步已刪除的聊天
-                this.clearDirtyChatIds(deletedIds);
+                await this.clearDirtyChatIds(deletedIds);
 
                 // 通知 WebDAV 同步記錄刪除
                 for (const id of deletedIds) {
                     document.dispatchEvent(new CustomEvent('chat-deleted', { detail: { chatId: id } }));
                 }
 
+                // 從 storage 讀取最新索引，移除已刪除的條目後寫回
+                const deletedSet = new Set(deletedIds);
+                const storedResult = await this.storage.get(CHAT_INDEX_KEY);
+                const currentIndex = (storedResult[CHAT_INDEX_KEY] || []).filter(e => !deletedSet.has(e.id));
+                this._chatIndex = currentIndex;
+
                 const keysToRemove = deletedIds.map(id => this._chatKey(id));
-                await this.storage.set({ [CHAT_INDEX_KEY]: this._chatIndex });
+                await this.storage.set({ [CHAT_INDEX_KEY]: currentIndex });
                 this.storage.remove(keysToRemove).catch(() => {});
             }
 

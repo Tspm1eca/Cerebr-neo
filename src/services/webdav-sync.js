@@ -861,7 +861,7 @@ class WebDAVSyncManager {
                 const hashResult = await syncStorageAdapter.get(WEBDAV_LOCAL_HASH_KEY);
                 const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];
                 if (localHash === lastLocalHash) {
-                    chatManager.clearDirtyChatIds(dirtySnapshot);
+                    await chatManager.clearDirtyChatIds(dirtySnapshot);
                     this.clearCache();
                     this._lastCheckSyncResult = null;
                     const lastSync = new Date().toISOString();
@@ -943,7 +943,7 @@ class WebDAVSyncManager {
             await this.saveLocalChatHashes(localChatHashes);
 
             // 清除同步開始時快照的 dirty flags（保留同步期間新增的）
-            chatManager.clearDirtyChatIds(dirtySnapshot);
+            await chatManager.clearDirtyChatIds(dirtySnapshot);
 
             // 儲存仍需重試的 tombstone（成功刪除的已移除）
             await this.saveDeletedChatIds(remainingTombstones);
@@ -1166,7 +1166,7 @@ class WebDAVSyncManager {
             await this.saveLocalChatHashes(updatedHashes);
 
             // 清除同步開始時快照的 dirty flags（保留同步期間新增的）
-            chatManager.clearDirtyChatIds(dirtySnapshot);
+            await chatManager.clearDirtyChatIds(dirtySnapshot);
 
             // 清除本地數據快取
             this.clearCache();
