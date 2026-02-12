@@ -3,8 +3,8 @@
  * 处理用户输入、粘贴、拖放图片等交互
  */
 
-import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePreview, addImageToPreview, clearImagePreview, getPreviewImages, updatePreviewVisibility } from '../utils/ui.js';
-import { handleImageDrop, compressImage, createThumbnailImage } from '../utils/image.js';
+import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePreview, addImageToPreview, clearImagePreview, getPreviewImages } from '../utils/ui.js';
+import { handleImageDrop, compressImage, createThumbnailImage, processImageWithPreview } from '../utils/image.js';
 
 // 跟踪输入法状态
 let isComposing = false;
@@ -580,44 +580,23 @@ export function initMessageInput(config) {
         const imageItem = items.find(item => item.type.startsWith('image/'));
 
         if (imageItem) {
-            // 处理图片粘贴 - 使用新的预览区域
+            // 处理图片粘贴 - 立即顯示載入占位元素
             const file = imageItem.getAsFile();
-            const reader = new FileReader();
 
-            reader.onload = async () => {
-                // 壓縮圖片
-                const compressedData = await compressImage(reader.result);
-                const thumbnailData = await createThumbnailImage(compressedData);
-
-                // 添加到预览区域
-                addImageToPreview({
-                    imageSource: compressedData,
-                    thumbnailSource: thumbnailData,
-                    fileName: file.name,
-                    onImageClick: (data, sourceElement) => {
-                        showImagePreview({
-                            imageSource: data,
-                            config: uiConfig.imagePreview,
-                            sourceElement
-                        });
-                    },
-                    onDelete: () => {
-                        // 触发输入事件以更新状态
-                        messageInput.dispatchEvent(new Event('input'));
-                    }
-                });
-
-                // 展开 input-container
-                const inputContainer = document.getElementById('input-container');
-                if (inputContainer) {
-                    inputContainer.classList.remove('collapsed');
-                }
-
-                // 触发输入事件以调整高度
-                messageInput.dispatchEvent(new Event('input'));
-            };
-
-            reader.readAsDataURL(file);
+            processImageWithPreview({
+                messageInput,
+                source: file,
+                fileName: file.name,
+                onImageClick: (data, sourceElement) => {
+                    showImagePreview({
+                        imageSource: data,
+                        config: uiConfig.imagePreview,
+                        sourceElement
+                    });
+                },
+                onSuccess: () => messageInput.dispatchEvent(new Event('input')),
+                onError: (error) => console.error('處理貼上圖片失敗:', error)
+            });
         } else {
             // 处理文本粘贴
             const text = e.clipboardData.getData('text/plain');

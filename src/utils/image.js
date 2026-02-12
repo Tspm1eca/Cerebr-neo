@@ -1,4 +1,4 @@
-import { addImageToPreview } from './ui.js';
+import { addImageLoadingToPreview, finalizeImagePreviewItem, updatePreviewVisibility } from './ui.js';
 
 /**
  * 圖片壓縮配置
@@ -309,11 +309,67 @@ export async function compressImage(base64Data, options = {}) {
 }
 
 /**
+ * 讀取檔案為 data URL
+ * @param {File} file - 檔案物件
+ * @returns {Promise<string>} data URL
+ */
+function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('檔案讀取失敗'));
+        reader.readAsDataURL(file);
+    });
+}
+
+/**
+ * 建立載入占位元素並異步處理圖片（壓縮 + 縮略圖 + 替換占位）
+ * @param {Object} params - 參數對象
+ * @param {HTMLElement} params.messageInput - 訊息輸入框元素
+ * @param {File|string} params.source - 圖片來源（File 物件或 base64 字串）
+ * @param {string} [params.fileName='图片'] - 檔案名稱
+ * @param {Function} [params.onImageClick] - 圖片點擊回調
+ * @param {Function} [params.onSuccess] - 成功回調
+ * @param {Function} [params.onError] - 錯誤回調
+ */
+export function processImageWithPreview({ messageInput, source, fileName = '图片', onImageClick, onSuccess, onError }) {
+    const placeholder = addImageLoadingToPreview({
+        onDelete: () => messageInput.dispatchEvent(new Event('input'))
+    });
+
+    const inputContainer = document.getElementById('input-container');
+    if (inputContainer) {
+        inputContainer.classList.remove('collapsed');
+    }
+
+    const dataPromise = source instanceof File
+        ? readFileAsDataURL(source)
+        : Promise.resolve(source);
+
+    dataPromise.then(async (data) => {
+        const compressedData = await compressImage(data);
+        const thumbnailData = await createThumbnailImage(compressedData);
+        finalizeImagePreviewItem(placeholder, {
+            imageSource: compressedData,
+            thumbnailSource: thumbnailData,
+            fileName,
+            onImageClick
+        });
+        if (onSuccess) onSuccess();
+    }).catch((error) => {
+        if (placeholder && placeholder.parentNode) {
+            placeholder.remove();
+            updatePreviewVisibility();
+        }
+        if (onError) onError(error);
+    });
+}
+
+/**
  * 处理图片拖放的通用函数
  * @param {DragEvent} e - 拖放事件对象
  * @param {Object} config - 配置对象
  * @param {HTMLElement} config.messageInput - 消息输入框元素
- * @param {Function} config.createImageTag - 创建图片标签的函数（保留兼容性）
  * @param {Function} config.onSuccess - 成功处理后的回调函数
  * @param {Function} config.onError - 错误处理的回调函数
  * @param {Function} [config.onImageClick] - 图片点击回调
@@ -321,7 +377,6 @@ export async function compressImage(base64Data, options = {}) {
 export function handleImageDrop(e, config) {
     const {
         messageInput,
-        createImageTag,
         onSuccess = () => {},
         onError = (error) => console.error('处理拖放事件失败:', error),
         onImageClick
@@ -335,37 +390,15 @@ export function handleImageDrop(e, config) {
         if (e.dataTransfer.files.length > 0) {
             const file = e.dataTransfer.files[0];
             if (file.type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onload = async () => {
-                    try {
-                        // 壓縮圖片
-                        const compressedData = await compressImage(reader.result);
-                        const thumbnailData = await createThumbnailImage(compressedData);
-
-                        // 使用新的预览区域显示图片
-                        addImageToPreview({
-                            imageSource: compressedData,
-                            thumbnailSource: thumbnailData,
-                            fileName: file.name,
-                            onImageClick,
-                            onDelete: () => {
-                                // 触发输入事件以更新状态
-                                messageInput.dispatchEvent(new Event('input'));
-                            }
-                        });
-                        // 展开 input-container
-                        const inputContainer = document.getElementById('input-container');
-                        if (inputContainer) {
-                            inputContainer.classList.remove('collapsed');
-                        }
-                        // 聚焦输入框
-                        messageInput.focus();
-                        onSuccess();
-                    } catch (error) {
-                        onError(error);
-                    }
-                };
-                reader.readAsDataURL(file);
+                processImageWithPreview({
+                    messageInput,
+                    source: file,
+                    fileName: file.name,
+                    onImageClick,
+                    onSuccess,
+                    onError
+                });
+                messageInput.focus();
                 return;
             }
         }
@@ -373,39 +406,22 @@ export function handleImageDrop(e, config) {
         // 处理网页图片拖放
         const data = e.dataTransfer.getData('text/plain');
         if (data) {
-            // 使用 async IIFE 來處理異步操作
-            (async () => {
-                try {
-                    const imageData = JSON.parse(data);
-                    if (imageData.type === 'image') {
-                        // 壓縮圖片
-                        const compressedData = await compressImage(imageData.data);
-                        const thumbnailData = await createThumbnailImage(compressedData);
-
-                        // 使用新的预览区域显示图片
-                        addImageToPreview({
-                            imageSource: compressedData,
-                            thumbnailSource: thumbnailData,
-                            fileName: imageData.name,
-                            onImageClick,
-                            onDelete: () => {
-                                // 触发输入事件以更新状态
-                                messageInput.dispatchEvent(new Event('input'));
-                            }
-                        });
-                        // 展开 input-container
-                        const inputContainer = document.getElementById('input-container');
-                        if (inputContainer) {
-                            inputContainer.classList.remove('collapsed');
-                        }
-                        // 聚焦输入框
-                        messageInput.focus();
-                        onSuccess();
-                    }
-                } catch (error) {
-                    onError(error);
+            try {
+                const imageData = JSON.parse(data);
+                if (imageData.type === 'image') {
+                    processImageWithPreview({
+                        messageInput,
+                        source: imageData.data,
+                        fileName: imageData.name,
+                        onImageClick,
+                        onSuccess,
+                        onError
+                    });
+                    messageInput.focus();
                 }
-            })();
+            } catch (error) {
+                onError(error);
+            }
         }
     } catch (error) {
         onError(error);

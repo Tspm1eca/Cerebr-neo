@@ -100,6 +100,37 @@
     background: rgba(255, 59, 48, 0.8);
 }
 
+/* 圖片載入中狀態 */
+.input-image-preview .preview-image-item.loading {
+    cursor: default;
+}
+
+.input-image-preview .preview-image-item.loading img {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.input-image-preview .preview-image-item.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 16px;
+    height: 16px;
+    transform: translate(-50%, -50%);
+    border: 2px solid rgba(120, 120, 120, 0.35);
+    border-top-color: var(--cerebr-primary-color);
+    border-radius: 50%;
+    animation: image-tag-thumbnail-spin 0.75s linear infinite;
+    pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .input-image-preview .preview-image-item.loading::after {
+        animation: none;
+    }
+}
+
 #input-container.collapsed .button-switch-container {
     width: 0;
     height: 0;

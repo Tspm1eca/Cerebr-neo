@@ -274,6 +274,84 @@ export function applyImageTagThumbnail(container, thumbnailSource) {
 }
 
 /**
+ * 添加圖片載入占位元素到預覽區域（顯示轉圈動畫）
+ * @param {Object} params - 參數對象
+ * @param {Function} [params.onDelete] - 刪除回調
+ * @returns {HTMLElement|null} 占位 DOM 元素
+ */
+export function addImageLoadingToPreview({ onDelete } = {}) {
+    const previewContainer = document.getElementById('input-image-preview');
+    if (!previewContainer) return null;
+
+    const item = document.createElement('div');
+    item.className = 'preview-image-item loading';
+
+    const img = document.createElement('img');
+    img.alt = '載入中';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'preview-delete-btn';
+    deleteBtn.title = '删除图片';
+
+    deleteBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        item.remove();
+        updatePreviewVisibility();
+        if (onDelete) {
+            onDelete();
+        }
+    });
+
+    item.appendChild(img);
+    item.appendChild(deleteBtn);
+    previewContainer.appendChild(item);
+
+    updatePreviewVisibility();
+
+    return item;
+}
+
+/**
+ * 將載入中的占位元素替換為實際圖片預覽
+ * @param {HTMLElement} item - addImageLoadingToPreview 回傳的占位元素
+ * @param {Object} params - 參數對象
+ * @param {string} params.imageSource - 圖片來源
+ * @param {string} params.thumbnailSource - 縮略圖來源
+ * @param {string} [params.fileName] - 檔案名稱
+ * @param {Function} [params.onImageClick] - 圖片點擊回調
+ */
+export function finalizeImagePreviewItem(item, {
+    imageSource,
+    thumbnailSource,
+    fileName = '图片',
+    onImageClick
+}) {
+    if (!item || !item.parentNode) return;
+
+    const resolvedThumbnailSource = thumbnailSource || imageSource;
+
+    item.setAttribute('data-image', imageSource || '');
+    item.setAttribute('data-thumbnail', resolvedThumbnailSource || '');
+
+    const img = item.querySelector('img');
+    if (img) {
+        setImageElementSource(img, resolvedThumbnailSource);
+        img.alt = fileName;
+
+        img.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (onImageClick) {
+                onImageClick(imageSource, img);
+            }
+        });
+    }
+
+    item.classList.remove('loading');
+}
+
+/**
  * 在输入框上方的预览区域添加图片
  * @param {Object} params - 参数对象
  * @param {string} [params.base64Data] - 兼容字段（图片来源）
@@ -310,7 +388,6 @@ export function addImageToPreview({
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'preview-delete-btn';
-    deleteBtn.innerHTML = '';
     deleteBtn.title = '删除图片';
 
     // 点击图片预览
