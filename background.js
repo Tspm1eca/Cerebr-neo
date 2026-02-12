@@ -505,11 +505,21 @@ chrome.tabs.onActivated.addListener(activeInfo => {
  */
 async function performWebDAVSyncUpload() {
     try {
+        // 0. 等待短暫時間，讓新面板有機會啟動並設置 webdav_panel_active 標記
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        // 0.1 若面板已重新啟動（會自行透過 syncOnOpen 處理同步），跳過 SW 上傳
+        const { webdav_panel_active: panelActive } = await chrome.storage.local.get('webdav_panel_active');
+        if (panelActive) {
+            console.log('[WebDAV SW] 面板已啟動，跳過 SW 同步（面板會接手）');
+            return;
+        }
+
         // 1. 讀取 WebDAV 配置
         const { webdav_config: config } = await chrome.storage.sync.get('webdav_config');
         if (!config || !config.enabled) return;
 
-        // 2. 讀取 dirty chat IDs
+        // 2. 讀取 dirty chat IDs（重新讀取，可能已被面板清除）
         const { cerebr_dirty_chat_ids: dirtyIds } = await chrome.storage.local.get('cerebr_dirty_chat_ids');
         if (!dirtyIds || dirtyIds.length === 0) return;
 

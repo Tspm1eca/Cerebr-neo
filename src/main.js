@@ -1865,12 +1865,14 @@ let exaApiUrl = '';
         }
     });
 
-    // 監聽頁面卸載事件（作為備用方案，僅在真正卸載時觸發）
+    // 監聯頁面卸載事件（作為備用方案，僅在真正卸載時觸發）
     // 委託給 background service worker 執行同步，因為 SW 不受頁面生命週期影響
     window.addEventListener('pagehide', (event) => {
         // pagehide 事件在頁面被卸載時觸發
         // persisted 為 true 表示頁面可能被緩存（bfcache）
         if (!event.persisted) {
+            // 標記面板已關閉，讓 SW 知道可以接手同步
+            chrome.storage.local.set({ webdav_panel_active: false }).catch(() => {});
             // 取消防抖計時器，避免重複執行
             clearTimeout(syncOnCloseDebounceTimer);
             // 如果 visibilitychange 已經執行過同步，則跳過
@@ -1880,6 +1882,9 @@ let exaApiUrl = '';
             }
         }
     });
+
+    // 標記面板已啟動，防止 SW 重複同步（面板的 syncOnOpen 會接手）
+    chrome.storage.local.set({ webdav_panel_active: true }).catch(() => {});
 
     // 網頁載入時執行 WebDAV 同步
     performWebDAVSyncOnOpen();

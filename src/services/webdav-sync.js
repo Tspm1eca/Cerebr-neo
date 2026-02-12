@@ -21,6 +21,7 @@ const WEBDAV_LAST_SYNC_TIMESTAMP_KEY = 'webdav_last_sync_timestamp';
 const WEBDAV_DELETED_CHAT_IDS_KEY = 'webdav_deleted_chat_ids';
 const WEBDAV_CACHED_MANIFEST_KEY = 'webdav_cached_manifest';
 const WEBDAV_LOCAL_CHAT_HASHES_KEY = 'webdav_local_chat_hashes';
+const WEBDAV_KNOWN_DIRS_KEY = 'webdav_known_directories';
 
 // HTTP 状态码常量
 const HTTP_STATUS = {
@@ -124,11 +125,11 @@ async function runWithConcurrency(tasks, concurrency) {
  * WebDAV 客户端类
  */
 class WebDAVClient {
-    constructor(config) {
+    constructor(config, knownDirectories = []) {
         this.config = { ...DEFAULT_CONFIG, ...config };
         this.syncInProgress = false;
         // 目錄存在性快取：避免每次同步都重複發送 MKCOL 請求
-        this._knownDirectories = new Set();
+        this._knownDirectories = new Set(knownDirectories);
     }
 
     /**
@@ -279,7 +280,7 @@ class WebDAVClient {
         }
 
         try {
-            const response = await this.fetchWithTimeout(this.getFullUrl(), {
+            const response = await this.fetchWithTimeout(this.getFullUrl() + '/', {
                 method: 'MKCOL',
                 headers: this.getAuthHeaders()
             });
@@ -335,7 +336,7 @@ class WebDAVClient {
                 continue;
             }
 
-            const response = await this.fetchWithTimeout(`${baseUrl}${currentPath}`, {
+            const response = await this.fetchWithTimeout(`${baseUrl}${currentPath}/`, {
                 method: 'MKCOL',
                 headers: this.getAuthHeaders()
             });
@@ -565,6 +566,29 @@ class WebDAVSyncManager {
         this._cacheTimestamp = 0;
     }
 
+    // ========== 目錄快取持久化 ==========
+
+    async _loadKnownDirectories() {
+        try {
+            const result = await storageAdapter.get(WEBDAV_KNOWN_DIRS_KEY);
+            return result[WEBDAV_KNOWN_DIRS_KEY] || [];
+        } catch {
+            return [];
+        }
+    }
+
+    async _persistKnownDirectories() {
+        if (this.client) {
+            try {
+                await storageAdapter.set({
+                    [WEBDAV_KNOWN_DIRS_KEY]: [...this.client._knownDirectories]
+                });
+            } catch (e) {
+                console.warn('[WebDAV] 持久化目錄快取失敗:', e);
+            }
+        }
+    }
+
     // ========== Manifest 快取 ==========
 
     async loadCachedManifest() {
@@ -686,7 +710,8 @@ class WebDAVSyncManager {
                 }
             }
 
-            this.client = new WebDAVClient(this.config);
+            // 從 storage 載入持久化的目錄快取，避免每次 session 重複 MKCOL
+            this.client = new WebDAVClient(this.config, await this._loadKnownDirectories());
         } catch (error) {
             console.error('加载 WebDAV 配置失败:', error);
         }
@@ -696,6 +721,8 @@ class WebDAVSyncManager {
      * 保存配置
      */
     async saveConfig(config) {
+        const prevServerUrl = this.config.serverUrl;
+        const prevSyncPath = this.config.syncPath;
         this.config = { ...this.config, ...config };
 
         const configForSync = { ...this.config };
@@ -722,6 +749,14 @@ class WebDAVSyncManager {
             this.client.updateConfig(this.config);
         } else {
             this.client = new WebDAVClient(this.config);
+        }
+
+        // 路徑變更時清除持久化的目錄快取
+        const pathChanged =
+            (config.serverUrl !== undefined && config.serverUrl !== prevServerUrl) ||
+            (config.syncPath !== undefined && config.syncPath !== prevSyncPath);
+        if (pathChanged) {
+            storageAdapter.set({ [WEBDAV_KNOWN_DIRS_KEY]: [] }).catch(() => {});
         }
     }
 
@@ -798,6 +833,29 @@ class WebDAVSyncManager {
                 }
             }
 
+            // 處理刪除的聊天
+            const tombstones = cleanTombstones(await this.loadDeletedChatIds());
+
+            // 短路：無變更的聊天、無 tombstone、且 overall hash 未改變 → 跳過上傳
+            if (changedChats.length === 0 && tombstones.length === 0) {
+                const hashResult = await syncStorageAdapter.get(WEBDAV_LOCAL_HASH_KEY);
+                const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];
+                if (localHash === lastLocalHash) {
+                    chatManager.clearDirtyChatIds(dirtySnapshot);
+                    this.clearCache();
+                    this._lastCheckSyncResult = null;
+                    const lastSync = new Date().toISOString();
+                    this.notifyListeners('sync-complete', {
+                        direction: 'upload',
+                        timestamp: lastSync,
+                        chatCount: chatIndex.length,
+                        changedChatCount: 0,
+                        includesApiConfig: false
+                    });
+                    return { success: true, message: '数据无变更', timestamp: lastSync };
+                }
+            }
+
             // 確保 chats/ 目錄存在
             if (changedChats.length > 0) {
                 const dirResult = await this.client.createDirectoryAtPath(CHAT_DIRECTORY);
@@ -815,7 +873,6 @@ class WebDAVSyncManager {
             }
 
             // 處理刪除的聊天（並行刪除）
-            const tombstones = cleanTombstones(await this.loadDeletedChatIds());
             if (tombstones.length > 0) {
                 const deleteTasks = tombstones.map(tombstone => async () => {
                     try {
@@ -866,18 +923,11 @@ class WebDAVSyncManager {
             // 儲存已清理的 tombstone
             await this.saveDeletedChatIds(tombstones);
 
-            // 儲存 ETag
-            let newETag = uploadResult.etag;
-            if (!newETag) {
-                try {
-                    newETag = await this.client.getRemoteETag('cerebr.json');
-                } catch (etagError) {
-                    console.warn('[WebDAV] 获取上传后 ETag 失败:', etagError);
-                }
-            }
-            if (newETag) {
-                await syncStorageAdapter.set({ [WEBDAV_REMOTE_ETAG_KEY]: newETag });
-            }
+            // 儲存 ETag（若伺服器未回傳則標記為需刷新，避免額外 HEAD 請求）
+            const newETag = uploadResult.etag;
+            await syncStorageAdapter.set({
+                [WEBDAV_REMOTE_ETAG_KEY]: newETag || `__needs_refresh_${Date.now()}`
+            });
 
             // 儲存本地 Hash
             if (localHash) {
@@ -913,6 +963,9 @@ class WebDAVSyncManager {
 
             this.clearCache();
             this._lastCheckSyncResult = null;
+
+            // 持久化目錄快取，下次 session 可跳過 MKCOL
+            this._persistKnownDirectories();
 
             return { success: true, message, timestamp: lastSync };
         } catch (error) {
@@ -1093,18 +1146,14 @@ class WebDAVSyncManager {
             // 清除本地數據快取
             this.clearCache();
 
-            // 儲存 ETag
-            let newETag = downloadETag;
-            if (!newETag) {
-                try {
-                    newETag = await this.client.getRemoteETag('cerebr.json');
-                } catch (etagError) {
-                    console.warn('[WebDAV] 获取下载后 ETag 失败:', etagError);
-                }
-            }
-            if (newETag) {
-                await syncStorageAdapter.set({ [WEBDAV_REMOTE_ETAG_KEY]: newETag });
-            }
+            // 持久化目錄快取，下次 session 可跳過 MKCOL
+            this._persistKnownDirectories();
+
+            // 儲存 ETag（若伺服器未回傳則標記為需刷新，避免額外 HEAD 請求）
+            const newETag = downloadETag;
+            await syncStorageAdapter.set({
+                [WEBDAV_REMOTE_ETAG_KEY]: newETag || `__needs_refresh_${Date.now()}`
+            });
 
             // 計算並儲存本地 Hash
             try {
@@ -1327,7 +1376,15 @@ class WebDAVSyncManager {
             const remoteETag = await this.client.getRemoteETag('cerebr.json');
             const etagResult = await syncStorageAdapter.get(WEBDAV_REMOTE_ETAG_KEY);
             const lastRemoteETag = etagResult[WEBDAV_REMOTE_ETAG_KEY];
-            const remoteChanged = remoteETag !== null && remoteETag !== lastRemoteETag;
+            let remoteChanged = remoteETag !== null && remoteETag !== lastRemoteETag;
+
+            // 處理上次同步後伺服器未回傳 ETag 的情況：
+            // __needs_refresh_ 標記代表「我剛同步過」，ETag 不匹配不算遠端變更
+            // 更新 stored ETag 為實際值，供後續比對
+            if (remoteChanged && lastRemoteETag && lastRemoteETag.startsWith('__needs_refresh_') && remoteETag) {
+                await syncStorageAdapter.set({ [WEBDAV_REMOTE_ETAG_KEY]: remoteETag });
+                remoteChanged = false;
+            }
 
             this._lastCheckSyncTime = Date.now();
 
@@ -1491,6 +1548,21 @@ class WebDAVSyncManager {
             return { synced: false, result: null, error: null };
         }
 
+        // 短路：有 dirty chats 直接上傳，跳過 checkSyncStatus 的遠端 HEAD 請求
+        const hasDirtyChats = chatManager.getDirtyChatIds().size > 0;
+        if (hasDirtyChats) {
+            try {
+                const result = await this.syncToRemote();
+                this._lastSyncOnCloseTime = Date.now();
+                this._lastCheckSyncResult = null;
+                return { synced: true, result, error: null };
+            } catch (error) {
+                console.error('[WebDAV] 关闭同步失败:', error);
+                return { synced: false, result: null, error: error.message };
+            }
+        }
+
+        // 無 dirty chats：完整檢查（處理重啟後 hash fallback 等邊際情況）
         try {
             const status = await this.checkSyncStatus();
 
