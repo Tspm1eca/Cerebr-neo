@@ -127,22 +127,40 @@ class WebDAVClient {
     constructor(config) {
         this.config = { ...DEFAULT_CONFIG, ...config };
         this.syncInProgress = false;
+        // 目錄存在性快取：避免每次同步都重複發送 MKCOL 請求
+        this._knownDirectories = new Set();
+    }
+
+    /**
+     * 正規化的同步路徑（去除前後斜線）
+     */
+    get _normalizedSyncPath() {
+        return this.config.syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
+    }
+
+    /**
+     * 正規化的伺服器 URL（去除尾斜線）
+     */
+    get _baseUrl() {
+        return this.config.serverUrl.replace(/\/+$/, '');
     }
 
     /**
      * 更新配置
      */
     updateConfig(config) {
+        const pathChanged =
+            (config.serverUrl !== undefined && config.serverUrl !== this.config.serverUrl) ||
+            (config.syncPath !== undefined && config.syncPath !== this.config.syncPath);
         this.config = { ...this.config, ...config };
+        if (pathChanged) this._knownDirectories.clear();
     }
 
     /**
      * 获取完整的 WebDAV URL
      */
     getFullUrl(path = '') {
-        let baseUrl = this.config.serverUrl.replace(/\/+$/, '');
-        let syncPath = this.config.syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
-        return `${baseUrl}/${syncPath}/${path}`.replace(/\/+$/, '');
+        return `${this._baseUrl}/${this._normalizedSyncPath}/${path}`.replace(/\/+$/, '');
     }
 
     /**
@@ -186,14 +204,19 @@ class WebDAVClient {
     /**
      * 带目录重试的操作包装器
      */
-    async withDirectoryRetry(operation, operationName) {
+    async withDirectoryRetry(operation, operationName, filename = null) {
         try {
-            return await operation();
+            const result = await operation();
+            if (filename) this._markAncestorDirectoriesKnown(filename);
+            return result;
         } catch (error) {
             if (error.status === HTTP_STATUS.FAILED_DEPENDENCY || error.status === HTTP_STATUS.CONFLICT) {
-                console.warn(`[WebDAV] ${operationName} 遇到目录问题，尝试创建后重试`);
+                console.warn(`[WebDAV] ${operationName} 遇到目录问题，清除目錄快取並尝试创建后重试`);
+                this._knownDirectories.clear();
                 await this.createDirectory();
-                return await operation();
+                const result = await operation();
+                if (filename) this._markAncestorDirectoriesKnown(filename);
+                return result;
             }
             throw error;
         }
@@ -225,6 +248,9 @@ class WebDAVClient {
             }
 
             if (response.status === HTTP_STATUS.MULTI_STATUS || response.status === HTTP_STATUS.OK) {
+                // 連接成功，將根同步目錄標記為已知存在
+                const syncPath = this._normalizedSyncPath;
+                if (syncPath) this._knownDirectories.add(syncPath);
                 return { success: true, message: '连接成功' };
             }
 
@@ -245,6 +271,13 @@ class WebDAVClient {
      * 创建同步目录（支持多层路径）
      */
     async createDirectory() {
+        const syncPath = this._normalizedSyncPath;
+
+        // 若根同步目錄已在快取中，跳過
+        if (syncPath && this._knownDirectories.has(syncPath)) {
+            return { created: false, error: null };
+        }
+
         try {
             const response = await this.fetchWithTimeout(this.getFullUrl(), {
                 method: 'MKCOL',
@@ -252,19 +285,22 @@ class WebDAVClient {
             });
 
             if (response.status === HTTP_STATUS.CREATED) {
+                if (syncPath) this._knownDirectories.add(syncPath);
                 return { created: true, error: null };
             }
 
             if (response.status === HTTP_STATUS.METHOD_NOT_ALLOWED || response.status === HTTP_STATUS.MOVED_PERMANENTLY) {
+                if (syncPath) this._knownDirectories.add(syncPath);
                 return { created: false, error: null };
             }
 
             if (response.status === HTTP_STATUS.CONFLICT || response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
                 const parentCreated = await this.createParentDirectories();
-                if (parentCreated) {
-                    return await this.createDirectory();
+                if (!parentCreated) {
+                    return { created: false, error: '无法创建父目录' };
                 }
-                return { created: false, error: '无法创建父目录' };
+                // createParentDirectories 已建立整條路徑（含 syncPath 本身）
+                return { created: true, error: null };
             }
 
             return { created: false, error: `HTTP ${response.status}` };
@@ -274,72 +310,88 @@ class WebDAVClient {
     }
 
     /**
-     * 递归创建父目录
+     * 確保指定路徑的所有目錄層級都存在（共用核心邏輯）
+     * @param {string} normalizedPath - 正規化路徑（不含前後斜線，如 'Cerebr-neo/chats'）
+     * @returns {Promise<{created: boolean, error: string|null}>}
      */
-    async createParentDirectories() {
-        const baseUrl = this.config.serverUrl.replace(/\/+$/, '');
-        const syncPath = this.config.syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
-        const parts = syncPath.split('/').filter(Boolean);
-
-        let currentPath = '';
-        for (const part of parts) {
-            currentPath += '/' + part;
-            const url = `${baseUrl}${currentPath}`;
-
-            try {
-                const response = await this.fetchWithTimeout(url, {
-                    method: 'MKCOL',
-                    headers: this.getAuthHeaders()
-                });
-
-                if (response.status !== HTTP_STATUS.CREATED && response.status !== HTTP_STATUS.METHOD_NOT_ALLOWED &&
-                    response.status !== HTTP_STATUS.MOVED_PERMANENTLY && response.status !== HTTP_STATUS.CONFLICT) {
-                    if (response.status !== HTTP_STATUS.FAILED_DEPENDENCY) {
-                        console.warn(`[WebDAV] 创建目录 ${currentPath} 失败: HTTP ${response.status}`);
-                        return false;
-                    }
-                }
-            } catch (error) {
-                console.error(`[WebDAV] 创建目录 ${currentPath} 异常:`, error);
-                return false;
-            }
-        }
-        return true;
-    }
-
-    async createDirectoryAtPath(relativePath) {
-        const baseUrl = this.config.serverUrl.replace(/\/+$/, '');
-        const syncPath = this.config.syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
-        const childPath = relativePath.replace(/^\/+/, '').replace(/\/+$/, '');
-        const fullPath = [syncPath, childPath].filter(Boolean).join('/');
-
-        if (!fullPath) {
+    async _ensureDirectoriesExist(normalizedPath) {
+        if (!normalizedPath) {
             return { created: false, error: null };
         }
 
-        const parts = fullPath.split('/').filter(Boolean);
+        if (this._knownDirectories.has(normalizedPath)) {
+            return { created: false, error: null };
+        }
+
+        const baseUrl = this._baseUrl;
+        const parts = normalizedPath.split('/').filter(Boolean);
         let currentPath = '';
 
         for (const part of parts) {
             currentPath += '/' + part;
-            const url = `${baseUrl}${currentPath}`;
-            const response = await this.fetchWithTimeout(url, {
+            const pathKey = currentPath.slice(1);
+
+            if (this._knownDirectories.has(pathKey)) {
+                continue;
+            }
+
+            const response = await this.fetchWithTimeout(`${baseUrl}${currentPath}`, {
                 method: 'MKCOL',
                 headers: this.getAuthHeaders()
             });
 
-            if (
-                response.status !== HTTP_STATUS.CREATED &&
-                response.status !== HTTP_STATUS.METHOD_NOT_ALLOWED &&
-                response.status !== HTTP_STATUS.MOVED_PERMANENTLY &&
-                response.status !== HTTP_STATUS.CONFLICT &&
-                response.status !== HTTP_STATUS.FAILED_DEPENDENCY
-            ) {
-                return { created: false, error: `HTTP ${response.status}` };
+            if (response.status === HTTP_STATUS.CREATED ||
+                response.status === HTTP_STATUS.METHOD_NOT_ALLOWED ||
+                response.status === HTTP_STATUS.MOVED_PERMANENTLY) {
+                this._knownDirectories.add(pathKey);
+            } else if (response.status !== HTTP_STATUS.CONFLICT &&
+                response.status !== HTTP_STATUS.FAILED_DEPENDENCY) {
+                return { created: false, error: `创建目录 ${currentPath} 失败: HTTP ${response.status}` };
             }
         }
 
         return { created: true, error: null };
+    }
+
+    /**
+     * 递归创建父目录
+     */
+    async createParentDirectories() {
+        try {
+            const result = await this._ensureDirectoriesExist(this._normalizedSyncPath);
+            if (result.error) {
+                console.warn(`[WebDAV] ${result.error}`);
+            }
+            return !result.error;
+        } catch (error) {
+            console.error('[WebDAV] 创建父目录异常:', error);
+            return false;
+        }
+    }
+
+    /**
+     * 從成功的檔案操作反推祖先目錄存在，回填 _knownDirectories 快取
+     * @param {string} relativePath - 相對於 syncPath 的檔案路徑（如 'cerebr.json' 或 'chats/abc.json'）
+     */
+    _markAncestorDirectoriesKnown(relativePath) {
+        const syncPath = this._normalizedSyncPath;
+        if (!syncPath) return;
+
+        const fullPath = relativePath ? `${syncPath}/${relativePath}` : syncPath;
+        const parts = fullPath.split('/').filter(Boolean);
+        if (relativePath) parts.pop(); // 移除檔名，只保留目錄層級
+
+        let current = '';
+        for (const part of parts) {
+            current = current ? `${current}/${part}` : part;
+            this._knownDirectories.add(current);
+        }
+    }
+
+    async createDirectoryAtPath(relativePath) {
+        const childPath = relativePath.replace(/^\/+/, '').replace(/\/+$/, '');
+        const fullPath = [this._normalizedSyncPath, childPath].filter(Boolean).join('/');
+        return await this._ensureDirectoriesExist(fullPath);
     }
 
     /**
@@ -369,7 +421,7 @@ class WebDAVClient {
             return { success: true, etag };
         };
 
-        return await this.withDirectoryRetry(doUpload, '上传数据');
+        return await this.withDirectoryRetry(doUpload, '上传数据', filename);
     }
 
     /**
@@ -409,7 +461,7 @@ class WebDAVClient {
         };
 
         try {
-            return await this.withDirectoryRetry(doDownload, '下载数据');
+            return await this.withDirectoryRetry(doDownload, '下载数据', filename);
         } catch (error) {
             if (error.status === HTTP_STATUS.FAILED_DEPENDENCY) {
                 return { data: null, etag: null };
@@ -465,7 +517,7 @@ class WebDAVClient {
         };
 
         try {
-            return await this.withDirectoryRetry(doGetETag, '获取 ETag');
+            return await this.withDirectoryRetry(doGetETag, '获取 ETag', filename);
         } catch (error) {
             if (error.status === HTTP_STATUS.FAILED_DEPENDENCY) {
                 return null;
@@ -1081,9 +1133,6 @@ class WebDAVSyncManager {
             });
 
             let message = `已下载 ${syncData.chatIndex.length} 个对话索引`;
-            if (remoteOnlyCount > 0) {
-                message += `（${remoteOnlyCount} 个待按需加载）`;
-            }
             if (apiConfigSynced) {
                 message += '<br>（含 API 配置）';
             }

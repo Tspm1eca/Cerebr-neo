@@ -1,4 +1,4 @@
-export const DEFAULT_SYSTEM_PROMPT = "```\n# 引用格式\n引用網頁內容時，使用 Text Fragment 連結：`[編號](#:~:text=原文片段)`\n\n## 規則\n1. 無網頁內容時不使用引用\n2. 引用必須是原文，不可改寫\n3. 片段 ≤ 50 字符，選擇有辨識度的文字\n4. 編號按順序遞增\n\n# 超連結映射表\n\n## 格式\n1. 所有URL會以給代號你，比如：`URLREF1`。\n```";
+export const DEFAULT_SYSTEM_PROMPT = "```\n# 引用格式\n引用網頁內容時，使用 Text Fragment 連結，格式：`[編號](#:~:text=原文片段)`\n\n## 規則\n1. 無網頁內容時不使用引用\n2. 引用必須是原文，不可改寫\n3. 片段 ≤ 50 字符，選擇有辨識度的文字\n4. 編號按順序遞增\n\n# 超連結映射表\n\n## 格式\n1. 所有URL會以給代號你，比如：`URLREF1`。\n```";
 
 export const DEFAULT_QUICK_CHAT_OPTIONS = [
     {
