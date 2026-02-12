@@ -893,23 +893,28 @@ class WebDAVSyncManager {
             }
 
             // 處理刪除的聊天（並行刪除）
+            const failedTombstones = new Set();
             if (tombstones.length > 0) {
                 const deleteTasks = tombstones.map(tombstone => async () => {
                     try {
                         await this.client.deleteFile(`${CHAT_DIRECTORY}/${tombstone.id}.json`);
                     } catch (e) {
+                        failedTombstones.add(tombstone.id);
                         console.warn(`[WebDAV] 刪除聊天檔案 ${tombstone.id} 失敗:`, e);
                     }
                 });
                 await runWithConcurrency(deleteTasks, UPLOAD_CONCURRENCY);
             }
 
+            // 只保留刪除失敗的 tombstone，成功刪除（含 404）的不再保留
+            const remainingTombstones = tombstones.filter(t => failedTombstones.has(t.id));
+
             // 建立 manifest
             const manifest = {
                 version: 2,
                 timestamp: new Date().toISOString(),
                 chatIndex,
-                deletedChatIds: tombstones,
+                deletedChatIds: remainingTombstones,
                 quickChatOptions: localData.quickChatOptions || []
             };
 
@@ -940,8 +945,8 @@ class WebDAVSyncManager {
             // 清除同步開始時快照的 dirty flags（保留同步期間新增的）
             chatManager.clearDirtyChatIds(dirtySnapshot);
 
-            // 儲存已清理的 tombstone
-            await this.saveDeletedChatIds(tombstones);
+            // 儲存仍需重試的 tombstone（成功刪除的已移除）
+            await this.saveDeletedChatIds(remainingTombstones);
 
             // 儲存 ETag（若伺服器未回傳則標記為需刷新，避免額外 HEAD 請求）
             const newETag = uploadResult.etag;
