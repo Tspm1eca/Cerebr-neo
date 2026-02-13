@@ -282,10 +282,14 @@ export function formatSearchResultsForPrompt(searchResponse, userLanguage = 'zh-
 
     // 格式化每個搜索結果
     formattedText += `\n${sourceLabel}:\n`;
-    searchResponse.results.forEach((result, index) => {
-        formattedText += `\n[${index + 1}] ${result.title}\n`;
-        formattedText += `URL: ${result.url}\n`;
-        formattedText += `${result.content}\n`;
+    searchResponse.results.forEach((result) => {
+        const titleText = result.title || '';
+        const contentText = result.content || '';
+        const combinedText = `${titleText}${contentText}`;
+        const contentWithUrlRef = result.url
+            ? `${combinedText} (${result.url})`
+            : combinedText;
+        formattedText += `\n${contentWithUrlRef}\n`;
     });
 
     return formattedText;

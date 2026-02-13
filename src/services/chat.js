@@ -279,12 +279,13 @@ export async function callAPI({
 
                 // 将搜索结果添加到系统消息
                 const formattedResults = formatSearchResultsForPrompt(searchResults, userLanguage);
-                if (formattedResults) {
+                const mappedFormattedResults = extractAndReplaceUrls(formattedResults, urlToIdMap, idToUrlMap);
+                if (mappedFormattedResults) {
                     // 如果之前没有系统消息内容，添加基础提示
                     if (!systemMessageContent) {
                         systemMessageContent = `你是一个有帮助的AI助手。请使用用户的语言（${userLanguage}）回答问题。以下是从网络搜索获取的最新信息，请基于这些信息回答用户的问题：`;
                     }
-                    systemMessageContent += formattedResults;
+                    systemMessageContent += mappedFormattedResults;
                     console.log('已添加网络搜索结果到系统提示');
 
                     // 標記搜索已使用（用於後續流處理）
@@ -622,8 +623,9 @@ export async function callAPI({
                                 onMessageUpdate(chatId, messageCopy);
                             }
 
-                            // 格式化搜索结果
+                            // 格式化搜索结果，并在发送给AI前映射其中的URL
                             const formattedResults = formatSearchResultsForPrompt(searchResults, userLanguage);
+                            const mappedFormattedResults = extractAndReplaceUrls(formattedResults, urlToIdMap, idToUrlMap);
 
                             // 构建包含工具结果的新消息列表
                             const messagesWithToolResult = [
@@ -643,7 +645,7 @@ export async function callAPI({
                                 {
                                     role: 'tool',
                                     tool_call_id: toolCall.id,
-                                    content: formattedResults || '搜索未返回结果'
+                                    content: mappedFormattedResults || '搜索未返回结果'
                                 }
                             ];
 
