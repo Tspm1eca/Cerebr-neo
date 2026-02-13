@@ -15,8 +15,8 @@ import {
 import { webSearch, tavilySearch, formatSearchResultsForPrompt, extractSearchQuery } from './web-search.js';
 
 // 超時配置（毫秒）
-const STREAM_TIMEOUT = 30000; // 流式響應超時：60秒無數據則超時
-const FIRST_CHUNK_TIMEOUT = 60000; // 首次數據超時：120秒內必須收到第一個數據塊
+const STREAM_TIMEOUT = 10000; // 流式響應超時：上次收到有效內容後 10 秒內無新內容則超時
+const FIRST_CHUNK_TIMEOUT = 60000; // 首次數據超時：60 秒內必須收到第一個數據塊
 
 /**
  * 超時錯誤類
@@ -27,6 +27,34 @@ export class TimeoutError extends Error {
         this.name = 'TimeoutError';
         this.type = type; // 'stream' | 'first_chunk'
     }
+}
+
+/**
+ * 計算流式超時參數
+ * @param {boolean} isFirstChunk - 是否等待第一個數據塊
+ * @param {number} lastContentTime - 上次收到有效內容的時間戳
+ * @returns {{ timeout: number, message: string, type: string }}
+ */
+function calcStreamTimeout(isFirstChunk, lastContentTime) {
+    if (isFirstChunk) {
+        return {
+            timeout: FIRST_CHUNK_TIMEOUT,
+            message: `等待 AI 響應超時（${FIRST_CHUNK_TIMEOUT / 1000}秒內未收到任何數據）`,
+            type: 'first_chunk'
+        };
+    }
+    const remaining = STREAM_TIMEOUT - (Date.now() - lastContentTime);
+    if (remaining <= 0) {
+        throw new TimeoutError(
+            `流式響應超時（${STREAM_TIMEOUT / 1000}秒內未收到新內容）`,
+            'stream'
+        );
+    }
+    return {
+        timeout: remaining,
+        message: `流式響應超時（${STREAM_TIMEOUT / 1000}秒內未收到新內容）`,
+        type: 'stream'
+    };
 }
 
 /**
@@ -402,7 +430,7 @@ export async function callAPI({
 
             // 超時控制
             let isFirstChunk = true; // 是否等待第一個數據塊
-            let lastDataTime = Date.now(); // 上次收到數據的時間
+            let lastStreamContentTime = 0; // 上次收到有效流式內容的時間（首次數據到達後才有意義）
 
             const dispatchUpdate = () => {
                 if (chatManager && chatId) {
@@ -434,17 +462,14 @@ export async function callAPI({
 
             while (true) {
                 // 計算當前應使用的超時時間
-                const currentTimeout = isFirstChunk ? FIRST_CHUNK_TIMEOUT : STREAM_TIMEOUT;
-                const timeoutMessage = isFirstChunk
-                    ? `等待 AI 響應超時（${FIRST_CHUNK_TIMEOUT / 1000}秒內未收到任何數據）`
-                    : `流式響應超時（${STREAM_TIMEOUT / 1000}秒內未收到新數據）`;
+                const { timeout, message: timeoutMessage, type: timeoutType } = calcStreamTimeout(isFirstChunk, lastStreamContentTime);
 
                 // 使用帶超時的 read 操作
                 const { done, value } = await withTimeout(
                     reader.read(),
-                    currentTimeout,
+                    timeout,
                     timeoutMessage,
-                    isFirstChunk ? 'first_chunk' : 'stream'
+                    timeoutType
                 );
 
                 if (done) {
@@ -467,11 +492,14 @@ export async function callAPI({
                    }
 
                     // 收到數據，更新超時控制狀態
+                    if (isFirstChunk) {
+                        lastStreamContentTime = Date.now();
+                    }
                     isFirstChunk = false;
-                    lastDataTime = Date.now();
 
                     const chunk = new TextDecoder().decode(value);
                 buffer += chunk;
+                let hasNewStreamContentInChunk = false;
 
                 let newlineIndex;
                 while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
@@ -492,6 +520,7 @@ export async function callAPI({
 
                             // 处理 tool_calls
                             if (delta?.tool_calls) {
+                                hasNewStreamContentInChunk = true;
                                 for (const toolCallDelta of delta.tool_calls) {
                                     const index = toolCallDelta.index;
 
@@ -517,6 +546,7 @@ export async function callAPI({
                             if (delta?.reasoning_content) {
                                 currentMessage.reasoning_content += delta.reasoning_content;
                                 hasUpdate = true;
+                                hasNewStreamContentInChunk = true;
                             }
 
                             if (delta?.content) {
@@ -555,6 +585,7 @@ export async function callAPI({
                                     }
                                 }
                                 hasUpdate = true;
+                                hasNewStreamContentInChunk = true;
                             }
 
 
@@ -573,6 +604,10 @@ export async function callAPI({
                             console.error('解析数据时出错:', e);
                         }
                     }
+                }
+
+                if (hasNewStreamContentInChunk) {
+                    lastStreamContentTime = Date.now();
                 }
             }
 
@@ -676,29 +711,31 @@ export async function callAPI({
 
                             // 第二次流的超時控制
                             let isSecondFirstChunk = true;
+                            let lastSecondStreamContentTime = 0;
 
                             while (true) {
                                 // 計算當前應使用的超時時間
-                                const secondCurrentTimeout = isSecondFirstChunk ? FIRST_CHUNK_TIMEOUT : STREAM_TIMEOUT;
-                                const secondTimeoutMessage = isSecondFirstChunk
-                                    ? `等待 AI 響應超時（${FIRST_CHUNK_TIMEOUT / 1000}秒內未收到任何數據）`
-                                    : `流式響應超時（${STREAM_TIMEOUT / 1000}秒內未收到新數據）`;
+                                const { timeout: secondTimeout, message: secondTimeoutMessage, type: secondTimeoutType } = calcStreamTimeout(isSecondFirstChunk, lastSecondStreamContentTime);
 
                                 // 使用帶超時的 read 操作
                                 const { done: secondDone, value: secondValue } = await withTimeout(
                                     secondReader.read(),
-                                    secondCurrentTimeout,
+                                    secondTimeout,
                                     secondTimeoutMessage,
-                                    isSecondFirstChunk ? 'first_chunk' : 'stream'
+                                    secondTimeoutType
                                 );
 
                                 if (secondDone) break;
 
                                 // 收到數據，更新超時控制狀態
+                                if (isSecondFirstChunk) {
+                                    lastSecondStreamContentTime = Date.now();
+                                }
                                 isSecondFirstChunk = false;
 
                                 const secondChunk = new TextDecoder().decode(secondValue);
                                 secondBuffer += secondChunk;
+                                let hasSecondNewStreamContentInChunk = false;
 
                                 let secondNewlineIndex;
                                 while ((secondNewlineIndex = secondBuffer.indexOf('\n')) !== -1) {
@@ -714,10 +751,12 @@ export async function callAPI({
 
                                             if (secondDelta?.reasoning_content) {
                                                 currentMessage.reasoning_content += secondDelta.reasoning_content;
+                                                hasSecondNewStreamContentInChunk = true;
                                             }
 
                                             if (secondDelta?.content) {
                                                 currentMessage.content += secondDelta.content;
+                                                hasSecondNewStreamContentInChunk = true;
                                             }
 
                                             // 更新 UI
@@ -736,6 +775,10 @@ export async function callAPI({
                                             console.error('解析第二次响应数据时出错:', e);
                                         }
                                     }
+                                }
+
+                                if (hasSecondNewStreamContentInChunk) {
+                                    lastSecondStreamContentTime = Date.now();
                                 }
                             }
                         } catch (error) {
