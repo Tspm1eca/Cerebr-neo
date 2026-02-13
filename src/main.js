@@ -69,6 +69,40 @@ function fadeOutGlow(messageEl) {
     setTimeout(cleanup, 600); // fallback
 }
 
+function cleanupStreamingMessage(messageEl) {
+    if (!messageEl) return;
+
+    // 清理可能殘留的尺寸動畫狀態
+    messageEl.style.height = '';
+    if (messageEl._heightAnim) {
+        if (messageEl._heightAnim.rafId) cancelAnimationFrame(messageEl._heightAnim.rafId);
+        delete messageEl._heightAnim;
+    }
+    if (messageEl._sizeAnim) {
+        if (messageEl._sizeAnim.rafId) cancelAnimationFrame(messageEl._sizeAnim.rafId);
+        delete messageEl._sizeAnim;
+    }
+
+    // waiting 氣泡不應該在請求結束後殘留
+    if (messageEl.classList.contains('waiting')) {
+        messageEl.classList.remove('waiting', 'updating');
+        messageEl.remove();
+        return;
+    }
+
+    if (messageEl.classList.contains('updating')) {
+        fadeOutGlow(messageEl);
+    } else {
+        messageEl.classList.remove('waiting', 'updating');
+    }
+    messageEl.classList.add('rendered');
+}
+
+function cleanupActiveStreamingMessages(chatContainer) {
+    const activeMessages = chatContainer.querySelectorAll('.ai-message.updating, .ai-message.waiting');
+    activeMessages.forEach(cleanupStreamingMessage);
+}
+
 let tavilyApiKey = '';
 let tavilyApiUrl = '';
 let exaApiKey = '';
@@ -527,17 +561,7 @@ let exaApiUrl = '';
         } finally {
             // 只有当仍然是当前活动的请求时才清理状态
             if (currentRequestId === activeRequestId) {
-                const lastMessage = chatContainer.querySelector('.ai-message:last-child');
-                if (lastMessage) {
-                    fadeOutGlow(lastMessage);
-                    lastMessage.style.height = '';
-                    if (lastMessage._heightAnim) {
-                        if (lastMessage._heightAnim.rafId) cancelAnimationFrame(lastMessage._heightAnim.rafId);
-                        delete lastMessage._heightAnim;
-                    }
-                    // 流式更新結束後，標記為已渲染以釋放 GPU 合成層
-                    lastMessage.classList.add('rendered');
-                }
+                cleanupActiveStreamingMessages(chatContainer);
             }
         }
     }
@@ -709,17 +733,7 @@ let exaApiUrl = '';
         } finally {
             // 只有当仍然是当前活动的请求时才清理状态
             if (currentRequestId === activeRequestId) {
-                const lastMessage = chatContainer.querySelector('.ai-message:last-child');
-                if (lastMessage) {
-                    fadeOutGlow(lastMessage);
-                    lastMessage.style.height = '';
-                    if (lastMessage._heightAnim) {
-                        if (lastMessage._heightAnim.rafId) cancelAnimationFrame(lastMessage._heightAnim.rafId);
-                        delete lastMessage._heightAnim;
-                    }
-                    // 流式更新結束後，標記為已渲染以釋放 GPU 合成層
-                    lastMessage.classList.add('rendered');
-                }
+                cleanupActiveStreamingMessages(chatContainer);
             }
         }
     }
