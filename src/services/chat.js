@@ -7,7 +7,11 @@
  * @property {string} [tavilyApiKey] - Tavily API 密钥（用于网络搜索）
  */
 
-import { DEFAULT_SYSTEM_PROMPT } from '../constants/prompts.js';
+import {
+    DEFAULT_SYSTEM_PROMPT,
+    WEB_SEARCH_TOOL_DESCRIPTION,
+    WEB_SEARCH_TOOL_QUERY_DESCRIPTION
+} from '../constants/prompts.js';
 import { webSearch, tavilySearch, formatSearchResultsForPrompt, extractSearchQuery } from './web-search.js';
 
 // 超時配置（毫秒）
@@ -53,13 +57,13 @@ const WEB_SEARCH_TOOL = {
     type: "function",
     function: {
         name: "web_search",
-        description: `You MUST call this tool to perform a web search in ANY of the following situations:\n\n1. Time-sensitive information: User asks about "today", "latest", "recent", "now", "current", or any time-related questions\n2. News and events: Any questions about news, events, or what happened\n3. Real-time data: Weather, stock prices, exchange rates, sports scores, prices, or any data that requires real-time updates\n4. People updates: What someone recently did, said, or published\n5. Product information: Latest versions, release dates, update contents\n6. Uncertain facts: Information you are unsure about or might be outdated\n\nExamples that REQUIRE search:\n- "What's in the news today?" → MUST search\n- "Latest news about XXX" → MUST search\n- "What time is it now?" → MUST search\n- "How's the weather?" → MUST search\n- "XXX stock price" → MUST search\n\nExamples that do NOT require search:\n- "What is machine learning?" → No search needed (general knowledge)\n- "How to write a loop in Python?" → No search needed (programming knowledge)`,
+        description: WEB_SEARCH_TOOL_DESCRIPTION,
         parameters: {
             type: "object",
             properties: {
                 query: {
                     type: "string",
-                    description: "Search query keywords. **MUST use English for searching**. Translate the user's question into English keywords. Keep it concise. Examples: If user asks '今天有什么科技新闻', query should be 'technology news today'; If user asks '台积电股价', query should be 'TSMC stock price'; If user asks 'latest iPhone release', query should be 'iPhone latest release date'"
+                    description: WEB_SEARCH_TOOL_QUERY_DESCRIPTION
                 }
             },
             required: ["query"]
