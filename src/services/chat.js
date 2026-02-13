@@ -201,6 +201,19 @@ function restoreUrls(text, idToUrlMap) {
 }
 
 /**
+ * 建立已還原 URL 的訊息副本
+ * @param {Object} msg - 原始訊息物件
+ * @param {Map<string, string>} idToUrlMap - ID到URL的映射
+ * @returns {Object} 還原 URL 後的訊息副本
+ */
+function createRestoredMessage(msg, idToUrlMap) {
+    const copy = { ...msg };
+    if (copy.content) copy.content = restoreUrls(copy.content, idToUrlMap);
+    if (copy.reasoning_content) copy.reasoning_content = restoreUrls(copy.reasoning_content, idToUrlMap);
+    return copy;
+}
+
+/**
  * 网络搜索模式
  * @typedef {'off' | 'auto' | 'on'} WebSearchMode
  */
@@ -242,9 +255,6 @@ export async function callAPI({
         const pagesContent = webpageInfo.pages.map(page => {
             const prefix = page.isCurrent ? '当前网页内容' : '其他打开的网页';
             const contentWithMappedUrls = extractAndReplaceUrls(page.content, urlToIdMap, idToUrlMap);
-            // URL本身也映射，以防模型引用
-            // const mappedUrl = extractAndReplaceUrls(page.url, urlToIdMap, idToUrlMap);
-            // 決定不映射頁面元數據中的URL，因為這對用戶識別很重要，且數量少
             return `\n${prefix}：\n标题：${page.title}\nURL：${page.url}\n内容：${contentWithMappedUrls}`;
         }).join('\n\n---\n');
 
@@ -393,6 +403,13 @@ export async function callAPI({
     }
 
     const processStream = async () => {
+        let currentMessage = {
+            content: '',
+            reasoning_content: '',
+            // 如果是 'on' 模式且已執行搜索，則初始化為 true
+            isSearchUsed: searchUsedInOnMode
+        };
+
         try {
             const response = await fetch(apiConfig.baseUrl, {
                 method: 'POST',
@@ -413,12 +430,6 @@ export async function callAPI({
             const reader = response.body.getReader();
 
             let buffer = '';
-            let currentMessage = {
-                content: '',
-                reasoning_content: '',
-                // 如果是 'on' 模式且已執行搜索，則初始化為 true
-                isSearchUsed: searchUsedInOnMode
-            };
             let lastUpdateTime = 0;
             let updateTimeout = null;
             const UPDATE_INTERVAL = 100; // 每100ms更新一次
@@ -426,30 +437,16 @@ export async function callAPI({
 
             // Function Calling 相关状态
             let toolCalls = [];
-            let currentToolCall = null;
 
             // 超時控制
             let isFirstChunk = true; // 是否等待第一個數據塊
             let lastStreamContentTime = 0; // 上次收到有效流式內容的時間（首次數據到達後才有意義）
 
+            const decoder = new TextDecoder();
+
             const dispatchUpdate = () => {
                 if (chatManager && chatId) {
-                    // 创建一个副本以避免回调函数意外修改
-                    // 包含 isSearchUsed 以便 UI 能夠即時顯示搜索標記
-                    const messageCopy = {
-                        content: currentMessage.content,
-                        reasoning_content: currentMessage.reasoning_content,
-                        isSearchUsed: currentMessage.isSearchUsed
-                    };
-
-                    // 還原URL
-                    if (messageCopy.content) {
-                        messageCopy.content = restoreUrls(messageCopy.content, idToUrlMap);
-                    }
-                    if (messageCopy.reasoning_content) {
-                        messageCopy.reasoning_content = restoreUrls(messageCopy.reasoning_content, idToUrlMap);
-                    }
-
+                    const messageCopy = createRestoredMessage(currentMessage, idToUrlMap);
                     chatManager.updateLastMessage(chatId, messageCopy, false); // 流式更新
                     onMessageUpdate(chatId, messageCopy);
                     lastUpdateTime = Date.now();
@@ -473,23 +470,12 @@ export async function callAPI({
                 );
 
                 if (done) {
-                    // 确保最后的数据被发送
-                   if (Date.now() - lastUpdateTime > 0) {
-                       dispatchUpdate();
-                   }
-                   // 流结束，进行最终更新
-                   // 最終更新也需要還原URL
-                   const finalMessage = { ...currentMessage };
-                   if (finalMessage.content) {
-                       finalMessage.content = restoreUrls(finalMessage.content, idToUrlMap);
-                   }
-                   if (finalMessage.reasoning_content) {
-                       finalMessage.reasoning_content = restoreUrls(finalMessage.reasoning_content, idToUrlMap);
-                   }
-
+                   dispatchUpdate();
+                   // 流結束，進行最終更新
+                   const finalMessage = createRestoredMessage(currentMessage, idToUrlMap);
                    chatManager.updateLastMessage(chatId, finalMessage, true);
                    break;
-                   }
+                }
 
                     // 收到數據，更新超時控制狀態
                     if (isFirstChunk) {
@@ -497,7 +483,7 @@ export async function callAPI({
                     }
                     isFirstChunk = false;
 
-                    const chunk = new TextDecoder().decode(value);
+                    const chunk = decoder.decode(value);
                 buffer += chunk;
                 let hasNewStreamContentInChunk = false;
 
@@ -534,8 +520,7 @@ export async function callAPI({
                                                 arguments: toolCallDelta.function?.arguments || ''
                                             }
                                         };
-                                        currentToolCall = toolCalls[index];
-                                    } else if (currentToolCall && toolCallDelta.function?.arguments) {
+                                    } else if (toolCalls[index] && toolCallDelta.function?.arguments) {
                                         // 累积 arguments
                                         toolCalls[index].function.arguments += toolCallDelta.function.arguments;
                                     }
@@ -628,10 +613,7 @@ export async function callAPI({
                             currentMessage.content = `🔍 正在搜索: "${searchQuery}"...\n\n`;
                             currentMessage.isSearchUsed = true; // 標記搜索已使用
                             if (chatManager && chatId) {
-                                const messageCopy = { ...currentMessage };
-                                if (messageCopy.content) {
-                                    messageCopy.content = restoreUrls(messageCopy.content, idToUrlMap);
-                                }
+                                const messageCopy = createRestoredMessage(currentMessage, idToUrlMap);
                                 chatManager.updateLastMessage(chatId, messageCopy, false);
                                 onMessageUpdate(chatId, messageCopy);
                             }
@@ -651,9 +633,8 @@ export async function callAPI({
 
                             // 搜索完成，显示等待 AI 回复的动画（使用特殊标记）
                             currentMessage.content = '{{WAITING_ANIMATION}}';
-                            // currentMessage.isSearchUsed 已經在上面設置為 true 了，這裡不需要重複設置，但保留也無妨
                             if (chatManager && chatId) {
-                                const messageCopy = { ...currentMessage };
+                                const messageCopy = createRestoredMessage(currentMessage, idToUrlMap);
                                 chatManager.updateLastMessage(chatId, messageCopy, false);
                                 onMessageUpdate(chatId, messageCopy);
                             }
@@ -713,6 +694,11 @@ export async function callAPI({
                             let isSecondFirstChunk = true;
                             let lastSecondStreamContentTime = 0;
 
+                            // 重置 think 標籤狀態
+                            isThinking = false;
+
+                            const secondDecoder = new TextDecoder();
+
                             while (true) {
                                 // 計算當前應使用的超時時間
                                 const { timeout: secondTimeout, message: secondTimeoutMessage, type: secondTimeoutType } = calcStreamTimeout(isSecondFirstChunk, lastSecondStreamContentTime);
@@ -725,7 +711,10 @@ export async function callAPI({
                                     secondTimeoutType
                                 );
 
-                                if (secondDone) break;
+                                if (secondDone) {
+                                    dispatchUpdate();
+                                    break;
+                                }
 
                                 // 收到數據，更新超時控制狀態
                                 if (isSecondFirstChunk) {
@@ -733,7 +722,7 @@ export async function callAPI({
                                 }
                                 isSecondFirstChunk = false;
 
-                                const secondChunk = new TextDecoder().decode(secondValue);
+                                const secondChunk = secondDecoder.decode(secondValue);
                                 secondBuffer += secondChunk;
                                 let hasSecondNewStreamContentInChunk = false;
 
@@ -748,28 +737,55 @@ export async function callAPI({
 
                                         try {
                                             const secondDelta = JSON.parse(secondData).choices[0]?.delta;
+                                            let hasUpdate = false;
 
                                             if (secondDelta?.reasoning_content) {
                                                 currentMessage.reasoning_content += secondDelta.reasoning_content;
+                                                hasUpdate = true;
                                                 hasSecondNewStreamContentInChunk = true;
                                             }
 
                                             if (secondDelta?.content) {
-                                                currentMessage.content += secondDelta.content;
+                                                let contentBuffer = secondDelta.content;
+                                                while (contentBuffer.length > 0) {
+                                                    if (!isThinking) {
+                                                        const thinkStartIndex = contentBuffer.search(/<think>|<thinking>/);
+                                                        if (thinkStartIndex !== -1) {
+                                                            currentMessage.content += contentBuffer.substring(0, thinkStartIndex);
+                                                            const tagMatch = contentBuffer.match(/<think>|<thinking>/)[0];
+                                                            contentBuffer = contentBuffer.substring(thinkStartIndex + tagMatch.length);
+                                                            isThinking = true;
+                                                        } else {
+                                                            currentMessage.content += contentBuffer;
+                                                            contentBuffer = '';
+                                                        }
+                                                    }
+
+                                                    if (isThinking) {
+                                                        const thinkEndIndex = contentBuffer.search(/<\/think>|<\/thinking>/);
+                                                        if (thinkEndIndex !== -1) {
+                                                            currentMessage.reasoning_content += contentBuffer.substring(0, thinkEndIndex);
+                                                            const tagMatch = contentBuffer.match(/<\/think>|<\/thinking>/)[0];
+                                                            contentBuffer = contentBuffer.substring(thinkEndIndex + tagMatch.length);
+                                                            isThinking = false;
+                                                        } else {
+                                                            currentMessage.reasoning_content += contentBuffer;
+                                                            contentBuffer = '';
+                                                        }
+                                                    }
+                                                }
+                                                hasUpdate = true;
                                                 hasSecondNewStreamContentInChunk = true;
                                             }
 
-                                            // 更新 UI
-                                            if (chatManager && chatId) {
-                                                const messageCopy = { ...currentMessage };
-                                                if (messageCopy.content) {
-                                                    messageCopy.content = restoreUrls(messageCopy.content, idToUrlMap);
+                                            if (hasUpdate) {
+                                                if (!updateTimeout) {
+                                                    if (Date.now() - lastUpdateTime > UPDATE_INTERVAL) {
+                                                        dispatchUpdate();
+                                                    } else {
+                                                        updateTimeout = setTimeout(dispatchUpdate, UPDATE_INTERVAL - (Date.now() - lastUpdateTime));
+                                                    }
                                                 }
-                                                if (messageCopy.reasoning_content) {
-                                                    messageCopy.reasoning_content = restoreUrls(messageCopy.reasoning_content, idToUrlMap);
-                                                }
-                                                chatManager.updateLastMessage(chatId, messageCopy, false);
-                                                onMessageUpdate(chatId, messageCopy);
                                             }
                                         } catch (e) {
                                             console.error('解析第二次响应数据时出错:', e);
@@ -794,13 +810,7 @@ export async function callAPI({
             if (error.name === 'AbortError') {
                 // 用戶中斷：將已接收的內容儲存到 IndexedDB，避免資料遺失
                 if (chatManager && chatId && (currentMessage.content || currentMessage.reasoning_content)) {
-                    const abortMessage = { ...currentMessage };
-                    if (abortMessage.content) {
-                        abortMessage.content = restoreUrls(abortMessage.content, idToUrlMap);
-                    }
-                    if (abortMessage.reasoning_content) {
-                        abortMessage.reasoning_content = restoreUrls(abortMessage.reasoning_content, idToUrlMap);
-                    }
+                    const abortMessage = createRestoredMessage(currentMessage, idToUrlMap);
                     chatManager.updateLastMessage(chatId, abortMessage, true);
                 }
                 throw error;
