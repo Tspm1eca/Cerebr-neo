@@ -266,9 +266,14 @@ function initResizeDrag(messageInput, config) {
         return messageInput.scrollHeight >= maxHeight;
     };
 
+    const hasUserResizedHeight = () => {
+        const userHeight = Number.parseFloat(messageInput.dataset.userResizedHeight || '');
+        return Number.isFinite(userHeight) && userHeight > maxHeight;
+    };
+
     // 更新手柄可見性
     const updateHandleVisibility = () => {
-        if (isAtMaxHeight()) {
+        if (isAtMaxHeight() || hasUserResizedHeight()) {
             resizeHandle.classList.add('visible');
         } else {
             resizeHandle.classList.remove('visible');
@@ -288,7 +293,7 @@ function initResizeDrag(messageInput, config) {
 
     // 鼠標按下開始拖拽
     resizeHandle.addEventListener('mousedown', (e) => {
-        if (!isAtMaxHeight()) return;
+        if (!isAtMaxHeight() && !hasUserResizedHeight()) return;
 
         isResizing = true;
         startY = e.clientY;
@@ -320,8 +325,15 @@ function initResizeDrag(messageInput, config) {
 
         // 設置新高度
         messageInput.style.height = `${newHeight}px`;
-        messageInput.style.maxHeight = `${newHeight}px`;
+        if (newHeight <= maxHeight) {
+            delete messageInput.dataset.userResizedHeight;
+            messageInput.style.maxHeight = '';
+        } else {
+            messageInput.dataset.userResizedHeight = `${newHeight}`;
+            messageInput.style.maxHeight = `${newHeight}px`;
+        }
         currentHeight = newHeight;
+        updateHandleVisibility();
 
         e.preventDefault();
     };

@@ -82,9 +82,18 @@ export function adjustTextareaHeight({
     textarea,
     config = { maxHeight: 200 }
 }) {
+    const userResizedHeight = Number.parseFloat(textarea.dataset.userResizedHeight || '');
+    if (Number.isFinite(userResizedHeight) && userResizedHeight > 0) {
+        textarea.style.height = `${userResizedHeight}px`;
+        textarea.style.maxHeight = `${userResizedHeight}px`;
+        textarea.style.overflowY = textarea.scrollHeight > userResizedHeight ? 'auto' : 'hidden';
+        return;
+    }
+
+    const maxHeight = Number.parseFloat(textarea.style.maxHeight) || config.maxHeight;
     textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, config.maxHeight) + 'px';
-    if (textarea.scrollHeight > config.maxHeight) {
+    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+    if (textarea.scrollHeight > maxHeight) {
         textarea.style.overflowY = 'auto';
     } else {
         textarea.style.overflowY = 'hidden';
