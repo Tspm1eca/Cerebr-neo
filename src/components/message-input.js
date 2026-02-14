@@ -610,9 +610,17 @@ export function initMessageInput(config) {
                 onError: (error) => console.error('處理貼上圖片失敗:', error)
             });
         } else {
-            // 处理文本粘贴
+            // 处理文本粘贴：逐行插入以保留空行
             const text = e.clipboardData.getData('text/plain');
-            document.execCommand('insertText', false, text);
+            const lines = text.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                if (i > 0) {
+                    document.execCommand('insertLineBreak');
+                }
+                if (lines[i]) {
+                    document.execCommand('insertText', false, lines[i]);
+                }
+            }
         }
     });
 
