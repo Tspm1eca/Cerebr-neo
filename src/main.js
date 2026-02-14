@@ -69,11 +69,17 @@ function fadeOutGlow(messageEl) {
     setTimeout(cleanup, 600); // fallback
 }
 
-function cleanupStreamingMessage(messageEl) {
+function resetStreamingSizeState(messageEl) {
     if (!messageEl) return;
 
-    // 清理可能殘留的尺寸動畫狀態
+    // 清理可能殘留的尺寸鎖定，避免後續容器寬度變化時氣泡被舊寬度卡住
+    messageEl.style.width = '';
     messageEl.style.height = '';
+    messageEl.style.overflow = '';
+    messageEl.style.transition = '';
+    delete messageEl._waitingHeight;
+    delete messageEl._waitingWidth;
+
     if (messageEl._heightAnim) {
         if (messageEl._heightAnim.rafId) cancelAnimationFrame(messageEl._heightAnim.rafId);
         delete messageEl._heightAnim;
@@ -82,6 +88,13 @@ function cleanupStreamingMessage(messageEl) {
         if (messageEl._sizeAnim.rafId) cancelAnimationFrame(messageEl._sizeAnim.rafId);
         delete messageEl._sizeAnim;
     }
+}
+
+function cleanupStreamingMessage(messageEl) {
+    if (!messageEl) return;
+
+    // 清理可能殘留的尺寸動畫與 inline 尺寸
+    resetStreamingSizeState(messageEl);
 
     // waiting 氣泡不應該在請求結束後殘留
     if (messageEl.classList.contains('waiting')) {
@@ -375,11 +388,7 @@ let exaApiUrl = '';
             currentController.abort();
             currentController = null;
             abortControllerRef.current = null;
-            updatingMessage.style.height = '';
-            if (updatingMessage._heightAnim) {
-                if (updatingMessage._heightAnim.rafId) cancelAnimationFrame(updatingMessage._heightAnim.rafId);
-                delete updatingMessage._heightAnim;
-            }
+            resetStreamingSizeState(updatingMessage);
 
             if (isWaiting) {
                 updatingMessage.classList.remove('waiting', 'updating');
@@ -578,11 +587,7 @@ let exaApiUrl = '';
             currentController.abort();
             currentController = null;
             abortControllerRef.current = null; // 同步更新引用对象
-            updatingMessage.style.height = '';
-            if (updatingMessage._heightAnim) {
-                if (updatingMessage._heightAnim.rafId) cancelAnimationFrame(updatingMessage._heightAnim.rafId);
-                delete updatingMessage._heightAnim;
-            }
+            resetStreamingSizeState(updatingMessage);
 
             if (isWaiting) {
                 updatingMessage.classList.remove('waiting', 'updating');
