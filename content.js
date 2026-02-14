@@ -20,9 +20,49 @@ class CerebrSidebar {
         width: this.sidebarWidth
       };
       await chrome.storage.local.set(states);
+      this.recordWidthHistory();
     } catch (error) {
       console.error('保存侧边栏状态失败:', error);
     }
+  }
+
+  async recordWidthHistory() {
+    try {
+      const data = await chrome.storage.local.get('widthHistory');
+      const history = data.widthHistory || [];
+      history.push(this.sidebarWidth);
+      // 只保留最近 15 筆
+      await chrome.storage.local.set({ widthHistory: history.slice(-15) });
+    } catch (error) {
+      console.error('記錄寬度歷史失敗:', error);
+    }
+  }
+
+  async getPreferredWidth() {
+    try {
+      const data = await chrome.storage.local.get('widthHistory');
+      const history = data.widthHistory;
+      if (!history || history.length < 3) return null;
+
+      // 賦予線性遞增權重（越近期的記錄權重越高）
+      const entries = history.map((width, i) => ({
+        width,
+        weight: i + 1
+      }));
+
+      // 按 width 排序，計算加權中位數
+      entries.sort((a, b) => a.width - b.width);
+      const halfWeight = entries.reduce((sum, e) => sum + e.weight, 0) / 2;
+
+      let cumulative = 0;
+      for (const entry of entries) {
+        cumulative += entry.weight;
+        if (cumulative >= halfWeight) return entry.width;
+      }
+    } catch (error) {
+      console.error('計算偏好寬度失敗:', error);
+    }
+    return null;
   }
 
   async loadState() {
@@ -34,8 +74,14 @@ class CerebrSidebar {
         if (state.width) {
           this.sidebarWidth = state.width;
         }
-        this.sidebar.style.setProperty('--sidebar-width', `${this.sidebarWidth}px`);
+      } else {
+        // 新頁面：使用歷史偏好寬度作為默認值
+        const preferred = await this.getPreferredWidth();
+        if (preferred) {
+          this.sidebarWidth = preferred;
+        }
       }
+      this.sidebar.style.setProperty('--sidebar-width', `${this.sidebarWidth}px`);
     } catch (error) {
       console.error('加载侧边栏状态失败:', error);
     }
