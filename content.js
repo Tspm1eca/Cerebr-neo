@@ -870,8 +870,17 @@ async function extractPageContent(skipWaitContent = false) {
     const selectorsToRemove = [
         'script', 'style', 'nav', 'header', 'footer',
         'iframe', 'noscript', 'img', 'svg', 'video', 'audio', 'canvas',
-        '[role="complementary"]', '[role="navigation"]',
-        '.sidebar', '.nav', '.footer', '.header'
+        '[role="complementary"]', '[role="navigation"]', '[role="contentinfo"]',
+        '[role="search"]', '[role="alert"]', '[role="dialog"]',
+        '.sidebar', '.nav', '.footer', '.header',
+        '.comments', '#comments', '.comment-list',
+        '.related-posts', '.related-articles', '.recommended',
+        '.share', '.social-share', '.sharing',
+        '.breadcrumb', '.breadcrumbs',
+        '.cookie-banner', '.cookie-consent',
+        '.newsletter', '.subscribe',
+        '.ad', '.ads', '.advertisement',
+        '.pagination'
     ];
     selectorsToRemove.forEach(selector => {
         tempContainer.querySelectorAll(selector).forEach(element => element.remove());
