@@ -6,7 +6,7 @@
 
 ![screenshot](./statics/image.png)
 
-Cerebr 是一款强大的浏览器 AI 助手扩展，现已支持 Chrome、Firefox 和 Edge，专注于提升您的工作效率和学习体验。"Cerebr"源自拉丁语词根，与"大脑"或"脑"相关。这个命名体现了我们的愿景：整合 Claude、OpenAI 等 AI 的强大能力，使 Cerebr 成为您的第二大脑，为您提供深度阅读和理解支持。  
+Cerebr 是一款强大的浏览器 AI 助手扩展，现已支持 Chrome、Firefox 和 Edge，专注于提升您的工作效率和学习体验。"Cerebr"源自拉丁语词根，与"大脑"或"脑"相关。这个命名体现了我们的愿景：整合 Claude、OpenAI 等 AI 的强大能力，使 Cerebr 成为您的第二大脑，为您提供深度阅读和理解支持。 
 ---
 ## 個人修改
 1. 多處UI修改（請自行體驗）
@@ -14,10 +14,11 @@ Cerebr 是一款强大的浏览器 AI 助手扩展，现已支持 Chrome、Firef
 3. 網頁引索，在與網頁交互時，會自己產生「網頁引索」，點擊可自動滾動到引索位置。
 4. 支持Tavily/Exa網絡搜索。
 5. 智能雙向同步WebDav（支持加密儲存），真正的跨平台，跨瀏覽器雙向同步。
+6. 引入Cloudflare Markdown for Agents做法。
 
 <img width="300" height="600" alt="4" src="https://github.com/user-attachments/assets/1945d4f0-f281-493e-939b-2059291cc157" /> <img width="300" height="600" alt="7" src="https://github.com/user-attachments/assets/bccb3d08-8ef3-4e8c-9a4f-f6ab46c915e6" />
-<img width="300" height="600" alt="1" src="https://github.com/user-attachments/assets/43d5ec9d-da16-4985-8632-422717576a6a" /> <img width="300" height="600" alt="2" src="https://github.com/user-attachments/assets/c92be7c7-8b0a-4ad2-ac95-c14577412a51" /> 
-<img width="300" height="600" alt="3" src="https://github.com/user-attachments/assets/888a2cfd-7772-4d80-9d25-15c0c7367dc0" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/3a75b671-f708-4765-8373-717e30fa93df" /> 
+<img width="300" height="600" alt="1" src="https://github.com/user-attachments/assets/43d5ec9d-da16-4985-8632-422717576a6a" /> <img width="300" height="600" alt="2" src="https://github.com/user-attachments/assets/c92be7c7-8b0a-4ad2-ac95-c14577412a51" />
+<img width="300" height="600" alt="3" src="https://github.com/user-attachments/assets/888a2cfd-7772-4d80-9d25-15c0c7367dc0" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/3a75b671-f708-4765-8373-717e30fa93df" />
 <img width="300" height="600" alt="1" src="https://github.com/user-attachments/assets/5d6e684f-e8d7-4fd4-b6c6-354d32a0f915" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/ce7214a0-a5eb-4948-8d88-0532a1cb30bf" /> 
 <img width="300" height="600" alt="2" src="https://github.com/user-attachments/assets/066ee052-a990-4807-87a6-8dfc993576c8" />
 ---
