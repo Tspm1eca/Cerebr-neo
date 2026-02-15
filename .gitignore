@@ -1,6 +1,7 @@
 .vercel
 .vscode
 .wrangler
+.claude
 diff
 plans
 node_modules

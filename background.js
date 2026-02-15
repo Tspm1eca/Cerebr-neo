@@ -31,7 +31,12 @@ async function reinjectContentScript(tabId) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ['content.js']
+      files: [
+        'lib/pdf.js',
+        'lib/turndown.js',
+        'lib/turndown-plugin-gfm.js',
+        'content.js'
+      ]
     });
     console.log('已重新注入 content script');
     // 给脚本一点时间初始化

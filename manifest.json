@@ -57,7 +57,12 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["lib/pdf.js", "content.js"],
+      "js": [
+        "lib/pdf.js",
+        "lib/turndown.js",
+        "lib/turndown-plugin-gfm.js",
+        "content.js"
+      ],
       "run_at": "document_start"
     }
   ],

@@ -853,9 +853,12 @@ async function extractPageContent(skipWaitContent = false) {
       }
     }
 
+    // === Turndown 提取流程 ===
+    let mainContent = '';
+    const turndown = getTurndownService();
+
     const tempContainer = document.body.cloneNode(true);
 
-    // 将表单元素的实时 value 同步到克隆的节点中，以便 innerText 可以获取到
     const originalFormElements = document.body.querySelectorAll('textarea, input');
     const clonedFormElements = tempContainer.querySelectorAll('textarea, input');
     originalFormElements.forEach((el, index) => {
@@ -866,7 +869,7 @@ async function extractPageContent(skipWaitContent = false) {
 
     const selectorsToRemove = [
         'script', 'style', 'nav', 'header', 'footer',
-        'iframe', 'noscript', 'img', 'svg', 'video',
+        'iframe', 'noscript', 'img', 'svg', 'video', 'audio', 'canvas',
         '[role="complementary"]', '[role="navigation"]',
         '.sidebar', '.nav', '.footer', '.header'
     ];
@@ -874,18 +877,36 @@ async function extractPageContent(skipWaitContent = false) {
         tempContainer.querySelectorAll(selector).forEach(element => element.remove());
     });
 
-    // 保留链接
-    tempContainer.querySelectorAll('a').forEach(a => {
+    if (turndown) {
+      mainContent = turndown.turndown(tempContainer.innerHTML);
+    } else {
+      // Fallback：Turndown 不可用時，使用原始邏輯
+      tempContainer.querySelectorAll('a').forEach(a => {
         const text = a.innerText.trim();
         const href = a.href;
         if (text && href && href.startsWith('http')) {
-            // 使用 a.href 获取绝对 URL，并确保是有效的 http/https 链接
-            a.replaceWith(' ' + text + ' (' + href + ') ');
+          a.replaceWith(' ' + text + ' (' + href + ') ');
         }
-    });
+      });
+      mainContent = tempContainer.innerText;
+    }
 
-    let mainContent = tempContainer.innerText + frameContent;
-    mainContent = mainContent.replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n').trim();
+    // 附加 iframe 內容
+    if (frameContent) {
+      mainContent += '\n\n---\n\n' + frameContent;
+    }
+
+    // 清理多餘空白（保留 Markdown 結構）
+    mainContent = mainContent
+      .replace(/\[\s*\n+([\s\S]*?)\n+\s*\]\(/g, (_, inner) => {
+        // 修復多行連結，例如 Turndown 將 <a><h2>Title</h2></a> 轉為：
+        // [\n## Title\n](url) → 壓縮為 [Title](url)
+        const cleaned = inner.replace(/^#{1,6}\s+/gm, '').replace(/\s+/g, ' ').trim();
+        return cleaned ? '[' + cleaned + '](' : '](';
+      })
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]+$/gm, '')
+      .trim();
 
     if (mainContent.length < 40) {
       console.log('提取的内容太少，返回 null');
@@ -914,6 +935,32 @@ const PDFJS_WORKER_PATH = chrome.runtime.getURL('lib/pdf.worker.js');
 
 // 设置 PDF.js worker 路径
 pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_PATH;
+
+// === Turndown 初始化 ===
+let _turndownService = null;
+
+function getTurndownService() {
+  if (_turndownService) return _turndownService;
+
+  if (typeof TurndownService === 'undefined') {
+    console.warn('TurndownService 未載入，將使用 fallback 提取方式');
+    return null;
+  }
+
+  _turndownService = new TurndownService({
+    headingStyle: 'atx',
+    codeBlockStyle: 'fenced',
+    bulletListMarker: '-',
+    emDelimiter: '*',
+  });
+
+  // 啟用 GFM 插件（表格、刪除線、任務列表）
+  if (typeof turndownPluginGfm !== 'undefined') {
+    _turndownService.use(turndownPluginGfm.gfm);
+  }
+
+  return _turndownService;
+}
 
 async function extractTextFromPDF(url) {
   try {
