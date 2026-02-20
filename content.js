@@ -854,6 +854,9 @@ async function extractPageContent(skipWaitContent = false) {
           SELECTORS_TO_REMOVE.forEach(selector => {
             iframeClone.querySelectorAll(selector).forEach(el => el.remove());
           });
+          iframeClone.querySelectorAll('header').forEach(header => {
+            if (!header.querySelector('h1')) header.remove();
+          });
           if (turndown) {
             frameContent += turndown.turndown(iframeClone.innerHTML);
           } else {
@@ -879,6 +882,13 @@ async function extractPageContent(skipWaitContent = false) {
       tempContainer.querySelectorAll(selector).forEach(element => element.remove());
     });
 
+    // 有條件地移除 <header>：保留包含 <h1> 的文章標題 header，只移除導覽用 header
+    tempContainer.querySelectorAll('header').forEach(header => {
+      if (!header.querySelector('h1')) {
+        header.remove();
+      }
+    });
+
     // 移除 aria-hidden 元素中殘留的媒體時間戳（如 "1:54"、"12:03:45"）
     tempContainer.querySelectorAll('[aria-hidden="true"]').forEach(el => {
       const text = el.textContent.trim();
@@ -887,7 +897,7 @@ async function extractPageContent(skipWaitContent = false) {
       }
     });
 
-    // 將相對 URL 解析為絕對 URL，並移除與連結文字重複的 title 屬性
+    // 將相對 URL 解析為絕對 URL，並移除 title 屬性（tooltip 提示文字對內容提取無價值）
     const baseUrl = document.baseURI;
     tempContainer.querySelectorAll('a[href]').forEach(a => {
       const href = a.getAttribute('href');
@@ -896,9 +906,58 @@ async function extractPageContent(skipWaitContent = false) {
           a.setAttribute('href', new URL(href, baseUrl).href);
         } catch (e) {}
       }
-      const title = a.getAttribute('title');
-      if (title && title.trim() === a.textContent.trim()) {
-        a.removeAttribute('title');
+      a.removeAttribute('title');
+    });
+
+    // 處理卡片式連結：當 <a> 同時包含標題（h1-h6）與其他區塊內容時，
+    // 僅保留標題作為連結文字，將描述段落移到連結外，丟棄元資料（時間、標籤等）
+    tempContainer.querySelectorAll('a[href]').forEach(a => {
+      const headings = a.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      if (headings.length === 0) return;
+
+      // 收集所有標題文字（按 DOM 順序）
+      const headingTexts = [];
+      headings.forEach(h => {
+        const text = h.textContent.trim();
+        if (text) headingTexts.push(text);
+      });
+      if (headingTexts.length === 0) return;
+
+      // 收集有意義的描述文字（<p> 或不含區塊子元素的葉級 <div>）
+      // 用長度門檻過濾 CTA 按鈕（"See more"）、時間戳、標籤等短文字
+      const descriptions = [];
+      const descTexts = new Set();
+      function collectDesc(el) {
+        if (/^H[1-6]$/.test(el.tagName)) return;
+        const hasBlock = el.querySelector('h1, h2, h3, h4, h5, h6, p, div, section, article');
+        if (el.tagName === 'P' || (el.tagName === 'DIV' && !hasBlock)) {
+          const text = el.textContent.trim();
+          if (text.length > 40 && !descTexts.has(text)) {
+            descTexts.add(text);
+            descriptions.push(text);
+          }
+          return;
+        }
+        for (const child of el.children) {
+          collectDesc(child);
+        }
+      }
+      for (const child of a.children) {
+        collectDesc(child);
+      }
+
+      // 重寫連結內容：合併所有標題文字（丟棄元資料 span、時間戳、標籤等）
+      a.textContent = headingTexts.join(' - ');
+
+      // 將描述段落作為獨立 <p> 插入到連結之後
+      let insertAfter = a;
+      for (const desc of descriptions) {
+        const p = document.createElement('p');
+        p.textContent = desc;
+        if (insertAfter.parentNode) {
+          insertAfter.parentNode.insertBefore(p, insertAfter.nextSibling);
+          insertAfter = p;
+        }
       }
     });
 
@@ -985,7 +1044,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_PATH;
 
 // === 內容清理用選擇器 ===
 const SELECTORS_TO_REMOVE = [
-    'script', 'style', 'nav', 'header', 'footer',
+    'script', 'style', 'nav', 'footer',
     'iframe', 'noscript', 'img', 'svg', 'video', 'audio', 'canvas',
     'template',
     '[role="complementary"]', '[role="navigation"]', '[role="contentinfo"]',
