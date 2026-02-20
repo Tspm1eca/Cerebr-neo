@@ -839,23 +839,31 @@ async function extractPageContent(skipWaitContent = false) {
       }
       return null;
     }
+    // === 內容提取流程 ===
+    let mainContent = '';
+    const turndown = getTurndownService();
+
+    // 提取同源 iframe 內容（套用完整清理 + Turndown）
     const iframes = document.querySelectorAll('iframe');
     let frameContent = '';
     for (const iframe of iframes) {
       try {
         if (iframe.contentDocument || iframe.contentWindow) {
           const iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
-          const content = iframeDocument.body.innerText;
-          frameContent += content;
+          const iframeClone = iframeDocument.body.cloneNode(true);
+          SELECTORS_TO_REMOVE.forEach(selector => {
+            iframeClone.querySelectorAll(selector).forEach(el => el.remove());
+          });
+          if (turndown) {
+            frameContent += turndown.turndown(iframeClone.innerHTML);
+          } else {
+            frameContent += iframeClone.innerText;
+          }
         }
       } catch (e) {
-        // console.log('无法访问该iframe内容:', e.message);
+        // 跨域 iframe 無法存取
       }
     }
-
-    // === Turndown 提取流程 ===
-    let mainContent = '';
-    const turndown = getTurndownService();
 
     const tempContainer = document.body.cloneNode(true);
 
@@ -867,23 +875,31 @@ async function extractPageContent(skipWaitContent = false) {
       }
     });
 
-    const selectorsToRemove = [
-        'script', 'style', 'nav', 'header', 'footer',
-        'iframe', 'noscript', 'img', 'svg', 'video', 'audio', 'canvas',
-        '[role="complementary"]', '[role="navigation"]', '[role="contentinfo"]',
-        '[role="search"]', '[role="alert"]', '[role="dialog"]',
-        '.sidebar', '.nav', '.footer', '.header',
-        '.comments', '#comments', '.comment-list',
-        '.related-posts', '.related-articles', '.recommended',
-        '.share', '.social-share', '.sharing',
-        '.breadcrumb', '.breadcrumbs',
-        '.cookie-banner', '.cookie-consent',
-        '.newsletter', '.subscribe',
-        '.ad', '.ads', '.advertisement',
-        '.pagination'
-    ];
-    selectorsToRemove.forEach(selector => {
-        tempContainer.querySelectorAll(selector).forEach(element => element.remove());
+    SELECTORS_TO_REMOVE.forEach(selector => {
+      tempContainer.querySelectorAll(selector).forEach(element => element.remove());
+    });
+
+    // 移除 aria-hidden 元素中殘留的媒體時間戳（如 "1:54"、"12:03:45"）
+    tempContainer.querySelectorAll('[aria-hidden="true"]').forEach(el => {
+      const text = el.textContent.trim();
+      if (text.length < 10 && /^\d{1,2}:\d{2}(:\d{2})?$/.test(text)) {
+        el.remove();
+      }
+    });
+
+    // 將相對 URL 解析為絕對 URL，並移除與連結文字重複的 title 屬性
+    const baseUrl = document.baseURI;
+    tempContainer.querySelectorAll('a[href]').forEach(a => {
+      const href = a.getAttribute('href');
+      if (href && !href.startsWith('http') && !href.startsWith('#') && !href.startsWith('mailto:') && !href.startsWith('javascript:')) {
+        try {
+          a.setAttribute('href', new URL(href, baseUrl).href);
+        } catch (e) {}
+      }
+      const title = a.getAttribute('title');
+      if (title && title.trim() === a.textContent.trim()) {
+        a.removeAttribute('title');
+      }
     });
 
     if (turndown) {
@@ -900,22 +916,44 @@ async function extractPageContent(skipWaitContent = false) {
       mainContent = tempContainer.innerText;
     }
 
-    // 附加 iframe 內容
+    // 附加 iframe 內容（去重：逐段檢查是否已存在於主內容中）
     if (frameContent) {
-      mainContent += '\n\n---\n\n' + frameContent;
+      const paragraphs = frameContent.split(/\n{2,}/);
+      const newParagraphs = paragraphs.filter(p => {
+        const trimmed = p.trim();
+        if (trimmed.length < 20) return false; // 過短的段落直接丟棄
+        // 取段落前 80 字作為指紋，檢查主內容是否已包含
+        const fingerprint = trimmed.substring(0, 80);
+        return !mainContent.includes(fingerprint);
+      });
+      if (newParagraphs.length > 0) {
+        mainContent += '\n\n---\n\n' + newParagraphs.join('\n\n');
+      }
     }
 
     // 清理多餘空白（保留 Markdown 結構）
     mainContent = mainContent
-      .replace(/\[\s*\n+([\s\S]*?)\n+\s*\]\(/g, (_, inner) => {
-        // 修復多行連結，例如 Turndown 將 <a><h2>Title</h2></a> 轉為：
-        // [\n## Title\n](url) → 壓縮為 [Title](url)
+      .replace(/\[([^\]]*\n[^\]]*)\]\(([^)]*)\)/g, (_, inner, url) => {
+        // 修復多行連結：將包含換行的連結文字壓縮為單行
+        // 文字為空時（如圖片連結被清除後）整個連結移除
         const cleaned = inner.replace(/^#{1,6}\s+/gm, '').replace(/\s+/g, ' ').trim();
-        return cleaned ? '[' + cleaned + '](' : '](';
+        return cleaned ? '[' + cleaned + '](' + url + ')' : '';
       })
       .replace(/\n{3,}/g, '\n\n')
+      .replace(/\]\([^)]+\)\s*\[/g, match => match.replace(/\)\s*\[/, ')\n['))  // 相鄰 Markdown 連結各自換行
       .replace(/[ \t]+$/gm, '')
       .trim();
+
+    // 逐行去重：移除重複出現的內容行（桌面版/手機版雙重渲染等）
+    const seenLines = new Set();
+    mainContent = mainContent.split('\n').filter(line => {
+      const trimmed = line.trim();
+      if (trimmed.length < 50) return true; // 短行保留（空行、標題標記等）
+      if (seenLines.has(trimmed)) return false;
+      seenLines.add(trimmed);
+      return true;
+    }).join('\n')
+      .replace(/\n{3,}/g, '\n\n'); // 去重後可能產生連續空行，再清理一次
 
     if (mainContent.length < 40) {
       console.log('提取的内容太少，返回 null');
@@ -945,6 +983,44 @@ const PDFJS_WORKER_PATH = chrome.runtime.getURL('lib/pdf.worker.js');
 // 设置 PDF.js worker 路径
 pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_PATH;
 
+// === 內容清理用選擇器 ===
+const SELECTORS_TO_REMOVE = [
+    'script', 'style', 'nav', 'header', 'footer',
+    'iframe', 'noscript', 'img', 'svg', 'video', 'audio', 'canvas',
+    'template',
+    '[role="complementary"]', '[role="navigation"]', '[role="contentinfo"]',
+    '[role="search"]', '[role="alert"]', '[role="dialog"]',
+    '.sidebar', '.nav', '.footer', '.header',
+    '.comments', '#comments', '.comment-list',
+    '.related-posts', '.related-articles', '.recommended',
+    '.share', '.social-share', '.sharing',
+    '.breadcrumb', '.breadcrumbs',
+    '.cookie-banner', '.cookie-consent',
+    '.newsletter', '.subscribe',
+    '.ad', '.ads', '.advertisement',
+    '.pagination',
+    // 影音播放器容器（移除整個播放器 UI，而非僅 <video>/<audio> 標籤）
+    '.video-js', '.plyr', '.jwplayer', '.html5-video-player',
+    '.mejs-container', '[data-testid="videoPlayer"]',
+    '[data-component="bloomberg-audio-bar"]',
+    '[class*="audio-bar"]', '[class*="audioBar"]',
+    '.audio-controls', '.audio-subscribe',
+    '[class*="audio-control"]', '[class*="AudioControl"]',
+    // 影音播放器覆蓋層 UI（播放按鈕、時長標籤等）
+    '[data-component*="play-icon"]',
+    '[class*="video-duration"]', '[class*="VideoDuration"]',
+    '[data-testid="videoDuration"]',
+    '[data-testid*="overlay" i]', '[class*="InitialOverlay"]',
+    // 連結內的時間戳（如 "9 months ago"），避免污染連結文字
+    'a time',
+    // 螢幕閱讀器專用文字（與可見文字重複，常含「play video」等媒體描述）
+    '.visually-hidden', '.sr-only', '.screen-reader-text',
+    '[class*="VisuallyHidden"]', '[class*="ScreenReader"]',
+    // 瀏覽器擴充套件注入的 UI
+    '[class*="immersive-translate"]', '[id*="immersive-translate"]',
+    '[class*="darkreader"]',
+];
+
 // === Turndown 初始化 ===
 let _turndownService = null;
 
@@ -967,6 +1043,36 @@ function getTurndownService() {
   if (typeof turndownPluginGfm !== 'undefined') {
     _turndownService.use(turndownPluginGfm.gfm);
   }
+
+  // 處理含有區塊級內容（如列表）的表格：
+  // GFM 表格語法不支援巢狀列表，Turndown 會直接輸出原始 HTML。
+  // 此規則攔截這類表格，提取內部 th/caption 作為粗體標題，其餘內容遞迴轉換。
+  _turndownService.addRule('blockTable', {
+    filter: function (node) {
+      return node.nodeName === 'TABLE' &&
+        node.querySelector('ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6');
+    },
+    replacement: function (_content, node) {
+      var parts = [];
+      // 提取表頭文字（th 或 caption）作為粗體標題
+      var headers = node.querySelectorAll('th, caption');
+      headers.forEach(function (h) {
+        var text = h.textContent.trim();
+        if (text) parts.push('**' + text + '**');
+      });
+      // 提取 td 內容，讓 Turndown 遞迴處理（列表、連結等會正常轉換）
+      var cells = node.querySelectorAll('td');
+      cells.forEach(function (td) {
+        var cellMd = _turndownService.turndown(td.innerHTML);
+        if (cellMd.trim()) parts.push(cellMd.trim());
+      });
+      return '\n\n' + parts.join('\n\n') + '\n\n';
+    }
+  });
+
+  // 安全網：這些 HTML 標籤類型永遠不該產生文字輸出，
+  // 即使 DOM 清理階段有漏網（擴充套件注入、Shadow DOM 等），Turndown 也會忽略
+  _turndownService.remove(['script', 'style', 'template', 'link', 'meta', 'object', 'embed']);
 
   return _turndownService;
 }
