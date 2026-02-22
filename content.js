@@ -868,7 +868,27 @@ async function extractPageContent(skipWaitContent = false) {
       }
     }
 
+    // 標記在原始 DOM 中不可見的容器（display:none 等），克隆後從副本移除
+    // offsetParent === null 且尺寸為零 → 元素或其祖先為 display:none
+    // position:fixed/sticky 的可見元素 offsetParent 也為 null，但尺寸不為零，不會被誤判
+    // display:contents 的元素自身不產生盒模型（尺寸為零），但子元素正常可見，須排除
+    const CEREBR_HIDDEN = 'data-cerebr-hidden';
+    const hiddenEls = [];
+    for (const el of document.body.querySelectorAll('div, section, article, aside, form, fieldset, details, dialog, main, [role]')) {
+      if (el.offsetParent === null && el.offsetWidth === 0 && el.offsetHeight === 0
+          && getComputedStyle(el).display !== 'contents') {
+        el.setAttribute(CEREBR_HIDDEN, '');
+        hiddenEls.push(el);
+      }
+    }
+
     const tempContainer = document.body.cloneNode(true);
+
+    // 清理原始 DOM 上的標記
+    for (const el of hiddenEls) el.removeAttribute(CEREBR_HIDDEN);
+
+    // 從克隆移除不可見的容器
+    tempContainer.querySelectorAll(`[${CEREBR_HIDDEN}]`).forEach(el => el.remove());
 
     const originalFormElements = document.body.querySelectorAll('textarea, input');
     const clonedFormElements = tempContainer.querySelectorAll('textarea, input');
@@ -998,6 +1018,8 @@ async function extractPageContent(skipWaitContent = false) {
         const cleaned = inner.replace(/^#{1,6}\s+/gm, '').replace(/\s+/g, ' ').trim();
         return cleaned ? '[' + cleaned + '](' + url + ')' : '';
       })
+      .replace(/\[(?:[\s\u200B\u200C\u200D\u2060\uFEFF]|<br\s*\/?>)*\]\([^)]*\)/gi, '')  // 移除無意義超連結（空白、零寬度字元、<br> 等）
+      .replace(/^[ \t\u200B\u200C\u200D\u2060\uFEFF]+$/gm, '')  // 清除僅含不可見字元的假空行
       .replace(/\n{3,}/g, '\n\n')
       .replace(/\]\([^)]+\)\s*\[/g, match => match.replace(/\)\s*\[/, ')\n['))  // 相鄰 Markdown 連結各自換行
       .replace(/[ \t]+$/gm, '')
@@ -1048,7 +1070,14 @@ const SELECTORS_TO_REMOVE = [
     'iframe', 'noscript', 'img', 'svg', 'video', 'audio', 'canvas',
     'template',
     '[role="complementary"]', '[role="navigation"]', '[role="contentinfo"]',
-    '[role="search"]', '[role="alert"]', '[role="dialog"]',
+    '[role="search"]', '[role="alert"]', '[role="dialog"]', '[role="tooltip"]',
+    // 隱藏元素與懸浮提示（tooltip / popover），這些不屬於頁面主內容
+    '[hidden]', '[popover]', '[data-tippy-root]',
+    // 對話框、彈出層、覆蓋層、摺疊區塊等用戶不可見的互動 UI
+    'dialog', '[aria-modal="true"]',
+    'details:not([open])',
+    '.dropdown-menu', '.dropdown-content',
+    'select',
     '.sidebar', '.nav', '.footer', '.header',
     '.comments', '#comments', '.comment-list',
     '.related-posts', '.related-articles', '.recommended',
