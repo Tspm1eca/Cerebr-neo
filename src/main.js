@@ -307,6 +307,9 @@ let exaApiUrl = '';
     async function callAPIWithRetry(apiParams, chatManager, chatId, onMessageUpdate, maxRetries = 10) {
         let attempt = 0;
 
+        // 標記正在串流的聊天，防止 initialize() 清除記憶體中的串流資料
+        chatManager.setStreamingChatId(chatId);
+
         // 切換按鈕顯示：使用 CSS 類觸發動畫
         newChatButton.classList.add('button-hidden');
         stopResponseButton.classList.add('button-visible');
@@ -367,6 +370,8 @@ let exaApiUrl = '';
                 }
             }
         } finally {
+            // 清除串流標記
+            chatManager.setStreamingChatId(null);
             // 恢復按鈕顯示：使用 CSS 類觸發動畫
             newChatButton.classList.remove('button-hidden');
             stopResponseButton.classList.remove('button-visible');
@@ -1771,6 +1776,14 @@ let exaApiUrl = '';
             }
         }
     });
+
+    // 延遲 initialize 完成後刷新聊天列表 UI
+    chatManager._onDeferredInitComplete = async () => {
+        await renderChatList(
+            chatManager,
+            chatListPage.querySelector('.chat-cards')
+        );
+    };
     // 保存配置到存储
     async function saveAPIConfigs() {
         try {

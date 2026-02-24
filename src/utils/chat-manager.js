@@ -16,6 +16,9 @@ export class ChatManager {
         this._dirtyChatIds = new Set(); // WebDAV 同步用：追蹤被修改的聊天
         this._saveDebounceTimers = new Map(); // 流式更新時的 per-chat debounce 計時器
         this._chatIndex = []; // 記憶體中維護的輕量索引
+        this._streamingChatId = null; // 正在串流回覆的聊天 ID
+        this._pendingInitialize = false; // 串流期間是否有待補執行的 initialize()
+        this._onDeferredInitComplete = null; // 延遲 initialize 完成後的回調
         this.initialize();
     }
 
@@ -126,9 +129,29 @@ export class ChatManager {
         this.apiConfig = config;
     }
 
+    /**
+     * 設定正在串流回覆的聊天 ID
+     * @param {string|null} chatId - 聊天 ID，串流結束時傳入 null
+     */
+    setStreamingChatId(chatId) {
+        this._streamingChatId = chatId;
+        if (!chatId && this._pendingInitialize) {
+            this._pendingInitialize = false;
+            this.initialize().then(() => {
+                this._onDeferredInitComplete?.();
+            });
+        }
+    }
+
     // ==================== 初始化 ====================
 
     async initialize() {
+        // 串流進行中，延遲初始化，避免清除記憶體中的串流資料
+        if (this._streamingChatId) {
+            this._pendingInitialize = true;
+            return;
+        }
+
         this.chats.clear();
 
         // 載入 per-chat index
