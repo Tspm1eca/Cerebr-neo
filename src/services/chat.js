@@ -255,7 +255,7 @@ export async function callAPI({
         const pagesContent = webpageInfo.pages.map(page => {
             const prefix = page.isCurrent ? '当前网页内容' : '其他打开的网页';
             const contentWithMappedUrls = extractAndReplaceUrls(page.content, urlToIdMap, idToUrlMap);
-            return `\n${prefix}：\n标题：${page.title}\nURL：${page.url}\n内容：${contentWithMappedUrls}`;
+            return `\n${prefix}：\n标题：${page.title}\nURL：${page.url}\n内容：\n${contentWithMappedUrls}`;
         }).join('\n\n---\n');
 
         systemMessageContent = `${processedSystemPrompt}${pagesContent}`;
