@@ -37,7 +37,6 @@ jobs:
           cp -r htmd build/chrome/
           cp -r lib build/chrome/
           cp -r src build/chrome/
-          cp -r statics build/chrome/
           cp -r styles build/chrome/
           cp background.js build/chrome/
           cp content.js build/chrome/
