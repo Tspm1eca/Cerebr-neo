@@ -136,8 +136,17 @@ const WEB_SEARCH_TOOL = {
 function extractAndReplaceUrls(text, urlToIdMap, idToUrlMap) {
     if (!text) return text;
 
+    // 還原 Markdown 連結中被轉義的括號
+    // Turndown 會將 URL 中的 ( ) 轉義為 \( \)，例如：
+    // [Silicon Valley](https://...Silicon_Valley_\(TV_series\))
+    // 需先還原才能讓 URL 正則完整匹配
+    text = text.replace(/\]\(((?:[^\\)]|\\.)*)\)/g, (match, url) => {
+        if (!url.includes('\\(') && !url.includes('\\)')) return match;
+        return '](' + url.replace(/\\([()])/g, '$1') + ')';
+    });
+
     // 匹配URL的正規表示式
-    const urlRegex = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g;
+    const urlRegex = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=,!]*)/g;
 
     return text.replace(urlRegex, (match) => {
         let url = match;

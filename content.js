@@ -1012,16 +1012,18 @@ async function extractPageContent(skipWaitContent = false) {
 
     // 清理多餘空白（保留 Markdown 結構）
     mainContent = mainContent
-      .replace(/\[([^\]]*\n[^\]]*)\]\(([^)]*)\)/g, (_, inner, url) => {
+      // GFM 表格插件會把表格單元格中的換行轉成字面 <br>，在此還原為真正的換行
+      .replace(/(?:\s*<br\s*\/?>\s*)+/gi, '\n')
+      .replace(/\[([^\]]*\n[^\]]*)\]\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g, (_, inner, url) => {
         // 修復多行連結：將包含換行的連結文字壓縮為單行
         // 文字為空時（如圖片連結被清除後）整個連結移除
         const cleaned = inner.replace(/^#{1,6}\s+/gm, '').replace(/\s+/g, ' ').trim();
         return cleaned ? '[' + cleaned + '](' + url + ')' : '';
       })
-      .replace(/\[(?:[\s\u200B\u200C\u200D\u2060\uFEFF]|<br\s*\/?>)*\]\([^)]*\)/gi, '')  // 移除無意義超連結（空白、零寬度字元、<br> 等）
+      .replace(/\[(?:[\s\u200B\u200C\u200D\u2060\uFEFF]|<br\s*\/?>)*\]\([^()]*(?:\([^()]*\)[^()]*)*\)/gi, '')  // 移除無意義超連結（空白、零寬度字元、<br> 等）；URL 部分支援一層括號（如 Wikipedia 的 (cropped).jpg）
       .replace(/^[ \t\u200B\u200C\u200D\u2060\uFEFF]+$/gm, '')  // 清除僅含不可見字元的假空行
       .replace(/\n{3,}/g, '\n\n')
-      .replace(/\]\([^)]+\)\s*\[/g, match => match.replace(/\)\s*\[/, ')\n['))  // 相鄰 Markdown 連結各自換行
+      .replace(/\]\([^()]*(?:\([^()]*\)[^()]*)*\)\s*\[/g, match => match.replace(/\)\s*\[/, ')\n['))  // 相鄰 Markdown 連結各自換行
       .replace(/[ \t]+$/gm, '')
       .trim();
 
