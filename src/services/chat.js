@@ -9,6 +9,7 @@
 
 import {
     DEFAULT_SYSTEM_PROMPT,
+    WEB_SEARCH_SYSTEM_PROMPT,
     WEB_SEARCH_TOOL_DESCRIPTION,
     WEB_SEARCH_TOOL_QUERY_DESCRIPTION
 } from '../constants/prompts.js';
@@ -247,8 +248,12 @@ export async function callAPI({
     // 构建系统消息
     let systemMessageContent = '';
 
-    // 獲取用戶設定的 systemPrompt（如果為 undefined/null 則使用預設值，空字串則保持空字串）
-    const userSystemPrompt = apiConfig.advancedSettings?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+    // 獲取用戶設定的 systemPrompt
+    // 網絡搜索模式（on/auto）強制使用 WEB_SEARCH_SYSTEM_PROMPT
+    const isWebSearchActive = webSearchMode === 'on' || webSearchMode === 'auto';
+    const userSystemPrompt = isWebSearchActive
+        ? WEB_SEARCH_SYSTEM_PROMPT
+        : (apiConfig.advancedSettings?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT);
     const processedSystemPrompt = userSystemPrompt.replace(/\{\{userLanguage\}\}/gm, userLanguage);
 
     if (webpageInfo && webpageInfo.pages && webpageInfo.pages.length > 0) {
@@ -284,6 +289,8 @@ export async function callAPI({
     // 'off' 模式：不搜索
     // 用於標記 'on' 模式下是否已執行搜索
     let searchUsedInOnMode = false;
+    // 'on' 模式的搜索結果（不再塞入 system prompt，改為注入 user message）
+    let onModeSearchResults = null;
 
     if (webSearchMode === 'on' && currentApiKey) {
         try {
@@ -315,16 +322,12 @@ export async function callAPI({
                     includeAnswer: true
                 });
 
-                // 将搜索结果添加到系统消息
+                // 格式化搜索結果
                 const formattedResults = formatSearchResultsForPrompt(searchResults, userLanguage);
                 const mappedFormattedResults = extractAndReplaceUrls(formattedResults, urlToIdMap, idToUrlMap);
                 if (mappedFormattedResults) {
-                    // 如果之前没有系统消息内容，添加基础提示
-                    if (!systemMessageContent) {
-                        systemMessageContent = `你是一个有帮助的AI助手。请使用用户的语言（${userLanguage}）回答问题。以下是从网络搜索获取的最新信息，请基于这些信息回答用户的问题：`;
-                    }
-                    systemMessageContent += mappedFormattedResults;
-                    console.log('已添加网络搜索结果到系统提示');
+                    // 暫存搜索結果，後續注入到 user message
+                    onModeSearchResults = mappedFormattedResults;
 
                     // 標記搜索已使用（用於後續流處理）
                     searchUsedInOnMode = true;
@@ -384,6 +387,27 @@ export async function callAPI({
 
     if (systemMessage.content.trim() && (processedMessages.length === 0 || processedMessages[0].role !== "system")) {
         processedMessages.unshift(systemMessage);
+    }
+
+    // 'on' 模式：將搜索結果注入到最後一條 user message（而非 system prompt）
+    if (onModeSearchResults) {
+        for (let i = processedMessages.length - 1; i >= 0; i--) {
+            if (processedMessages[i].role === 'user') {
+                const msg = processedMessages[i];
+                if (typeof msg.content === 'string') {
+                    msg.content = msg.content + '\n\n' + onModeSearchResults;
+                } else if (Array.isArray(msg.content)) {
+                    // multimodal content：在最後一個 text part 後追加
+                    const lastTextIdx = msg.content.findLastIndex(c => c.type === 'text');
+                    if (lastTextIdx !== -1) {
+                        msg.content[lastTextIdx].text += '\n\n' + onModeSearchResults;
+                    } else {
+                        msg.content.push({ type: 'text', text: onModeSearchResults });
+                    }
+                }
+                break;
+            }
+        }
     }
 
     const controller = new AbortController();

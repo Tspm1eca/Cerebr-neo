@@ -272,7 +272,7 @@ export function formatSearchResultsForPrompt(searchResponse, userLanguage = 'zh-
     const answerLabel = isChineseUser ? 'AI 摘要' : 'AI Summary';
     const sourceLabel = isChineseUser ? '來源' : 'Source';
 
-    let formattedText = `\n\n--- ${header} ---\n`;
+    let formattedText = `--- ${header} ---\n`;
     formattedText += `查詢: "${searchResponse.query}"\n`;
 
     // 如果有 AI 生成的答案，先顯示

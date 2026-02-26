@@ -1,8 +1,10 @@
-export const DEFAULT_SYSTEM_PROMPT = "```\n# 格式\n- 使用 Text Fragment 連結引用網頁內容，格式：`[數字編號](#:~:text=纯文本原文片段)`\n- 超連結格式：`[標題](URLREF1)`\n\n## 規則\n1. 無網頁內容時不使用引用\n2. 引用必須是原文，不可改寫\n3. 片段 ≤ 50 字符，選擇有辨識度的文字\n4. 數字編號按順序遞增\n5. 所有URL會以給代號你，比如：`URLREF1`\n\n## 範例\n- 錯誤引用：請點擊 1 送出。[1](#:~:text=按鈕 A)\n- 正確引用：請點擊按鈕 A 送出。[1](#:~:text=按鈕 A)\n```";
+export const DEFAULT_SYSTEM_PROMPT = "# 格式\n- 使用 Text Fragment 連結引用網頁內容，格式：`[數字編號](#:~:text=纯文本原文片段)`\n- 超連結格式：`[標題](URLREF1)`\n\n## 規則\n1. 無網頁內容時不使用引用\n2. 引用必須是原文，不可改寫\n3. 片段 ≤ 50 字符，選擇有辨識度的文字\n4. 數字編號按順序遞增\n5. 所有URL會以代號給你，比如：`URLREF1`\n\n## 範例\n- 錯誤引用：請點擊 1 送出。[1](#:~:text=按鈕 A)\n- 正確引用：請點擊按鈕 A 送出。[1](#:~:text=按鈕 A)";
 
-export const WEB_SEARCH_TOOL_DESCRIPTION = `You MUST call this tool to perform a web search in ANY of the following situations:\n\n1. Time-sensitive information: User asks about \"today\", \"latest\", \"recent\", \"now\", \"current\", or any time-related questions\n2. News and events: Any questions about news, events, or what happened\n3. Real-time data: Weather, stock prices, exchange rates, sports scores, prices, or any data that requires real-time updates\n4. People updates: What someone recently did, said, or published\n5. Product information: Latest versions, release dates, update contents\n6. Uncertain facts: Information you are unsure about or might be outdated\n\nExamples that REQUIRE search:\n- \"What's in the news today?\" → MUST search\n- \"Latest news about XXX\" → MUST search\n- \"What time is it now?\" → MUST search\n- \"How's the weather?\" → MUST search\n- \"XXX stock price\" → MUST search\n\nExamples that do NOT require search:\n- \"What is machine learning?\" → No search needed (general knowledge)\n- \"How to write a loop in Python?\" → No search needed (programming knowledge)`;
+export const WEB_SEARCH_SYSTEM_PROMPT = '你是一個實用的AI助手，根據搜索結果提供詳盡、有條理的回答。\n\n# 引用規則（必須遵守）\n搜索結果中每個來源標記了網址代號（URLREF1、URLREF2…），引用時必須用 Markdown 連結嵌入代號：\n- 格式：`[編號](URLREF代號)`\n- 正確：米勒被捕，隨後面臨聯邦指控。[1](URLREF1),[2](URLREF2)。\n- 錯誤：米勒被捕 [1]。← 缺少連結，禁止這樣寫';
 
-export const WEB_SEARCH_TOOL_QUERY_DESCRIPTION = `**Return short English keywords only.**\nRules:\n1. Do not analyze or reason about user intent.\n2. Convert the request into short English keywords.\n3. Use official English names when available (e.g., TSMC, iPhone, OpenAI).\n4. Output keywords only, not a sentence, explanation, or punctuation-heavy text.\nExamples:\n- \"今天有什么科技新闻\" -> \"technology news today\"\n- \"台积电股价\" -> \"TSMC stock price\"\n- \"比亚迪最新财报\" -> \"BYD latest earnings report\"\n- \"latest iPhone release\" -> \"iPhone latest release date\"`;
+export const WEB_SEARCH_TOOL_DESCRIPTION = "You MUST call this tool to perform a web search in ANY of the following situations:\n\n1. Time-sensitive information: User asks about \"today\", \"latest\", \"recent\", \"now\", \"current\", or any time-related questions\n2. News and events: Any questions about news, events, or what happened\n3. Real-time data: Weather, stock prices, exchange rates, sports scores, prices, or any data that requires real-time updates\n4. People updates: What someone recently did, said, or published\n5. Product information: Latest versions, release dates, update contents\n6. Uncertain facts: Information you are unsure about or might be outdated\n\nExamples that REQUIRE search:\n- \"What's in the news today?\" → MUST search\n- \"Latest news about XXX\" → MUST search\n- \"What time is it now?\" → MUST search\n- \"How's the weather?\" → MUST search\n- \"XXX stock price\" → MUST search\n\nExamples that do NOT require search:\n- \"What is machine learning?\" → No search needed (general knowledge)\n- \"How to write a loop in Python?\" → No search needed (programming knowledge)";
+
+export const WEB_SEARCH_TOOL_QUERY_DESCRIPTION = '**Return short English keywords only.**\nRules:\n1. Do not analyze or reason about user intent.\n2. Convert the request into short English keywords.\n3. Use official English names when available (e.g., TSMC, iPhone, OpenAI).\n4. Output keywords only, not a sentence, explanation, or punctuation-heavy text.\nExamples:\n- \"今天有什么科技新闻\" -> \"technology news today\"\n- \"台积电股价\" -> \"TSMC stock price\"\n- \"比亚迪最新财报\" -> \"BYD latest earnings report\"\n- \"latest iPhone release\" -> \"iPhone latest release date\"';
 
 export const DEFAULT_QUICK_CHAT_OPTIONS = [
     {
@@ -14,13 +16,13 @@ export const DEFAULT_QUICK_CHAT_OPTIONS = [
     {
         id: 'option-2',
         title: '200字總結',
-        prompt: '```plaintext\\n用約200字總結網頁內容，不需要引用內容。\\n```',
+        prompt: '用約200字總結網頁內容，不需要引用內容。',
         icon: '✨'
     },
     {
         id: 'option-3',
         title: '列出新聞',
-        prompt: '```markdown\n# 任務\n以表格方式列出不少於20條最重要的新聞\n\n## 表格格式\n| 中文標題 | 原文標題 |\n| :--- | :--- |\n| 中文標題 [1](#:~:text=原文片段) | <新聞連結> |\n| 中文標題 [2](#:~:text=原文片段) | <新聞連結> |\n```',
+        prompt: '```\n# 任務\n以表格方式列出不少於20條最重要的新聞\n\n## 表格格式\n| 中文標題 | 原文標題 |\n| :--- | :--- |\n| 中文標題 [1](#:~:text=原文片段) | <新聞連結> |\n| 中文標題 [2](#:~:text=原文片段) | <新聞連結> |\n```',
         icon: '📰'
     }
 ].map((option) => ({
