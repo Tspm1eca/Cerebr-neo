@@ -734,6 +734,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
+    // 处理 SEEK_VIDEO 消息（YouTube 影片跳轉到指定時間）
+    if (message.type === 'SEEK_VIDEO') {
+        const video = document.querySelector('video');
+        if (video) {
+            video.currentTime = message.seconds;
+            sendResponse({ success: true });
+        } else {
+            sendResponse({ success: false });
+        }
+        return true;
+    }
+
     return true;
 });
 

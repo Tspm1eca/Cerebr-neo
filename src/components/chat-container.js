@@ -4,6 +4,7 @@ import { handleImageDrop } from '../utils/image.js';
 import { updateAIMessage } from '../handlers/message-handler.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
 import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
+import { isTimestampLink, extractSeekSeconds } from '../../htmd/timestamp.js';
 
 /**
  * 初始化聊天容器的所有功能
@@ -28,6 +29,12 @@ export function initChatContainer({
     // 定义本地变量
     let currentMessageElement = null;
     let currentCodeElement = null;
+
+    const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
+    function isYouTubeChat() {
+        const chat = chatManager.getCurrentChat();
+        return chat?.webpageUrls?.some(url => YT_WATCH_RE.test(url)) ?? false;
+    }
 
     /**
      * 處理 citation-link 的點擊事件
@@ -57,6 +64,39 @@ export function initChatContainer({
             linkElement.classList.add('citation-not-found');
             setTimeout(() => {
                 linkElement.classList.remove('citation-not-found');
+            }, 2000);
+        }
+    }
+
+    /**
+     * 處理 timestamp-link 的點擊事件
+     * 發送跳轉指令到 content script，讓 YouTube 播放器跳轉到指定時間
+     * @param {HTMLElement} linkElement - 被點擊的連結元素
+     */
+    async function handleTimestampClick(linkElement) {
+        const href = linkElement.getAttribute('href');
+        const seconds = extractSeekSeconds(href);
+        if (seconds === null) return;
+
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab) {
+                const response = await chrome.tabs.sendMessage(tab.id, {
+                    type: 'SEEK_VIDEO',
+                    seconds
+                });
+                if (response && !response.success) {
+                    linkElement.classList.add('timestamp-not-found');
+                    setTimeout(() => {
+                        linkElement.classList.remove('timestamp-not-found');
+                    }, 2000);
+                }
+            }
+        } catch (error) {
+            console.error('發送影片跳轉指令失敗:', error);
+            linkElement.classList.add('timestamp-not-found');
+            setTimeout(() => {
+                linkElement.classList.remove('timestamp-not-found');
             }, 2000);
         }
     }
@@ -92,10 +132,17 @@ export function initChatContainer({
 
     // 添加点击事件监听
     chatContainer.addEventListener('click', (e) => {
-        // 事件委託：處理引用連結的點擊事件（支援 Text Fragment 和舊版 cite:）
+        // 事件委託：處理連結的點擊事件
         const link = e.target.closest('a');
         if (link) {
             const href = link.getAttribute('href');
+            // 檢查是否為時間戳連結（YouTube 影片跳轉）
+            if (isTimestampLink(href)) {
+                e.preventDefault();
+                e.stopPropagation();
+                handleTimestampClick(link);
+                return;
+            }
             // 檢查是否為引用連結（Text Fragment 或 cite:）
             if (isCitationLink(href)) {
                 e.preventDefault();
@@ -412,7 +459,7 @@ export function initChatContainer({
                         const mainContent = document.createElement('div');
                         mainContent.className = 'main-content';
                         // 使用 processMathAndMarkdown 渲染 Markdown 和數學公式
-                        mainContent.innerHTML = processMathAndMarkdown(newText);
+                        mainContent.innerHTML = processMathAndMarkdown(newText, { timestamps: isYouTubeChat() });
                         messageElementToEdit.appendChild(mainContent);
 
                         // 渲染 LaTeX 公式（僅在文本可能包含數學公式時才呼叫 MathJax）
@@ -487,7 +534,7 @@ export function initChatContainer({
                         const mainContent = document.createElement('div');
                         mainContent.className = 'main-content';
                         // 使用 processMathAndMarkdown 渲染 Markdown 和數學公式
-                        mainContent.innerHTML = processMathAndMarkdown(newText);
+                        mainContent.innerHTML = processMathAndMarkdown(newText, { timestamps: isYouTubeChat() });
                         messageElementToEdit.appendChild(mainContent);
 
                         // 渲染 LaTeX 公式（僅在文本可能包含數學公式時才呼叫 MathJax）

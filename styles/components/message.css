@@ -191,6 +191,53 @@
     100% { opacity: 0; transform: translateX(-50%) translateY(-4px); }
 }
 
+/* 時間戳連結樣式（YouTube 影片跳轉） */
+.message a.timestamp-link {
+    color: var(--cerebr-link-color);
+    text-decoration: none;
+    font-family: monospace;
+    font-size: 0.9em;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background-color: rgba(0, 0, 0, 0.05);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.message a.timestamp-link::before {
+    content: '▶ ';
+    font-size: 0.75em;
+}
+
+.message a.timestamp-link:hover {
+    text-decoration: none;
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+/* 時間戳跳轉失敗反饋 */
+.message a.timestamp-link.timestamp-not-found {
+    color: var(--cerebr-error-color, #e74c3c);
+    background-color: rgba(231, 76, 60, 0.1);
+    animation: citation-shake 0.4s ease;
+    position: relative;
+}
+
+.message a.timestamp-link.timestamp-not-found::after {
+    content: '無法跳轉';
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: var(--cerebr-error-color, #e74c3c);
+    color: #fff;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    animation: citation-tooltip-fade 2s ease forwards;
+}
+
 .message blockquote {
     margin: 0.5em 0;
     padding-left: 12px;

@@ -4,7 +4,15 @@ import { createThumbnailImage } from '../utils/image.js';
 import { isHttpImageUrl, blobToDataUrl } from '../utils/url.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
 import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
+import { isTimestampLink } from '../../htmd/timestamp.js';
 import { storageAdapter } from '../utils/storage-adapter.js';
+
+const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
+
+function isYouTubeChat() {
+    const chat = chatManager.getCurrentChat();
+    return chat?.webpageUrls?.some(url => YT_WATCH_RE.test(url)) ?? false;
+}
 
 // 氣泡拉伸動畫參數（欠阻尼彈簧 F = -k*x - c*v, ζ = c/(2√k)）
 const SPRING = {
@@ -85,6 +93,9 @@ export function processMessageLinks(container) {
             if (textToFind) {
                 link.title = `跳轉到: "${textToFind}"`;
             }
+        } else if (isTimestampLink(href)) {
+            link.classList.add('timestamp-link');
+            link.title = `跳轉到 ${link.textContent}`;
         } else {
             link.target = '_blank';
             link.rel = 'noopener noreferrer';
@@ -227,7 +238,7 @@ export async function appendMessage({
         // 添加文本容器
         const reasoningTextDiv = document.createElement('div');
         reasoningTextDiv.className = 'reasoning-text';
-        reasoningTextDiv.innerHTML = processMathAndMarkdown(reasoningContent).trim();
+        reasoningTextDiv.innerHTML = processMathAndMarkdown(reasoningContent, { timestamps: isYouTubeChat() }).trim();
         reasoningDiv.appendChild(reasoningTextDiv);
 
         // 添加点击事件处理折叠/展开
@@ -255,7 +266,7 @@ export async function appendMessage({
     // 添加主要内容
     const mainContent = document.createElement('div');
     mainContent.className = 'main-content';
-    mainContent.innerHTML = processMathAndMarkdown(messageHtml);
+    mainContent.innerHTML = processMathAndMarkdown(messageHtml, { timestamps: isYouTubeChat() });
     messageDiv.appendChild(mainContent);
 
     // 如果是 AI 消息且有圖片，圖片放在文字下方
@@ -664,7 +675,7 @@ export async function updateAIMessage({
                 // 更新原始文本属性
                 reasoningTextDiv.setAttribute('data-original-text', reasoningContent);
                 // 更新显示内容
-                reasoningTextDiv.innerHTML = processMathAndMarkdown(reasoningContent).trim();
+                reasoningTextDiv.innerHTML = processMathAndMarkdown(reasoningContent, { timestamps: isYouTubeChat() }).trim();
                 if (textMayContainMath(reasoningContent)) {
                     await renderMathInElement(reasoningTextDiv);
                 }
@@ -678,7 +689,7 @@ export async function updateAIMessage({
             // 处理主要内容
             const mainContent = document.createElement('div');
             mainContent.className = 'main-content';
-            mainContent.innerHTML = processMathAndMarkdown(textContent);
+            mainContent.innerHTML = processMathAndMarkdown(textContent, { timestamps: isYouTubeChat() });
 
             // 清除原有的主要内容
             Array.from(lastMessage.children).forEach(child => {
