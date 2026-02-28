@@ -656,10 +656,6 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     const currentTab = await browserAdapter.getCurrentTab();
                     const currentTabUrl = currentTab?.url || '';
                     isCurrentTabYouTube = YT_WATCH_RE.test(currentTabUrl);
-                    if (isCurrentTabYouTube && currentChat) {
-                        const uniqueUrls = new Set([...(currentChat.webpageUrls || []), currentTabUrl]);
-                        currentChat.webpageUrls = Array.from(uniqueUrls);
-                    }
                 } catch (e) {
                     console.warn('获取当前标签页失败:', e);
                 }
@@ -668,8 +664,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             // 先显示等待动画，再执行网页内容提取，避免 YouTube 字幕较长时无反馈
             createWaitingMessage(chatContainer, { isYouTube: isCurrentTabYouTube });
             const webpageInfo = isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null;
-            await chatManager.addMessageToCurrentChat(userMessage, webpageInfo);
             shouldRollbackUserMessage = true;
+            await chatManager.addMessageToCurrentChat(userMessage, webpageInfo);
 
             // 准备API调用参数
             // 当传送网页开启时，强制关闭 auto 模式（避免 tool_choice 冲突）
