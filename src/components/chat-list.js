@@ -264,6 +264,7 @@ export function initializeChatList({
             const chatCards = chatListPage.querySelector('.chat-cards');
             searchInput.value = ''; // 清空搜索框
             renderChatList(chatManager, chatCards);
+            console.log(`[Cerebr] 共有 ${chatManager.getAllChats().length} 條歷史記錄`);
         });
         settingsMenu.classList.remove('visible');
     });
