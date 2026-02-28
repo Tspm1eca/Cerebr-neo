@@ -1,5 +1,7 @@
 import { storageAdapter, browserAdapter } from '../utils/storage-adapter.js';
 
+const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
+
 // 过滤重复的标签页，只保留每个 URL 最新访问的标签页
 function getUniqueTabsByUrl(tabs) {
     const seenUrls = new Set();
@@ -131,6 +133,15 @@ export async function getEnabledTabsContent() {
                         skipWaitContent: true // 明确要求立即提取
                     });
 
+                    // YouTube 当前頁字幕提取失敗：直接中止流程，交由上層顯示錯誤氣泡
+                    if (pageData?.error?.code === 'YOUTUBE_TRANSCRIPT_UNAVAILABLE'
+                        && tab.id === currentTab.id
+                        && YT_WATCH_RE.test(tab.url || '')) {
+                        const err = new Error(pageData.error.message || '无法提取 YouTube 字幕');
+                        err.code = 'YOUTUBE_TRANSCRIPT_UNAVAILABLE';
+                        throw err;
+                    }
+
                     if (pageData && pageData.content) {
                         if (!combinedContent) {
                             combinedContent = { pages: [] };
@@ -143,6 +154,9 @@ export async function getEnabledTabsContent() {
                         });
                     }
                 } catch (e) {
+                    if (e?.code === 'YOUTUBE_TRANSCRIPT_UNAVAILABLE') {
+                        throw e;
+                    }
                     console.warn(`Could not get content from tab ${tab.id} (${tab.url}): ${e}`);
                 }
             }

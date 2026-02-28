@@ -969,8 +969,17 @@ async function extractPageContent(skipWaitContent = false) {
         console.log('YouTube 字幕提取完成，內容長度:', content.length);
         return { title, url: window.location.href, content };
       }
-      // 字幕不可用時，繼續正常的頁面內容提取
-      console.log('YouTube 字幕不可用，回退到一般頁面提取');
+      // 在 YouTube watch 頁面強制依賴字幕：提取失敗時直接返回錯誤，不回退到一般頁面提取
+      const errorMessage = '无法提取 YouTube 字幕，影片沒有CC字幕。';
+      console.warn('YouTube 字幕不可用，终止后续流程');
+      return {
+        title,
+        url: window.location.href,
+        error: {
+          code: 'YOUTUBE_TRANSCRIPT_UNAVAILABLE',
+          message: errorMessage
+        }
+      };
     }
     // === 內容提取流程 ===
     let mainContent = '';

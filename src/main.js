@@ -559,6 +559,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
                 // 根據錯誤類型顯示不同的錯誤訊息
                 let errorMessage = '重新生成失败: ' + error.message;
+                if (error?.code === 'YOUTUBE_TRANSCRIPT_UNAVAILABLE') {
+                    errorMessage = error.message || '无法提取 YouTube 字幕。';
+                }
                 if (error instanceof TimeoutError) {
                     errorMessage = '⏱️ ' + error.message;
                     console.warn('API 請求超時:', error.type, error.message);
@@ -586,6 +589,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         // 生成新的请求ID
         const currentRequestId = Date.now().toString();
         activeRequestId = currentRequestId;
+        let shouldRollbackUserMessage = false;
 
         // 如果有正在更新或等待的AI消息，停止它
         const updatingMessage = chatContainer.querySelector('.ai-message.updating, .ai-message.waiting');
@@ -665,6 +669,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             createWaitingMessage(chatContainer, { isYouTube: isCurrentTabYouTube });
             const webpageInfo = isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null;
             await chatManager.addMessageToCurrentChat(userMessage, webpageInfo);
+            shouldRollbackUserMessage = true;
 
             // 准备API调用参数
             // 当传送网页开启时，强制关闭 auto 模式（避免 tool_choice 冲突）
@@ -732,6 +737,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
                 // 根據錯誤類型顯示不同的錯誤訊息
                 let errorMessage = '发送失败: ' + error.message;
+                if (error?.code === 'YOUTUBE_TRANSCRIPT_UNAVAILABLE') {
+                    errorMessage = error.message || '无法提取 YouTube 字幕。';
+                }
                 if (error instanceof TimeoutError) {
                     errorMessage = '⏱️ ' + error.message;
                     console.warn('API 請求超時:', error.type, error.message);
@@ -746,15 +754,17 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     chatContainer,
                     skipHistory: true,
                 });
-                // 从 chatHistory 中移除最后一条记录（用户的问题）
-                const currentChat = chatManager.getCurrentChat();
-                const messages = currentChat ? [...currentChat.messages] : [];
-                if (messages.length > 0) {
-                    if (messages[messages.length - 1].role === 'assistant') {
-                        chatManager.popMessage();
-                        chatManager.popMessage();
-                    } else {
-                        chatManager.popMessage();
+                if (shouldRollbackUserMessage) {
+                    // 从 chatHistory 中移除最后一条记录（用户的问题）
+                    const currentChat = chatManager.getCurrentChat();
+                    const messages = currentChat ? [...currentChat.messages] : [];
+                    if (messages.length > 0) {
+                        if (messages[messages.length - 1].role === 'assistant') {
+                            chatManager.popMessage();
+                            chatManager.popMessage();
+                        } else {
+                            chatManager.popMessage();
+                        }
                     }
                 }
             }
