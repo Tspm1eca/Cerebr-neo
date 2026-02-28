@@ -970,7 +970,7 @@ async function extractPageContent(skipWaitContent = false) {
         return { title, url: window.location.href, content };
       }
       // 在 YouTube watch 頁面強制依賴字幕：提取失敗時直接返回錯誤，不回退到一般頁面提取
-      const errorMessage = '无法提取 YouTube 字幕，影片沒有CC字幕。';
+      const errorMessage = '无法提取 YouTube 字幕，找不到CC字幕。';
       console.warn('YouTube 字幕不可用，终止后续流程');
       return {
         title,

@@ -16,6 +16,7 @@ Cerebr 是一款强大的浏览器 AI 助手扩展，现已支持 Chrome、Firef
 4. 支持Tavily/Exa網絡搜索。
 5. 智能雙向同步WebDav（支持加密儲存），真正的跨平台，跨瀏覽器雙向同步。
 6. 引入Cloudflare Markdown for Agents做法。
+7. 支持提取Youtube CC字幕。
 
 <img width="300" height="600" alt="4" src="https://github.com/user-attachments/assets/1945d4f0-f281-493e-939b-2059291cc157" /> <img width="300" height="600" alt="7" src="https://github.com/user-attachments/assets/bccb3d08-8ef3-4e8c-9a4f-f6ab46c915e6" />
 <img width="300" height="600" alt="1" src="https://github.com/user-attachments/assets/43d5ec9d-da16-4985-8632-422717576a6a" /> <img width="300" height="600" alt="2" src="https://github.com/user-attachments/assets/c92be7c7-8b0a-4ad2-ac95-c14577412a51" />
