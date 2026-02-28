@@ -824,8 +824,10 @@ async function extractYouTubeTranscript() {
   );
   if (!transcriptPanel) return null;
 
-  // 檢查字幕是否已載入
+  // 檢查字幕是否已載入（有章節的影片使用 section-list，無章節的使用 segment-list）
   let segmentsContainer = transcriptPanel.querySelector(
+    'ytd-transcript-section-list-renderer #segments-container'
+  ) || transcriptPanel.querySelector(
     'ytd-transcript-segment-list-renderer #segments-container'
   );
   let hasSegments = segmentsContainer?.querySelector('ytd-transcript-segment-renderer');
@@ -857,20 +859,31 @@ async function extractYouTubeTranscript() {
     if (!loaded) return null;
 
     segmentsContainer = transcriptPanel.querySelector(
+      'ytd-transcript-section-list-renderer #segments-container'
+    ) || transcriptPanel.querySelector(
       'ytd-transcript-segment-list-renderer #segments-container'
     );
   }
 
-  if (!segmentsContainer) return null;
+  if (!segmentsContainer) {
+    console.log('[YT Transcript] segments-container not found after loading');
+    return null;
+  }
 
   // 提取字幕文字
   let transcriptText = '';
+  let chapterCount = 0;
   for (const segment of segmentsContainer.children) {
     if (segment.tagName === 'YTD-TRANSCRIPT-SECTION-HEADER-RENDERER') {
-      const chapterTitle = segment.querySelector('.segment-timestamp')?.textContent?.trim();
-      const chapterText = segment.querySelector('#content')?.textContent?.trim();
+      chapterCount++;
+      const chapterTitle = segment.querySelector('.segment-timestamp')?.textContent?.trim()
+        || segment.querySelector('[class*="timestamp"]')?.textContent?.trim();
+      const chapterText = segment.querySelector('#content h2')?.textContent?.trim()
+        || segment.querySelector('#content')?.textContent?.trim()
+        || segment.querySelector('[class*="title"]')?.textContent?.trim()
+        || segment.querySelector('h2')?.textContent?.trim();
       if (chapterText) {
-        transcriptText += `\n\n## ${chapterText}${chapterTitle ? ` (${chapterTitle})` : ''}\n\n`;
+        transcriptText += `\n### ${chapterText}${chapterTitle ? ` (${chapterTitle})` : ''}\n`;
       }
     } else if (segment.tagName === 'YTD-TRANSCRIPT-SEGMENT-RENDERER') {
       const timestamp = segment.querySelector('.segment-timestamp')?.textContent?.trim();
@@ -881,6 +894,7 @@ async function extractYouTubeTranscript() {
     }
   }
 
+  console.log(`[YT Transcript] extracted ${segmentsContainer.children.length} segments, ${chapterCount} chapters`);
   return transcriptText.trim() || null;
 }
 
