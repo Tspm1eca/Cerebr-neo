@@ -275,9 +275,13 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     }
 
     if ((!currentChat || currentChat.messages.length === 0) && isExtensionEnvironment) {
-        const currentTab = await browserAdapter.getCurrentTab();
-        if (currentTab) {
-            await storageAdapter.set({ webpageSwitches: { [currentTab.id]: true } });
+        try {
+            const currentTab = await browserAdapter.getCurrentTab();
+            if (currentTab) {
+                await storageAdapter.set({ webpageSwitches: { [currentTab.id]: true } });
+            }
+        } catch (error) {
+            console.warn('初始化时重置网页开关失败:', error);
         }
     }
 
@@ -1775,29 +1779,43 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
     // 监听标签页切换
     browserAdapter.onTabActivated(async () => {
-        // console.log('标签页切换，重新加载API配置');
-        // await loadWebpageSwitch();
-        // 同步API配置（传入 skipInit=true 避免重复绑定事件）
-        await loadAPIConfigs(true);
-        await loadSearchSettings();
+        try {
+            // console.log('标签页切换，重新加载API配置');
+            // await loadWebpageSwitch();
+            // 同步API配置（传入 skipInit=true 避免重复绑定事件）
+            await loadAPIConfigs(true);
+            await loadSearchSettings();
 
-        // 同步快速選項配置
-        await quickChatController.loadQuickChatOptions();
+            // 同步快速選項配置
+            await quickChatController.loadQuickChatOptions();
 
-        // 同步历史
-        await chatManager.initialize();
-        await renderChatList(
-            chatManager,
-            chatListPage.querySelector('.chat-cards')
-        );
+            // 同步历史
+            await chatManager.initialize();
+            await renderChatList(
+                chatManager,
+                chatListPage.querySelector('.chat-cards')
+            );
 
-        // 如果当前对话为空，则重置网页内容开关
-        const currentChat = chatManager.getCurrentChat();
-        if (currentChat && currentChat.messages.length === 0) {
-            const currentTab = await browserAdapter.getCurrentTab();
-            if (currentTab) {
-                await storageAdapter.set({ webpageSwitches: { [currentTab.id]: true } });
+            // 保持 UI 与当前对话状态一致，避免分頁切換後畫面殘留舊對話
+            const currentChat = chatManager.getCurrentChat();
+            if (currentChat && !chatManager._streamingChatId) {
+                await loadChatContent(currentChat, chatContainer);
+                toggleQuickChatOptions(!(currentChat.messages && currentChat.messages.length > 0));
             }
+
+            // 如果当前对话为空，则重置网页内容开关
+            if (currentChat && currentChat.messages.length === 0) {
+                try {
+                    const currentTab = await browserAdapter.getCurrentTab();
+                    if (currentTab) {
+                        await storageAdapter.set({ webpageSwitches: { [currentTab.id]: true } });
+                    }
+                } catch (error) {
+                    console.warn('标签页切换后重置网页开关失败:', error);
+                }
+            }
+        } catch (error) {
+            console.error('处理标签页切换失败:', error);
         }
     });
 

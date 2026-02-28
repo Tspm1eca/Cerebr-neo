@@ -242,9 +242,13 @@ export function initializeChatList({
         }
 
         if (isExtensionEnvironment) {
-            const currentTab = await browserAdapter.getCurrentTab();
-            if (currentTab) {
-                await storageAdapter.set({ webpageSwitches: { [currentTab.id]: true } });
+            try {
+                const currentTab = await browserAdapter.getCurrentTab();
+                if (currentTab) {
+                    await storageAdapter.set({ webpageSwitches: { [currentTab.id]: true } });
+                }
+            } catch (error) {
+                console.warn('新建对话时获取当前标签页失败，已跳过网页开关重置:', error);
             }
         }
 
