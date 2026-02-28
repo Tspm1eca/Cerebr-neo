@@ -10,6 +10,7 @@
 import {
     DEFAULT_SYSTEM_PROMPT,
     WEB_SEARCH_SYSTEM_PROMPT,
+    VIDEO_TRANSCRIPT_SYSTEM_PROMPT,
     WEB_SEARCH_TOOL_DESCRIPTION,
     WEB_SEARCH_TOOL_QUERY_DESCRIPTION
 } from '../constants/prompts.js';
@@ -259,13 +260,19 @@ export async function callAPI({
 
     // 獲取用戶設定的 systemPrompt
     // 網絡搜索模式（on/auto）強制使用 WEB_SEARCH_SYSTEM_PROMPT
+    // YouTube 影片字幕內容使用 VIDEO_TRANSCRIPT_SYSTEM_PROMPT
     // 傳送網頁開啟時使用 API 設置中的 systemPrompt
     // 兩者皆關閉時不使用任何 systemPrompt
     const isWebSearchActive = webSearchMode === 'on' || webSearchMode === 'auto';
     const hasWebpageInfo = webpageInfo && webpageInfo.pages && webpageInfo.pages.length > 0;
+    const hasVideoTranscript = hasWebpageInfo && webpageInfo.pages.some(page =>
+        page.isCurrent && /^https?:\/\/(www\.)?youtube\.com\/watch/.test(page.url) && page.content?.includes('## Transcript\n')
+    );
     let userSystemPrompt;
     if (isWebSearchActive) {
         userSystemPrompt = WEB_SEARCH_SYSTEM_PROMPT;
+    } else if (hasVideoTranscript) {
+        userSystemPrompt = VIDEO_TRANSCRIPT_SYSTEM_PROMPT;
     } else if (hasWebpageInfo) {
         userSystemPrompt = apiConfig.advancedSettings?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     } else {
