@@ -299,6 +299,14 @@
                breathing-glow 2s ease-in-out infinite;
 }
 
+/* YouTube 字幕模式的紫色呼吸光暈 */
+.message.ai-message.waiting.youtube-chat,
+.message.ai-message.updating.youtube-chat {
+    border-color: rgba(160, 100, 220, 0.5);
+    animation: messageAppear 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards,
+               breathing-glow-youtube 2s ease-in-out infinite;
+}
+
 /* 確保搜索標記和錯誤標記的優先級高於呼吸光暈 */
 .message.ai-message.waiting.search-used,
 .message.ai-message.updating.search-used {

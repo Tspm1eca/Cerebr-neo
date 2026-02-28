@@ -39,7 +39,8 @@ let searchProvider = 'tavily'; // 'tavily' | 'exa'
  */
 function fadeOutGlow(messageEl) {
     const isSearch = messageEl.classList.contains('search-used');
-    const c = isSearch ? '34, 197, 94' : '106, 161, 220';
+    const isYouTube = messageEl.classList.contains('youtube-chat');
+    const c = isSearch ? '34, 197, 94' : isYouTube ? '160, 100, 220' : '106, 161, 220';
 
     // 1. 用 inline style 凍結光暈起始狀態（取呼吸動畫的靜止幀值）
     messageEl.style.boxShadow =

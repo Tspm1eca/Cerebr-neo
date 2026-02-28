@@ -173,6 +173,11 @@ export async function appendMessage({
         messageDiv.classList.add('error');
     }
 
+    // YouTube 字幕模式標記（用於紫色光暈）
+    if (sender === 'ai' && isYouTubeChat()) {
+        messageDiv.classList.add('youtube-chat');
+    }
+
     // 处理文本内容
     let textContent = typeof text === 'string' ? text : text.content;
 
@@ -381,6 +386,11 @@ export function createWaitingMessage(chatContainer, options = {}) {
 
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message ai-message waiting';
+
+    // YouTube 字幕模式標記（用於紫色光暈）
+    if (isYouTubeChat()) {
+        messageDiv.classList.add('youtube-chat');
+    }
 
     // 如果使用了搜索，添加搜索標記樣式
     if (isSearchUsed) {
