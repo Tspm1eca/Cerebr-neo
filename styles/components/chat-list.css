@@ -25,9 +25,31 @@
 }
 
 .chat-cards {
-    padding: 16px;
+    padding: 16px 8px;
     flex: 1;
     overflow-y: auto;
+    scrollbar-gutter: stable both-edges;
+}
+
+.chat-cards::-webkit-scrollbar {
+    width: 8px;
+    background-color: transparent;
+}
+
+.chat-cards::-webkit-scrollbar-track {
+    background-color: transparent;
+    border-radius: 4px;
+}
+
+.chat-cards::-webkit-scrollbar-thumb {
+    background-color: var(--cerebr-border-color);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+.chat-cards::-webkit-scrollbar-thumb:hover {
+    background-color: var(--cerebr-icon-color);
 }
 
 .chat-card {
