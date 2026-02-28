@@ -795,6 +795,95 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 
+// ==================== YouTube 字幕提取 ====================
+
+function isYouTubeVideoPage() {
+  return window.location.hostname.includes('youtube.com')
+    && window.location.pathname === '/watch';
+}
+
+function getYouTubeVideoInfo() {
+  const title = document.querySelector('yt-formatted-string.ytd-watch-metadata')?.textContent?.trim()
+    || document.querySelector('h1.ytd-video-primary-info-renderer')?.textContent?.trim()
+    || document.title || 'YouTube Video';
+  const channel = document.querySelector('ytd-channel-name a')?.textContent?.trim()
+    || document.querySelector('yt-formatted-string.ytd-channel-name')?.textContent?.trim()
+    || '';
+  const description = document.querySelector('#attributed-snippet-text')?.textContent?.trim()
+    || document.querySelector('ytd-text-inline-expander > .content')?.textContent?.trim()
+    || '';
+  return { title, channel, description };
+}
+
+async function extractYouTubeTranscript() {
+  const watchFlexy = document.querySelector('ytd-watch-flexy');
+  if (!watchFlexy) return null;
+
+  const transcriptPanel = watchFlexy.querySelector(
+    'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]'
+  );
+  if (!transcriptPanel) return null;
+
+  // 檢查字幕是否已載入
+  let segmentsContainer = transcriptPanel.querySelector(
+    'ytd-transcript-segment-list-renderer #segments-container'
+  );
+  let hasSegments = segmentsContainer?.querySelector('ytd-transcript-segment-renderer');
+
+  // 如果字幕未載入，嘗試打開面板觸發載入
+  if (!hasSegments) {
+    const wasClosed = transcriptPanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN';
+    if (wasClosed) {
+      transcriptPanel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED');
+    }
+
+    // 等待字幕段落出現（最多 8 秒）
+    const loaded = await new Promise(resolve => {
+      const observer = new MutationObserver(() => {
+        const items = transcriptPanel.querySelectorAll('ytd-transcript-segment-renderer');
+        if (items.length > 0) {
+          observer.disconnect();
+          resolve(true);
+        }
+      });
+      observer.observe(transcriptPanel, { childList: true, subtree: true });
+      setTimeout(() => { observer.disconnect(); resolve(false); }, 8000);
+    });
+
+    // 關閉面板（如果是我們打開的）
+    if (wasClosed) {
+      transcriptPanel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+    }
+    if (!loaded) return null;
+
+    segmentsContainer = transcriptPanel.querySelector(
+      'ytd-transcript-segment-list-renderer #segments-container'
+    );
+  }
+
+  if (!segmentsContainer) return null;
+
+  // 提取字幕文字
+  let transcriptText = '';
+  for (const segment of segmentsContainer.children) {
+    if (segment.tagName === 'YTD-TRANSCRIPT-SECTION-HEADER-RENDERER') {
+      const chapterTitle = segment.querySelector('.segment-timestamp')?.textContent?.trim();
+      const chapterText = segment.querySelector('#content')?.textContent?.trim();
+      if (chapterText) {
+        transcriptText += `\n\n## ${chapterText}${chapterTitle ? ` (${chapterTitle})` : ''}\n\n`;
+      }
+    } else if (segment.tagName === 'YTD-TRANSCRIPT-SEGMENT-RENDERER') {
+      const timestamp = segment.querySelector('.segment-timestamp')?.textContent?.trim();
+      const text = segment.querySelector('.segment-text')?.textContent?.replace(/\s+/g, ' ').trim();
+      if (text) {
+        transcriptText += timestamp ? `[${timestamp}] ${text}\n` : `${text}\n`;
+      }
+    }
+  }
+
+  return transcriptText.trim() || null;
+}
+
 // 修改 extractPageContent 函数
 async function extractPageContent(skipWaitContent = false) {
   // console.log('extractPageContent 开始提取页面内容');
@@ -838,6 +927,24 @@ async function extractPageContent(skipWaitContent = false) {
         };
       }
       return null;
+    }
+    // === YouTube 字幕提取 ===
+    if (isYouTubeVideoPage()) {
+      const transcript = await extractYouTubeTranscript();
+      const { title, channel, description } = getYouTubeVideoInfo();
+
+      if (transcript) {
+        let content = `# ${title}\n`;
+        if (channel) content += `Channel: ${channel}\n`;
+        content += `URL: ${window.location.href}\n\n`;
+        if (description) content += `## Description\n${description}\n\n`;
+        content += `## Transcript\n${transcript}`;
+
+        console.log('YouTube 字幕提取完成，內容長度:', content.length);
+        return { title, url: window.location.href, content };
+      }
+      // 字幕不可用時，繼續正常的頁面內容提取
+      console.log('YouTube 字幕不可用，回退到一般頁面提取');
     }
     // === 內容提取流程 ===
     let mainContent = '';

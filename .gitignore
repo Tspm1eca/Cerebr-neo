@@ -2,9 +2,6 @@
 .vscode
 .wrangler
 .claude
-diff
-plans
 node_modules
 package-lock.json
 package.json
-review-diff.txt
