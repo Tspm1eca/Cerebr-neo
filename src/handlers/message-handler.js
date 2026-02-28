@@ -382,13 +382,13 @@ export async function appendMessage({
  * @returns {HTMLElement} 创建的等待消息元素
  */
 export function createWaitingMessage(chatContainer, options = {}) {
-    const { isSearchUsed = false } = options;
+    const { isSearchUsed = false, isYouTube = false } = options;
 
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message ai-message waiting';
 
     // YouTube 字幕模式標記（用於紫色光暈）
-    if (isYouTubeChat()) {
+    if (isYouTube || isYouTubeChat()) {
         messageDiv.classList.add('youtube-chat');
     }
 
@@ -553,6 +553,11 @@ export async function updateAIMessage({
 
     // 不是等待动画，如果有等待消息，将其转换为普通消息
     if (waitingMessage) {
+        // 若在等待氣泡建立後才確定是 YouTube 模式，補上樣式標記
+        if (isYouTubeChat() && !waitingMessage.classList.contains('youtube-chat')) {
+            waitingMessage.classList.add('youtube-chat');
+        }
+
         // 動畫處理：記錄原始尺寸並鎖定，防止 content swap 時閃跳
         const rect = waitingMessage.getBoundingClientRect();
         waitingMessage._waitingHeight = rect.height;
@@ -610,6 +615,10 @@ export async function updateAIMessage({
     }
 
     if (lastMessage) {
+        if (isYouTubeChat() && !lastMessage.classList.contains('youtube-chat')) {
+            lastMessage.classList.add('youtube-chat');
+        }
+
         // 檢查是否使用了搜索並更新樣式
         if (typeof text === 'object' && text.isSearchUsed) {
             if (!lastMessage.classList.contains('search-used')) {

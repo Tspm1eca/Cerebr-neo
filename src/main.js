@@ -121,6 +121,7 @@ let tavilyApiKey = '';
 let tavilyApiUrl = '';
 let exaApiKey = '';
 let exaApiUrl = '';
+const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
  document.addEventListener('DOMContentLoaded', async () => {
      const chatContainer = document.getElementById('chat-container');
@@ -638,16 +639,32 @@ let exaApiUrl = '';
             const currentChat = chatManager.getCurrentChat();
             const messages = currentChat ? [...currentChat.messages] : [];  // 从chatManager获取消息历史
             messages.push(userMessage);
-            const webpageInfo = isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null;
-            chatManager.addMessageToCurrentChat(userMessage, webpageInfo);
 
             if (wasNewChat) {
                 const chatCards = chatListPage.querySelector('.chat-cards');
                 renderChatList(chatManager, chatCards);
             }
 
-            // 显示等待动画
-            const waitingMessage = createWaitingMessage(chatContainer);
+            // 先基于当前活动标签页预判 YouTube 模式，保证等待气泡及时显示紫色样式
+            let isCurrentTabYouTube = false;
+            if (isExtensionEnvironment && sendWebpageSwitch.checked) {
+                try {
+                    const currentTab = await browserAdapter.getCurrentTab();
+                    const currentTabUrl = currentTab?.url || '';
+                    isCurrentTabYouTube = YT_WATCH_RE.test(currentTabUrl);
+                    if (isCurrentTabYouTube && currentChat) {
+                        const uniqueUrls = new Set([...(currentChat.webpageUrls || []), currentTabUrl]);
+                        currentChat.webpageUrls = Array.from(uniqueUrls);
+                    }
+                } catch (e) {
+                    console.warn('获取当前标签页失败:', e);
+                }
+            }
+
+            // 先显示等待动画，再执行网页内容提取，避免 YouTube 字幕较长时无反馈
+            createWaitingMessage(chatContainer, { isYouTube: isCurrentTabYouTube });
+            const webpageInfo = isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null;
+            await chatManager.addMessageToCurrentChat(userMessage, webpageInfo);
 
             // 准备API调用参数
             // 当传送网页开启时，强制关闭 auto 模式（避免 tool_choice 冲突）
