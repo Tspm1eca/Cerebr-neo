@@ -597,16 +597,39 @@ class WebDAVSyncManager {
         }
     }
 
-    async _persistKnownDirectories() {
-        if (this.client) {
-            try {
-                await storageAdapter.set({
-                    [WEBDAV_KNOWN_DIRS_KEY]: [...this.client._knownDirectories]
-                });
-            } catch (e) {
-                console.warn('[WebDAV] 持久化目錄快取失敗:', e);
-            }
+    /**
+     * 批次儲存同步完成後的所有狀態（合併 I/O，並行寫入 local 和 sync storage）
+     * 將原本 6~7 次序列 IPC 合併為 2 次並行 IPC
+     */
+    async _batchSavePostSyncState({ manifest, localChatHashes, tombstones = null, etag, localHash, lastSync, remoteTimestamp }) {
+        // 合併所有 local storage 寫入（1 次 IPC）
+        const localData = {
+            [WEBDAV_CACHED_MANIFEST_KEY]: manifest,
+            [WEBDAV_LOCAL_CHAT_HASHES_KEY]: Object.fromEntries(localChatHashes)
+        };
+        if (tombstones !== null) {
+            localData[WEBDAV_DELETED_CHAT_IDS_KEY] = tombstones;
         }
+        // 目錄快取為加速用途，失敗不影響同步正確性
+        try {
+            localData[WEBDAV_KNOWN_DIRS_KEY] = this.client ? [...this.client._knownDirectories] : [];
+        } catch (e) {
+            console.warn('[WebDAV] 序列化目錄快取失敗:', e);
+        }
+
+        // 合併所有 sync storage 寫入（1 次 IPC）
+        const syncData = {
+            [WEBDAV_REMOTE_ETAG_KEY]: etag,
+            [WEBDAV_LOCAL_HASH_KEY]: localHash,
+            [WEBDAV_LAST_SYNC_KEY]: lastSync,
+            [WEBDAV_LAST_SYNC_TIMESTAMP_KEY]: remoteTimestamp
+        };
+
+        // 並行寫入（2 次 IPC 同時發出，只需等待較慢的一個）
+        await Promise.all([
+            storageAdapter.set(localData),
+            syncStorageAdapter.set(syncData)
+        ]);
     }
 
     // ========== Manifest 快取 ==========
@@ -936,38 +959,20 @@ class WebDAVSyncManager {
             // 上傳 manifest
             const uploadResult = await this.client.uploadData('cerebr.json', manifest);
 
-            // 快取 manifest
-            await this.saveCachedManifest(manifest);
-
-            // 儲存 per-chat hash table
-            await this.saveLocalChatHashes(localChatHashes);
-
-            // 清除同步開始時快照的 dirty flags（保留同步期間新增的）
+            // 清除同步開始時快照的 dirty flags（保留同步期間新增的，fire-and-forget）
             chatManager.clearDirtyChatIds(dirtySnapshot);
 
-            // 儲存仍需重試的 tombstone（成功刪除的已移除）
-            await this.saveDeletedChatIds(remainingTombstones);
-
-            // 儲存 ETag（若伺服器未回傳則標記為需刷新，避免額外 HEAD 請求）
+            // 一次性批次儲存所有同步狀態（合併 6 次序列 IPC → 2 次並行 IPC）
             const newETag = uploadResult.etag;
-            await syncStorageAdapter.set({
-                [WEBDAV_REMOTE_ETAG_KEY]: newETag || `__needs_refresh_${Date.now()}`
-            });
-
-            // 儲存本地 Hash
-            if (localHash) {
-                try {
-                    await syncStorageAdapter.set({ [WEBDAV_LOCAL_HASH_KEY]: localHash });
-                } catch (hashError) {
-                    console.warn('[WebDAV] 储存本地 Hash 失败:', hashError);
-                }
-            }
-
-            // 記錄同步時間
             const lastSync = new Date().toISOString();
-            await syncStorageAdapter.set({
-                [WEBDAV_LAST_SYNC_KEY]: lastSync,
-                [WEBDAV_LAST_SYNC_TIMESTAMP_KEY]: manifest.timestamp
+            await this._batchSavePostSyncState({
+                manifest,
+                localChatHashes,
+                tombstones: remainingTombstones,
+                etag: newETag || `__needs_refresh_${Date.now()}`,
+                localHash,
+                lastSync,
+                remoteTimestamp: manifest.timestamp
             });
 
             this.notifyListeners('sync-complete', {
@@ -988,9 +993,6 @@ class WebDAVSyncManager {
 
             this.clearCache();
             this._lastCheckSyncResult = null;
-
-            // 持久化目錄快取，下次 session 可跳過 MKCOL
-            this._persistKnownDirectories();
 
             return { success: true, message, timestamp: lastSync };
         } catch (error) {
@@ -1122,18 +1124,26 @@ class WebDAVSyncManager {
                 updatedHashes.delete(id);
             }
 
+            // 構建合併後的 chatIndex（供 overall hash 計算，排除 _remoteOnly 空殼）
+            const mergedChatIndex = mergedChats
+                .filter(c => !c._remoteOnly)
+                .map(c => buildChatIndexEntry(c, updatedHashes.get(c.id)));
+
             // 儲存合併後的聊天到本地（per-chat key-value 格式）
             await chatManager.replaceAllChats(mergedChats, dirtyIds);
 
             // 恢復快速選項
+            const effectiveQuickChatOptions = (syncData.quickChatOptions && Array.isArray(syncData.quickChatOptions))
+                ? syncData.quickChatOptions : [];
             let quickChatOptionsSynced = false;
-            if (syncData.quickChatOptions && Array.isArray(syncData.quickChatOptions)) {
-                await syncStorageAdapter.set({ quickChatOptions: syncData.quickChatOptions });
+            if (effectiveQuickChatOptions.length > 0) {
+                await syncStorageAdapter.set({ quickChatOptions: effectiveQuickChatOptions });
                 quickChatOptionsSynced = true;
             }
 
             // 同步 API 配置
             let apiConfigSynced = false;
+            let effectiveApiSettings = undefined;
             if (this.config.syncApiConfig && syncData.apiSettings) {
                 let apiSettings = syncData.apiSettings;
 
@@ -1149,54 +1159,38 @@ class WebDAVSyncManager {
                     }
                 }
 
-                await syncStorageAdapter.set({
-                    apiConfigs: apiSettings.apiConfigs || [],
-                    selectedConfigIndex: apiSettings.selectedConfigIndex ?? 0,
-                    searchProvider: apiSettings.searchProvider || 'tavily',
-                    tavilyApiKey: apiSettings.tavilyApiKey || '',
-                    tavilyApiUrl: apiSettings.tavilyApiUrl || '',
-                    exaApiKey: apiSettings.exaApiKey || '',
-                    exaApiUrl: apiSettings.exaApiUrl || ''
-                });
+                effectiveApiSettings = this._normalizeApiSettings(apiSettings);
+                await syncStorageAdapter.set(effectiveApiSettings);
                 apiConfigSynced = true;
             }
 
-            // 快取 manifest
-            await this.saveCachedManifest(syncData);
-
-            // 儲存更新後的 per-chat hash table
-            await this.saveLocalChatHashes(updatedHashes);
-
-            // 清除同步開始時快照的 dirty flags（保留同步期間新增的）
+            // 清除同步開始時快照的 dirty flags（保留同步期間新增的，fire-and-forget）
             chatManager.clearDirtyChatIds(dirtySnapshot);
 
             // 清除本地數據快取
             this.clearCache();
 
-            // 持久化目錄快取，下次 session 可跳過 MKCOL
-            this._persistKnownDirectories();
-
-            // 儲存 ETag（若伺服器未回傳則標記為需刷新，避免額外 HEAD 請求）
-            const newETag = downloadETag;
-            await syncStorageAdapter.set({
-                [WEBDAV_REMOTE_ETAG_KEY]: newETag || `__needs_refresh_${Date.now()}`
-            });
-
-            // 計算並儲存本地 Hash
-            try {
-                const localHash = await this.calculateLocalHash(true);
-                if (localHash) {
-                    await syncStorageAdapter.set({ [WEBDAV_LOCAL_HASH_KEY]: localHash });
-                }
-            } catch (hashError) {
-                console.warn('[WebDAV] 储存本地 Hash 失败:', hashError);
+            // 直接計算 post-sync overall hash（使用記憶體中的 mergedChatIndex，避免冗餘 I/O）
+            let postSyncApiSettings = effectiveApiSettings;
+            if (this.config.syncApiConfig && !postSyncApiSettings) {
+                // 遠端無 API settings，讀取本地現有設定（1 次 storage 讀取）
+                const apiConfigResult = await syncStorageAdapter.get([
+                    'apiConfigs', 'selectedConfigIndex', 'searchProvider',
+                    'tavilyApiKey', 'tavilyApiUrl', 'exaApiKey', 'exaApiUrl'
+                ]);
+                postSyncApiSettings = this._normalizeApiSettings(apiConfigResult);
             }
+            const localHash = this._computeOverallHash(mergedChatIndex, effectiveQuickChatOptions, postSyncApiSettings);
 
-            // 記錄同步時間
+            // 一次性批次儲存所有同步狀態（合併 5 次序列 IPC → 2 次並行 IPC）
             const lastSync = new Date().toISOString();
-            await syncStorageAdapter.set({
-                [WEBDAV_LAST_SYNC_KEY]: lastSync,
-                [WEBDAV_LAST_SYNC_TIMESTAMP_KEY]: syncData.timestamp || lastSync
+            await this._batchSavePostSyncState({
+                manifest: syncData,
+                localChatHashes: updatedHashes,
+                etag: downloadETag || `__needs_refresh_${Date.now()}`,
+                localHash,
+                lastSync,
+                remoteTimestamp: syncData.timestamp || lastSync
             });
 
             const remoteOnlyCount = mergedChats.filter(c => c._remoteOnly).length;
@@ -1456,53 +1450,40 @@ class WebDAVSyncManager {
             const uploadResult = await this.client.uploadData('cerebr.json', manifest);
 
             // 12. 更新本地狀態
-            // 儲存合併後的聊天到本地
+            // 儲存合併後的聊天到本地（關鍵數據寫入，須先完成）
             await chatManager.replaceAllChats(mergedChats, dirtyIds);
 
-            // 快取 manifest
-            await this.saveCachedManifest(manifest);
-
-            // 儲存更新後的 per-chat hash table（使用合併後的 index hash）
-            const updatedHashes = new Map();
-            for (const entry of mergedChatIndex) {
-                updatedHashes.set(entry.id, entry.hash);
-            }
-            await this.saveLocalChatHashes(updatedHashes);
-
-            // 清除同步開始時快照的 dirty flags
+            // 清除同步開始時快照的 dirty flags（fire-and-forget）
             chatManager.clearDirtyChatIds(dirtySnapshot);
-
-            // 儲存仍需重試的 tombstone
-            await this.saveDeletedChatIds(remainingTombstones);
 
             // 清除本地數據快取
             this.clearCache();
             this._lastCheckSyncResult = null;
 
-            // 持久化目錄快取
-            this._persistKnownDirectories();
-
-            // 儲存 ETag
-            const newETag = uploadResult.etag || downloadETag;
-            await syncStorageAdapter.set({
-                [WEBDAV_REMOTE_ETAG_KEY]: newETag || `__needs_refresh_${Date.now()}`
-            });
-
-            // 計算並儲存本地 Hash
-            try {
-                const localHash = await this.calculateLocalHash(true);
-                if (localHash) {
-                    await syncStorageAdapter.set({ [WEBDAV_LOCAL_HASH_KEY]: localHash });
-                }
-            } catch (hashError) {
-                console.warn('[WebDAV] 储存本地 Hash 失败:', hashError);
+            // 使用合併後的 index hash 建立 hash table
+            const updatedHashes = new Map();
+            for (const entry of mergedChatIndex) {
+                updatedHashes.set(entry.id, entry.hash);
             }
 
-            // 記錄同步時間
+            // 直接計算 post-sync overall hash（零 I/O：使用記憶體中的 mergedChatIndex）
+            const localHash = this._computeOverallHash(
+                mergedChatIndex,
+                localData.quickChatOptions || [],
+                localData.apiSettings
+            );
+
+            // 一次性批次儲存所有同步狀態（合併 7 次序列 IPC → 2 次並行 IPC）
+            const newETag = uploadResult.etag || downloadETag;
             const lastSync = new Date().toISOString();
-            await syncStorageAdapter.set({
-                [WEBDAV_LAST_SYNC_KEY]: lastSync,
-                [WEBDAV_LAST_SYNC_TIMESTAMP_KEY]: manifest.timestamp
+            await this._batchSavePostSyncState({
+                manifest,
+                localChatHashes: updatedHashes,
+                tombstones: remainingTombstones,
+                etag: newETag || `__needs_refresh_${Date.now()}`,
+                localHash,
+                lastSync,
+                remoteTimestamp: manifest.timestamp
             });
 
             this.notifyListeners('sync-complete', {
@@ -1637,18 +1618,7 @@ class WebDAVSyncManager {
             }
 
             // overall hash 基於 chatIndex（輕量：只含短 hash 字串）
-            const hashSource = JSON.stringify({
-                chatIndex: chatIndexForHash,
-                quickChatOptions,
-                apiSettings: syncData.apiSettings
-            });
-
-            let hash = 5381;
-            for (let i = 0; i < hashSource.length; i++) {
-                hash = ((hash << 5) + hash) + hashSource.charCodeAt(i);
-                hash = hash & hash;
-            }
-            const hashString = Math.abs(hash).toString(16);
+            const hashString = this._computeOverallHash(chatIndexForHash, quickChatOptions, syncData.apiSettings);
 
             this._cachedLocalData = syncData;
             this._cachedLocalHash = hashString;
@@ -1669,6 +1639,39 @@ class WebDAVSyncManager {
     async calculateLocalHash(forceRefresh = false) {
         const { hash } = await this.getLocalSyncData(forceRefresh);
         return hash;
+    }
+
+    /**
+     * 將原始 API settings 正規化為統一結構（含預設值）
+     */
+    _normalizeApiSettings(raw) {
+        return {
+            apiConfigs: raw.apiConfigs || [],
+            selectedConfigIndex: raw.selectedConfigIndex ?? 0,
+            searchProvider: raw.searchProvider || 'tavily',
+            tavilyApiKey: raw.tavilyApiKey || '',
+            tavilyApiUrl: raw.tavilyApiUrl || '',
+            exaApiKey: raw.exaApiKey || '',
+            exaApiUrl: raw.exaApiUrl || ''
+        };
+    }
+
+    /**
+     * 從已有的 chatIndex 直接計算 overall hash（純計算，無 I/O）
+     * 計算邏輯與 getLocalSyncData() 中的 overall hash 完全一致
+     */
+    _computeOverallHash(chatIndex, quickChatOptions, apiSettings) {
+        const hashSource = JSON.stringify({
+            chatIndex,
+            quickChatOptions,
+            apiSettings
+        });
+        let hash = 5381;
+        for (let i = 0; i < hashSource.length; i++) {
+            hash = ((hash << 5) + hash) + hashSource.charCodeAt(i);
+            hash = hash & hash;
+        }
+        return Math.abs(hash).toString(16);
     }
 
     /**
