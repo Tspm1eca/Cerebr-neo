@@ -108,6 +108,11 @@
     box-shadow: 0 0 0 1px var(--cerebr-search-used-border), 0 2px 6px var(--cerebr-message-shadow);
 }
 
+.ai-message.youtube-chat {
+    border-color: var(--cerebr-youtube-used-border);
+    box-shadow: 0 0 0 1px var(--cerebr-youtube-used-border), 0 2px 6px var(--cerebr-message-shadow);
+}
+
 .ai-message.error {
     border-color: var(--cerebr-error-border);
     box-shadow: 0 0 0 1px var(--cerebr-error-border), 0 2px 6px var(--cerebr-message-shadow);
