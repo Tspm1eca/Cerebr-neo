@@ -553,24 +553,8 @@ class WebDAVSettingsController {
      */
     async performSyncOnOpen(options = {}) {
         try {
-            // 首先检查是否有冲突
             const syncResult = await webdavSyncManager.syncOnOpen({
-                currentChatId: options.currentChatId,
-                onConflict: async () => {
-                    // 获取冲突信息，检查时间戳是否相同
-                    const conflictInfo = await webdavSyncManager.getConflictInfo();
-
-                    // 如果时间戳相同，说明双方数据来自同一次同步，视为无冲突
-                    if (conflictInfo.localTimestamp &&
-                        conflictInfo.remoteTimestamp &&
-                        conflictInfo.localTimestamp === conflictInfo.remoteTimestamp) {
-                        console.log('[WebDAV] 时间戳相同，视为无冲突，自动跳过');
-                        return false; // 返回 false，不显示对话框
-                    }
-
-                    // 时间戳不同，需要显示对话框让用户选择
-                    return true;
-                }
+                currentChatId: options.currentChatId
             });
 
             // 如果有错误，显示 Toast 提示
@@ -579,25 +563,13 @@ class WebDAVSettingsController {
                 return syncResult;
             }
 
-            // 如果检测到冲突，显示对话框让用户选择
-            if (syncResult.direction === 'conflict' && syncResult.conflict) {
-                const userChoice = await showConflictDialog(syncResult.conflict);
-
-                // 根据用户选择执行同步
-                let result;
-                if (userChoice === 'upload') {
-                    result = await webdavSyncManager.syncToRemote();
-                    return { synced: true, direction: 'upload', result, error: null };
-                } else {
-                    result = await webdavSyncManager.syncFromRemote({
-                        currentChatId: options.currentChatId
-                    });
-                    // 如果是下载，触发回调以重新载入数据
-                    if (result.needsReload && this.callbacks.onDataReload) {
-                        await this.callbacks.onDataReload(result);
-                    }
-                    return { synced: true, direction: 'download', result, error: null };
+            // 智能合併結果
+            if (syncResult.direction === 'merge' && syncResult.result) {
+                showToast(syncResult.result.message, 'success');
+                if (syncResult.result.needsReload && this.callbacks.onDataReload) {
+                    await this.callbacks.onDataReload(syncResult.result);
                 }
+                return syncResult;
             }
 
             // 非冲突情况的正常处理

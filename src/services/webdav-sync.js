@@ -1227,6 +1227,308 @@ class WebDAVSyncManager {
     }
 
     /**
+     * 雙向智能合併同步
+     * 當本地和遠端都有變更（衝突）時，按 per-chat hash 做三方比對自動合併
+     * @param {Object} options
+     * @param {string} options.currentChatId - 當前聊天 ID（會立刻下載）
+     * @returns {Promise<Object>} { success, message, needsReload, uploadCount, downloadCount, conflictCount }
+     */
+    async bidirectionalSync(options = {}) {
+        if (!this.config.enabled) {
+            throw new Error('WebDAV 未启用');
+        }
+
+        if (this.client.syncInProgress) {
+            throw new Error('同步正在进行中');
+        }
+
+        this.client.syncInProgress = true;
+        this.notifyListeners('sync-start', { direction: 'merge' });
+
+        try {
+            // 1. 快照當前 dirty IDs
+            const dirtySnapshot = new Set(chatManager.getDirtyChatIds());
+            const currentChatId = options.currentChatId || null;
+
+            // 2. 並行下載 remote manifest + prefetch currentChat
+            const [downloadResult, prefetchedCurrentChat] = await Promise.all([
+                this.client.downloadData('cerebr.json'),
+                currentChatId
+                    ? this.client.downloadData(`${CHAT_DIRECTORY}/${currentChatId}.json`).catch(() => null)
+                    : Promise.resolve(null)
+            ]);
+            const remoteManifest = downloadResult.data;
+            const downloadETag = downloadResult.etag;
+
+            if (!remoteManifest || !Array.isArray(remoteManifest.chatIndex)) {
+                throw new Error('远端同步数据格式错误');
+            }
+
+            // 3. 取得本地資料、chatIndex
+            const { data: localData, chatIndex: localChatIndex } =
+                await this.getLocalSyncData();
+
+            if (!localData) {
+                throw new Error('无法获取本地数据');
+            }
+
+            const localChats = localData.chats || [];
+            const localChatMap = new Map(localChats.map(c => [c.id, c]));
+            const localIndexMap = new Map(localChatIndex.map(e => [e.id, e]));
+
+            // 4. 取得 baseHashes（上次同步時的狀態）
+            const baseHashes = await this.loadLocalChatHashes();
+
+            // 5. 合併 tombstones（本地 + 遠端取聯集，by id 去重保留較新的 deletedAt）
+            const localTombstones = cleanTombstones(await this.loadDeletedChatIds());
+            const remoteTombstones = cleanTombstones(remoteManifest.deletedChatIds || []);
+            const tombstoneMap = new Map();
+            for (const t of localTombstones) {
+                tombstoneMap.set(t.id, t);
+            }
+            for (const t of remoteTombstones) {
+                const existing = tombstoneMap.get(t.id);
+                if (!existing || new Date(t.deletedAt) > new Date(existing.deletedAt)) {
+                    tombstoneMap.set(t.id, t);
+                }
+            }
+            const mergedTombstones = [...tombstoneMap.values()];
+            const deletedIds = new Set(mergedTombstones.map(t => t.id));
+
+            // 6. 遍歷所有 chatId（本地 ∪ 遠端），分類處理
+            const remoteChatIndexMap = new Map(
+                remoteManifest.chatIndex.map(e => [e.id, e])
+            );
+            const allChatIds = new Set([
+                ...localChatIndex.map(e => e.id),
+                ...remoteManifest.chatIndex.map(e => e.id)
+            ]);
+
+            const mergedChats = [];
+            const mergedChatIndex = [];
+            const chatsToUpload = [];   // 需要上傳的本地聊天
+            let downloadCount = 0;
+            let conflictCount = 0;
+
+            // 取得遠端聊天（優先用 prefetch，否則建 stub）
+            const pickRemoteChat = (entry) =>
+                entry.id === currentChatId && prefetchedCurrentChat?.data
+                    ? prefetchedCurrentChat.data
+                    : buildRemoteOnlyStub(entry);
+
+            for (const chatId of allChatIds) {
+                if (deletedIds.has(chatId)) continue;
+
+                const localEntry = localIndexMap.get(chatId);
+                const remoteEntry = remoteChatIndexMap.get(chatId);
+                const localChat = localChatMap.get(chatId);
+                const hasLocalFull = localChat && !localChat._remoteOnly;
+
+                const baseHash = baseHashes.get(chatId);
+                const localHash = localEntry?.hash || null;
+                const remoteHash = remoteEntry?.hash || null;
+
+                if (localEntry && !remoteEntry) {
+                    // 僅本地有 → 上傳
+                    if (hasLocalFull) {
+                        mergedChats.push(localChat);
+                        mergedChatIndex.push(localEntry);
+                        chatsToUpload.push(localChat);
+                    }
+                } else if (!localEntry && remoteEntry) {
+                    // 僅遠端有 → 下載 stub（currentChat 用 prefetch）
+                    mergedChats.push(pickRemoteChat(remoteEntry));
+                    mergedChatIndex.push(remoteEntry);
+                    downloadCount++;
+                } else if (localEntry && remoteEntry) {
+                    // 兩邊都有 → 三方比對
+                    if (baseHash === localHash && baseHash === remoteHash) {
+                        // (a) 無變更，保留本地
+                        if (hasLocalFull) {
+                            mergedChats.push(localChat);
+                        } else {
+                            mergedChats.push(buildRemoteOnlyStub(remoteEntry));
+                        }
+                        mergedChatIndex.push(localEntry);
+                    } else if (baseHash !== localHash && baseHash === remoteHash) {
+                        // (b) 僅本地改 → 上傳
+                        if (hasLocalFull) {
+                            mergedChats.push(localChat);
+                            mergedChatIndex.push(localEntry);
+                            chatsToUpload.push(localChat);
+                        } else {
+                            mergedChats.push(buildRemoteOnlyStub(remoteEntry));
+                            mergedChatIndex.push(remoteEntry);
+                        }
+                    } else if (baseHash === localHash && baseHash !== remoteHash) {
+                        // (c) 僅遠端改 → 下載 stub
+                        mergedChats.push(pickRemoteChat(remoteEntry));
+                        mergedChatIndex.push(remoteEntry);
+                        downloadCount++;
+                    } else {
+                        // (d) 兩邊都改 或 (e) baseHash 不存在 → updatedAt 較新者勝出
+                        const localUpdatedAt = localEntry.updatedAt || '';
+                        const remoteUpdatedAt = remoteEntry.updatedAt || '';
+                        const localNewer = localUpdatedAt >= remoteUpdatedAt;
+
+                        conflictCount++;
+                        if (localNewer) {
+                            // 本地較新 → 上傳
+                            if (hasLocalFull) {
+                                mergedChats.push(localChat);
+                                mergedChatIndex.push(localEntry);
+                                chatsToUpload.push(localChat);
+                            } else {
+                                mergedChats.push(buildRemoteOnlyStub(remoteEntry));
+                                mergedChatIndex.push(remoteEntry);
+                            }
+                        } else {
+                            // 遠端較新 → 下載 stub
+                            mergedChats.push(pickRemoteChat(remoteEntry));
+                            mergedChatIndex.push(remoteEntry);
+                            downloadCount++;
+                        }
+                    }
+                }
+            }
+
+            // 7. 確保 chats/ 目錄存在
+            if (chatsToUpload.length > 0) {
+                const dirResult = await this.client.createDirectoryAtPath(CHAT_DIRECTORY);
+                if (dirResult?.error) {
+                    throw new Error(`创建聊天目录失败: ${dirResult.error}`);
+                }
+            }
+
+            // 8. 並行上傳有變更的本地對話
+            if (chatsToUpload.length > 0) {
+                const uploadTasks = chatsToUpload.map(chat => async () => {
+                    await this.client.uploadData(`${CHAT_DIRECTORY}/${chat.id}.json`, chat);
+                });
+                await runWithConcurrency(uploadTasks, UPLOAD_CONCURRENCY);
+            }
+
+            // 9. 並行刪除本地 tombstone 對應的遠端檔案
+            const failedTombstones = new Set();
+            if (mergedTombstones.length > 0) {
+                const deleteTasks = mergedTombstones.map(tombstone => async () => {
+                    try {
+                        await this.client.deleteFile(`${CHAT_DIRECTORY}/${tombstone.id}.json`);
+                    } catch (e) {
+                        failedTombstones.add(tombstone.id);
+                        console.warn(`[WebDAV] 刪除聊天檔案 ${tombstone.id} 失敗:`, e);
+                    }
+                });
+                await runWithConcurrency(deleteTasks, UPLOAD_CONCURRENCY);
+            }
+            const remainingTombstones = mergedTombstones.filter(t => failedTombstones.has(t.id));
+
+            // 10. 建構合併後的 manifest
+            const manifest = {
+                version: 2,
+                timestamp: new Date().toISOString(),
+                chatIndex: mergedChatIndex,
+                deletedChatIds: remainingTombstones,
+                quickChatOptions: localData.quickChatOptions || []
+            };
+
+            // API 設置（使用本地版本）
+            if (this.config.syncApiConfig && localData.apiSettings) {
+                manifest.apiSettings = localData.apiSettings;
+                if (this.config.encryptApiKeys && this.config.encryptionPassword) {
+                    try {
+                        manifest.apiSettings = await encrypt(localData.apiSettings, this.config.encryptionPassword);
+                        manifest.apiSettingsEncrypted = true;
+                    } catch (encryptError) {
+                        console.error('[WebDAV] 加密 API 配置失败:', encryptError);
+                        throw new Error('加密 API 配置失败: ' + encryptError.message);
+                    }
+                }
+            }
+
+            // 11. 上傳 manifest
+            const uploadResult = await this.client.uploadData('cerebr.json', manifest);
+
+            // 12. 更新本地狀態
+            // 儲存合併後的聊天到本地
+            await chatManager.replaceAllChats(mergedChats);
+
+            // 快取 manifest
+            await this.saveCachedManifest(manifest);
+
+            // 儲存更新後的 per-chat hash table（使用合併後的 index hash）
+            const updatedHashes = new Map();
+            for (const entry of mergedChatIndex) {
+                updatedHashes.set(entry.id, entry.hash);
+            }
+            await this.saveLocalChatHashes(updatedHashes);
+
+            // 清除同步開始時快照的 dirty flags
+            chatManager.clearDirtyChatIds(dirtySnapshot);
+
+            // 儲存仍需重試的 tombstone
+            await this.saveDeletedChatIds(remainingTombstones);
+
+            // 清除本地數據快取
+            this.clearCache();
+            this._lastCheckSyncResult = null;
+
+            // 持久化目錄快取
+            this._persistKnownDirectories();
+
+            // 儲存 ETag
+            const newETag = uploadResult.etag || downloadETag;
+            await syncStorageAdapter.set({
+                [WEBDAV_REMOTE_ETAG_KEY]: newETag || `__needs_refresh_${Date.now()}`
+            });
+
+            // 計算並儲存本地 Hash
+            try {
+                const localHash = await this.calculateLocalHash(true);
+                if (localHash) {
+                    await syncStorageAdapter.set({ [WEBDAV_LOCAL_HASH_KEY]: localHash });
+                }
+            } catch (hashError) {
+                console.warn('[WebDAV] 储存本地 Hash 失败:', hashError);
+            }
+
+            // 記錄同步時間
+            const lastSync = new Date().toISOString();
+            await syncStorageAdapter.set({
+                [WEBDAV_LAST_SYNC_KEY]: lastSync,
+                [WEBDAV_LAST_SYNC_TIMESTAMP_KEY]: manifest.timestamp
+            });
+
+            this.notifyListeners('sync-complete', {
+                direction: 'merge',
+                timestamp: lastSync,
+                chatCount: mergedChatIndex.length,
+                uploadCount: chatsToUpload.length,
+                downloadCount,
+                conflictCount
+            });
+
+            const message = `智能合并：${chatsToUpload.length} 个上传，${downloadCount} 个下载` +
+                (conflictCount > 0 ? `，${conflictCount} 个冲突自动解决` : '');
+
+            return {
+                success: true,
+                message,
+                timestamp: lastSync,
+                needsReload: downloadCount > 0,
+                uploadCount: chatsToUpload.length,
+                downloadCount,
+                conflictCount
+            };
+        } catch (error) {
+            this.notifyListeners('sync-error', { direction: 'merge', error: error.message });
+            throw error;
+        } finally {
+            this.client.syncInProgress = false;
+        }
+    }
+
+    /**
      * 获取最后同步时间
      */
     async getLastSyncTime() {
@@ -1522,25 +1824,13 @@ class WebDAVSyncManager {
             let direction = status.direction;
 
             if (direction === 'conflict') {
-                const conflictInfo = await this.getConflictInfo();
-
-                if (options.onConflict && typeof options.onConflict === 'function') {
-                    const shouldShowDialog = await options.onConflict(conflictInfo);
-
-                    if (shouldShowDialog) {
-                        return {
-                            synced: false,
-                            direction: 'conflict',
-                            result: null,
-                            error: null,
-                            conflict: conflictInfo
-                        };
-                    } else {
-                        direction = conflictInfo.recommendation;
-                    }
-                } else {
-                    direction = conflictInfo.recommendation;
+                const result = await this.bidirectionalSync({
+                    currentChatId: options.currentChatId
+                });
+                if (result.needsReload) {
+                    this.notifyListeners('sync-reload-required', { reason: '智能合并下载了新数据' });
                 }
+                return { synced: true, direction: 'merge', result, error: null, conflict: null };
             }
 
             if (direction === 'upload') {
