@@ -1,7 +1,7 @@
 import { initDarkTheme } from './utils/theme.js';
 import { callAPI, TimeoutError } from './services/chat.js';
 import { chatManager } from './utils/chat-manager.js';
-import { appendMessage, createWaitingMessage, loadThumbnailCache } from './handlers/message-handler.js';
+import { appendMessage, createWaitingMessage, createYouTubeExtractionMessage, transitionExtractionToWaiting, loadThumbnailCache } from './handlers/message-handler.js';
 import { hideContextMenu } from './components/context-menu.js';
 import { initChatContainer } from './components/chat-container.js';
 import { showImagePreview, hideImagePreview } from './utils/ui.js';
@@ -329,8 +329,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             if (abortControllerRef) {
                 abortControllerRef.pendingAbort = true;
             }
-            // 移除等待动画
-            const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+            // 移除等待动画（包括 YouTube 提取狀態）
+            const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
             if (waitingMsg) {
                 waitingMsg.classList.add('message-vanishing');
                 waitingMsg.addEventListener('animationend', () => {
@@ -533,7 +533,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 console.log('用户手动停止更新');
                 // 如果是手动停止，也要移除等待消息
                 if (currentRequestId === activeRequestId) {
-                    const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+                    const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
                     if (waitingMsg) {
                         // 添加消失動畫類
                         waitingMsg.classList.add('message-vanishing');
@@ -555,8 +555,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             console.error('重新生成消息失败:', error);
             // 只有当仍然是当前活动的请求时才显示错误
             if (currentRequestId === activeRequestId) {
-                // 移除等待動畫（如果存在）
-                const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+                // 移除等待動畫（如果存在，包括 YouTube 提取狀態）
+                const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
                 if (waitingMsg) {
                     waitingMsg.remove();
                 }
@@ -666,8 +666,17 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             }
 
             // 先显示等待动画，再执行网页内容提取，避免 YouTube 字幕较长时无反馈
-            createWaitingMessage(chatContainer, { isYouTube: isCurrentTabYouTube });
+            let youtubeExtractionMsg = null;
+            if (isCurrentTabYouTube) {
+                youtubeExtractionMsg = createYouTubeExtractionMessage(chatContainer);
+            } else {
+                createWaitingMessage(chatContainer, { isYouTube: false });
+            }
             const webpageInfo = isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null;
+            // YouTube 提取完成後，過渡到三點等待動畫（帶拉伸動畫）
+            if (youtubeExtractionMsg && youtubeExtractionMsg.parentNode) {
+                transitionExtractionToWaiting(youtubeExtractionMsg, chatContainer);
+            }
             shouldRollbackUserMessage = true;
             await chatManager.addMessageToCurrentChat(userMessage, webpageInfo);
 
@@ -706,7 +715,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 console.log('用户手动停止更新');
                 // 如果是手动停止，也要移除等待消息（如果在等待阶段停止）
                 if (currentRequestId === activeRequestId) {
-                    const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+                    const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
                     if (waitingMsg) {
                         // 添加消失動畫類
                         waitingMsg.classList.add('message-vanishing');
@@ -729,8 +738,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
             // 只有当仍然是当前活动的请求时才处理错误
             if (currentRequestId === activeRequestId) {
-                // 移除等待動畫（如果存在）
-                const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
+                // 移除等待動畫（如果存在，包括 YouTube 提取狀態）
+                const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
                 if (waitingMsg) {
                     waitingMsg.remove();
                 }

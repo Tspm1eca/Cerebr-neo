@@ -19,9 +19,6 @@ const SPRING = {
     STIFFNESS: 180,
     DAMPING_H: 24,   // ζ ≈ 0.89，高度帶含蓄彈性
     DAMPING_W: 21,   // ζ ≈ 0.78，寬度帶可感知的彈性過衝
-    MIN_STRETCH_H: 24,
-    MIN_STRETCH_W: 36,
-    MIN_SIZE: 8,
     KICK: 5,
 };
 
@@ -412,6 +409,99 @@ export function createWaitingMessage(chatContainer, options = {}) {
 }
 
 /**
+ * 創建 YouTube 字幕提取狀態訊息（顯示「🔍 正在提取 YouTube 字幕...」）
+ * @param {HTMLElement} chatContainer - 聊天容器元素
+ * @returns {HTMLElement} 創建的提取狀態訊息元素
+ */
+export function createYouTubeExtractionMessage(chatContainer) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message ai-message updating youtube-chat';
+
+    const mainContent = document.createElement('div');
+    mainContent.className = 'main-content';
+    mainContent.innerHTML = '<p>🔍 正在提取 YouTube 字幕...</p>';
+    messageDiv.appendChild(mainContent);
+
+    chatContainer.appendChild(messageDiv);
+    chatContainer.scrollTo({
+        top: chatContainer.scrollHeight,
+        behavior: 'smooth'
+    });
+
+    return messageDiv;
+}
+
+/**
+ * 將 YouTube 提取狀態訊息過渡為三點等待動畫（帶拉伸動畫）
+ * 遵循 updateAIMessage 中 text→dots 的動畫模式（lines 586-636）
+ * @param {HTMLElement} extractionMsg - 提取狀態訊息元素
+ * @param {HTMLElement} chatContainer - 聊天容器元素
+ */
+export function transitionExtractionToWaiting(extractionMsg, chatContainer) {
+    // 1. 記錄當前 border-box 尺寸
+    const rect = extractionMsg.getBoundingClientRect();
+
+    // 2. 鎖定尺寸（使用 border-box 值；元素當前是 content-box，
+    //    設值稍大，但隨即切換 .waiting 後 box-sizing 變為 border-box，尺寸即正確）
+    extractionMsg.style.width = `${rect.width}px`;
+    extractionMsg.style.height = `${rect.height}px`;
+    extractionMsg.style.overflow = 'hidden';
+    extractionMsg.style.transition = 'none';
+
+    // 3. 強制 reflow
+    extractionMsg.offsetHeight;
+
+    // 4. 切換 class：updating → waiting（box-sizing 變為 border-box，鎖定尺寸現在正確）
+    extractionMsg.classList.remove('updating');
+    extractionMsg.classList.add('waiting');
+
+    // 5. 清除文字內容，插入 thinking-dots
+    const mainContent = extractionMsg.querySelector('.main-content');
+    if (mainContent) mainContent.remove();
+
+    const thinkingDots = document.createElement('div');
+    thinkingDots.className = 'thinking-dots';
+    thinkingDots.innerHTML = '<span></span><span></span><span></span>';
+    extractionMsg.appendChild(thinkingDots);
+
+    // 6. 測量新尺寸（border-box）
+    extractionMsg.style.width = '';
+    extractionMsg.style.height = '';
+    const newRect = extractionMsg.getBoundingClientRect();
+
+    // 7. 恢復舊尺寸（border-box）
+    extractionMsg.style.width = `${rect.width}px`;
+    extractionMsg.style.height = `${rect.height}px`;
+
+    // 8. 強制 reflow
+    extractionMsg.offsetHeight;
+
+    // 9. CSS transition 拉伸動畫（border-box 值）
+    extractionMsg.style.transition = 'width 0.3s ease, height 0.3s ease';
+    extractionMsg.style.width = `${newRect.width}px`;
+    extractionMsg.style.height = `${newRect.height}px`;
+
+    // 10. 動畫結束後清理 inline styles
+    const cleanup = () => {
+        extractionMsg.style.width = '';
+        extractionMsg.style.height = '';
+        extractionMsg.style.transition = '';
+        extractionMsg.style.overflow = '';
+        extractionMsg.removeEventListener('transitionend', cleanup);
+    };
+    extractionMsg.addEventListener('transitionend', cleanup);
+    // 保險：若 transition 未觸發（尺寸相同），確保清理
+    setTimeout(() => {
+        if (extractionMsg.style.transition) cleanup();
+    }, 350);
+
+    chatContainer.scrollTo({
+        top: chatContainer.scrollHeight,
+        behavior: 'smooth'
+    });
+}
+
+/**
  * 為等待訊息添加搜索標記樣式
  * @param {HTMLElement} chatContainer - 聊天容器元素
  */
@@ -750,15 +840,11 @@ export async function updateAIMessage({
             const targetWidth = lastMessage.offsetWidth - lastMessage._boxExtra.w;
 
             if (!lastMessage._sizeAnim) {
-                // 等待→內容的初始過渡：確保最小拉伸距離，避免尺寸相近時動畫不可見
-                // dots 氣泡 (~68×40) 和首個 chunk (~68×41) 幾乎同尺寸，
-                // 需要人為拉開起始位置，製造「壓縮→彈開」的視覺張力
-                const startH = (targetHeight - prevBubbleHeight) < SPRING.MIN_STRETCH_H
-                    ? Math.max(targetHeight - SPRING.MIN_STRETCH_H, SPRING.MIN_SIZE)
-                    : prevBubbleHeight;
-                const startW = (targetWidth - prevBubbleWidth) < SPRING.MIN_STRETCH_W
-                    ? Math.max(targetWidth - SPRING.MIN_STRETCH_W, SPRING.MIN_SIZE)
-                    : prevBubbleWidth;
+                // 等待→內容的初始過渡：從前一個氣泡的實際尺寸開始彈簧動畫
+                // 不人為壓縮起始位置，避免氣泡「先縮小再彈開」的視覺跳變
+                // 欠阻尼彈簧自帶過衝（overshoot），即使尺寸差異小也有自然彈性
+                const startH = prevBubbleHeight;
+                const startW = prevBubbleWidth;
 
                 lastMessage._sizeAnim = {
                     currentH: startH,
