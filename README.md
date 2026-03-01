@@ -2,13 +2,8 @@
 <img src="./icons/icon128.png">
 </p>
 
-# 🧠 Cerebr - 智能 AI 助手
+# 🧠 Cerebr-neo 网页AI助手
 
-<img width="1512" height="982" alt="image" src="https://github.com/user-attachments/assets/fbf50bcb-cb79-4ddb-bacb-f0d7a3f50f33" />
-
-
-Cerebr 是一款强大的浏览器 AI 助手扩展，现已支持 Chrome、Firefox 和 Edge，专注于提升您的工作效率和学习体验。"Cerebr"源自拉丁语词根，与"大脑"或"脑"相关。这个命名体现了我们的愿景：整合 Claude、OpenAI 等 AI 的强大能力，使 Cerebr 成为您的第二大脑，为您提供深度阅读和理解支持。 
----
 ## 個人修改
 1. 多處UI修改，請自行體驗。
 2. 映射表，將網頁中的URL以映射表方式發送給LLM，以大大降低token的使用量。
@@ -23,7 +18,7 @@ Cerebr 是一款强大的浏览器 AI 助手扩展，现已支持 Chrome、Firef
 <img width="300" height="600" alt="3" src="https://github.com/user-attachments/assets/888a2cfd-7772-4d80-9d25-15c0c7367dc0" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/3a75b671-f708-4765-8373-717e30fa93df" />
 <img width="300" height="600" alt="1" src="https://github.com/user-attachments/assets/5d6e684f-e8d7-4fd4-b6c6-354d32a0f915" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/ce7214a0-a5eb-4948-8d88-0532a1cb30bf" /> 
 <img width="300" height="600" alt="2" src="https://github.com/user-attachments/assets/066ee052-a990-4807-87a6-8dfc993576c8" />
----
+
 ## 原版訊息
 
 ## ✨ 核心特性
