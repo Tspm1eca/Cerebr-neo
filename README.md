@@ -2,7 +2,7 @@
 <img src="./icons/icon128.png">
 </p>
 
-<h1 align="center">🧠 Cerebr-neo 網頁AI助手</h1>
+<h1 align="center">Cerebr-neo 網頁AI助手</h1>
 
 ## 個人修改
 1. 多處UI修改，請自行體驗。
