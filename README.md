@@ -9,7 +9,7 @@
 2. 映射表，將網頁中的URL以映射表方式發送給LLM，以大大降低token的使用量。
 3. 網頁引索，在與網頁交互時，會自己產生「網頁引索」，點擊可自動滾動到引索位置。
 4. 支持Tavily/Exa網絡搜索。
-5. 智能雙向同步WebDav（支持加密儲存），真正的跨平台，跨瀏覽器雙向同步（https://infini-cloud.net 有免費20GB）。
+5. 無感智能雙向同步WebDav（支持加密儲存），真正的跨平台，跨瀏覽器雙向同步（https://infini-cloud.net 有免費20GB）。
 6. 引入Cloudflare Markdown for Agents做法，把網頁Markdown化。
 7. 支持Youtube CC字幕提取。
 
