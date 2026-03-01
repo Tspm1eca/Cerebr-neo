@@ -293,8 +293,9 @@ export class ChatManager {
      * 替換所有本地聊天（供 WebDAV 同步下載後使用）
      * 寫入所有 per-chat keys + 清理孤兒 keys + 更新索引
      * @param {Array} chatsArray - 合併後的聊天陣列
+     * @param {Set<string>} [dirtyIds] - 需要寫入 storage 的聊天 ID（不傳則全量寫入）
      */
-    async replaceAllChats(chatsArray) {
+    async replaceAllChats(chatsArray, dirtyIds) {
         // 記錄舊的 chat IDs，用於清理孤兒 keys
         const oldChatIds = new Set(this.chats.keys());
 
@@ -303,12 +304,13 @@ export class ChatManager {
         const dataToWrite = {};
         const indexEntries = [];
         const newChatIds = new Set();
+        const writeAll = !dirtyIds;
 
         for (const chat of chatsArray) {
             this.chats.set(chat.id, chat);
             newChatIds.add(chat.id);
             if (!chat.isNew) {
-                if (!chat._remoteOnly) {
+                if (!chat._remoteOnly && (writeAll || dirtyIds.has(chat.id))) {
                     dataToWrite[this._chatKey(chat.id)] = chat;
                 }
                 indexEntries.push(this._buildIndexEntry(chat));

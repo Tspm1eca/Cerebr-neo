@@ -1062,6 +1062,7 @@ class WebDAVSyncManager {
 
             // 建立合併後的聊天列表
             const mergedChats = [];
+            const dirtyIds = new Set();
             const updatedHashes = new Map(localChatHashes);
             const remoteEntryIds = new Set();
 
@@ -1091,6 +1092,7 @@ class WebDAVSyncManager {
                     const prefetchedData = prefetchedCurrentChat?.data;
                     if (prefetchedData) {
                         mergedChats.push(prefetchedData);
+                        dirtyIds.add(entry.id);
                         updatedHashes.set(entry.id, entry.hash);
                         continue;
                     }
@@ -1121,7 +1123,7 @@ class WebDAVSyncManager {
             }
 
             // 儲存合併後的聊天到本地（per-chat key-value 格式）
-            await chatManager.replaceAllChats(mergedChats);
+            await chatManager.replaceAllChats(mergedChats, dirtyIds);
 
             // 恢復快速選項
             let quickChatOptionsSynced = false;
@@ -1310,11 +1312,15 @@ class WebDAVSyncManager {
             let downloadCount = 0;
             let conflictCount = 0;
 
-            // 取得遠端聊天（優先用 prefetch，否則建 stub）
-            const pickRemoteChat = (entry) =>
-                entry.id === currentChatId && prefetchedCurrentChat?.data
-                    ? prefetchedCurrentChat.data
-                    : buildRemoteOnlyStub(entry);
+            // 取得遠端聊天（優先用 prefetch，否則建 stub）並追蹤需寫入的 ID
+            const dirtyIds = new Set();
+            const pickRemoteChat = (entry) => {
+                if (entry.id === currentChatId && prefetchedCurrentChat?.data) {
+                    dirtyIds.add(entry.id);
+                    return prefetchedCurrentChat.data;
+                }
+                return buildRemoteOnlyStub(entry);
+            };
 
             for (const chatId of allChatIds) {
                 if (deletedIds.has(chatId)) continue;
@@ -1451,7 +1457,7 @@ class WebDAVSyncManager {
 
             // 12. 更新本地狀態
             // 儲存合併後的聊天到本地
-            await chatManager.replaceAllChats(mergedChats);
+            await chatManager.replaceAllChats(mergedChats, dirtyIds);
 
             // 快取 manifest
             await this.saveCachedManifest(manifest);
