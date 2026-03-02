@@ -17,6 +17,36 @@
     box-sizing: border-box;
     margin-top: var(--chat-top-margin, 0px);
     transition: margin-top 0.3s ease;
+    isolation: isolate;
+}
+
+#chat-container::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 160px;
+    height: 160px;
+    transform: translate(-50%, -50%);
+    background: url('../../icons/bg.png') center center / contain no-repeat;
+    opacity: 0.28;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    pointer-events: none;
+    z-index: 0;
+    visibility: visible;
+    transition: opacity 0.35s ease, visibility 0s linear 0s;
+}
+
+#chat-container:has(.message)::before {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.35s ease, visibility 0s linear 0.35s;
+}
+
+#chat-container > * {
+    position: relative;
+    z-index: 1;
 }
 
 #chat-container::-webkit-scrollbar {
