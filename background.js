@@ -1,4 +1,11 @@
 import { computeChatHash } from './src/utils/chat-hash.js';
+import { SYNC_MODE_FLAG_KEY } from './src/utils/storage-adapter.js';
+
+// Helper: 根據 sync 模式 flag 取得正確的 storage area（Service Worker 可能隨時重啟）
+async function getSyncStorage() {
+    const result = await chrome.storage.local.get(SYNC_MODE_FLAG_KEY);
+    return result[SYNC_MODE_FLAG_KEY] ? chrome.storage.local : chrome.storage.sync;
+}
 
 // 确保 Service Worker 立即激活
 self.addEventListener('install', (event) => {
@@ -521,7 +528,8 @@ async function performWebDAVSyncUpload() {
         }
 
         // 1. 讀取 WebDAV 配置
-        const { webdav_config: config } = await chrome.storage.sync.get('webdav_config');
+        const syncStorage = await getSyncStorage();
+        const { webdav_config: config } = await syncStorage.get('webdav_config');
         if (!config || !config.enabled) return;
 
         // 2. 讀取 dirty chat IDs（重新讀取，可能已被面板清除）
@@ -622,7 +630,7 @@ async function performWebDAVSyncUpload() {
         if (newETag) syncUpdates.webdav_remote_etag = newETag;
         syncUpdates.webdav_last_sync = manifest.timestamp;
         syncUpdates.webdav_last_sync_timestamp = manifest.timestamp;
-        await chrome.storage.sync.set(syncUpdates);
+        await syncStorage.set(syncUpdates);
 
         // 清除已上傳的 dirty IDs，儲存更新後的狀態
         const { cerebr_dirty_chat_ids: currentDirty } = await chrome.storage.local.get('cerebr_dirty_chat_ids');

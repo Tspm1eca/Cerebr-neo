@@ -7,7 +7,7 @@
  * - chats/{id}.json 存完整聊天（含 messages + base64 圖片）
  */
 
-import { storageAdapter, syncStorageAdapter } from '../utils/storage-adapter.js';
+import { storageAdapter, syncStorageAdapter, setSyncMode } from '../utils/storage-adapter.js';
 import { encrypt, decrypt, isEncrypted, encryptPasswordForStorage, decryptPasswordFromStorage, isEncryptedPassword } from '../utils/crypto.js';
 import { chatManager } from '../utils/chat-manager.js';
 import { computeChatHash } from '../utils/chat-hash.js';
@@ -764,9 +764,17 @@ class WebDAVSyncManager {
      * 保存配置
      */
     async saveConfig(config) {
+        const prevEnabled = this.config.enabled;
         const prevServerUrl = this.config.serverUrl;
         const prevSyncPath = this.config.syncPath;
         this.config = { ...this.config, ...config };
+
+        // WebDAV 啟用狀態變更時切換 sync 模式
+        const newEnabled = this.config.enabled;
+        if (newEnabled !== prevEnabled) {
+            await setSyncMode(newEnabled);
+            console.log(`[WebDAV] Sync storage ${newEnabled ? '已切換至 local（Chrome Sync 已禁用）' : '已恢復 Chrome Sync'}`);
+        }
 
         const configForSync = { ...this.config };
         delete configForSync.encryptionPassword;

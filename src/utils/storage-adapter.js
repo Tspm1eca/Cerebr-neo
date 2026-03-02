@@ -160,12 +160,57 @@ export const storageAdapter = {
     }
 };
 
+// ===== Sync 模式切換：WebDAV 啟用時改用 local storage =====
+export const SYNC_MODE_FLAG_KEY = 'cerebr_use_local_sync';
+
+let _useLocalForSync = false;
+
+// 所有透過 syncStorageAdapter 管理的 keys（遷移用）
+const SYNC_MANAGED_KEYS = [
+    'apiConfigs', 'selectedConfigIndex',
+    'searchProvider', 'tavilyApiKey', 'tavilyApiUrl', 'exaApiKey', 'exaApiUrl',
+    'quickChatOptions',
+    'sendWebpageContent', 'webSearchMode',
+    'webdav_config',
+    'webdav_remote_etag', 'webdav_local_hash',
+    'webdav_last_sync', 'webdav_last_sync_timestamp'
+];
+
+// 啟動時讀取 flag（必須在任何 syncStorageAdapter 操作之前呼叫）
+export async function initSyncMode() {
+    if (!isExtensionEnvironment) return;
+    const result = await chrome.storage.local.get(SYNC_MODE_FLAG_KEY);
+    _useLocalForSync = result[SYNC_MODE_FLAG_KEY] === true;
+}
+
+// 切換模式並遷移數據
+export async function setSyncMode(useLocal) {
+    if (!isExtensionEnvironment) return;
+    if (_useLocalForSync === useLocal) return;
+
+    const source = useLocal ? chrome.storage.sync : chrome.storage.local;
+    const target = useLocal ? chrome.storage.local : chrome.storage.sync;
+
+    // 從來源讀取並遷移至目標
+    const data = await source.get(SYNC_MANAGED_KEYS);
+    const keys = Object.keys(data);
+    if (keys.length > 0) {
+        await target.set(data);
+        await source.remove(keys);
+    }
+
+    // 持久化 flag 並更新記憶體
+    _useLocalForSync = useLocal;
+    await chrome.storage.local.set({ [SYNC_MODE_FLAG_KEY]: useLocal });
+}
+
 // 同步存储适配器
 export const syncStorageAdapter = {
     // 获取存储的数据
     async get(key) {
         if (isExtensionEnvironment) {
-            return await chrome.storage.sync.get(key);
+            const storage = _useLocalForSync ? chrome.storage.local : chrome.storage.sync;
+            return await storage.get(key);
         } else {
             // 对于 sync，localStorage 可能是个更简单的回退，因为它本身容量就小
             // 或者您也可以为 sync 实现单独的 IndexedDB 存储（例如不同的 object store）
@@ -201,7 +246,8 @@ export const syncStorageAdapter = {
     // 设置存储的数据
     async set(data) {
         if (isExtensionEnvironment) {
-            await chrome.storage.sync.set(data);
+            const storage = _useLocalForSync ? chrome.storage.local : chrome.storage.sync;
+            await storage.set(data);
         } else {
             console.warn("Sync storage in web environment is using localStorage fallback, which has size limitations.");
             for (const [key, value] of Object.entries(data)) {

@@ -7,7 +7,7 @@ import { initChatContainer } from './components/chat-container.js';
 import { showImagePreview, hideImagePreview } from './utils/ui.js';
 import { initAPICard } from './components/api-card.js';
 import { DEFAULT_SYSTEM_PROMPT } from './constants/prompts.js';
-import { storageAdapter, syncStorageAdapter, browserAdapter, isExtensionEnvironment } from './utils/storage-adapter.js';
+import { storageAdapter, syncStorageAdapter, browserAdapter, isExtensionEnvironment, initSyncMode } from './utils/storage-adapter.js';
 import { initMessageInput, getFormattedMessageContent, buildMessageContent, clearMessageInput, handleWindowMessage, updatePermanentPlaceholder } from './components/message-input.js';
 import './utils/viewport.js';
 import {
@@ -124,6 +124,9 @@ let exaApiUrl = '';
 const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
  document.addEventListener('DOMContentLoaded', async () => {
+     // 初始化 sync 模式（必須在任何 syncStorageAdapter 呼叫之前）
+     await initSyncMode();
+
      const chatContainer = document.getElementById('chat-container');
     const messageInput = document.getElementById('message-input');
     const contextMenu = document.getElementById('context-menu');
