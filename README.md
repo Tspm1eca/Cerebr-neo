@@ -14,10 +14,9 @@
 7. 支持Youtube CC字幕提取。
 
 <img width="300" height="900" alt="1" src="https://github.com/user-attachments/assets/681b8c94-c7ae-4d98-92d7-c5ac6119f36e" /> <img width="300" height="900" alt="12" src="https://github.com/user-attachments/assets/f8b77afd-8d71-4d4d-a152-e45d2871d26e" /> <img width="300" height="900" alt="11" src="https://github.com/user-attachments/assets/bc5ab03c-e9b1-49ba-8381-85563b33d497" />
-<img width="300" height="900" alt="4" src="https://github.com/user-attachments/assets/03636f83-12d9-4cbf-9734-1645ebf96fe0" /> <img width="300" height="900" alt="5" src="https://github.com/user-attachments/assets/aa7452e8-cb4a-4c5b-b458-db15582d176a" /> <img width="300" height="900" alt="2" src="https://github.com/user-attachments/assets/c4b82e86-dc42-4828-9f73-69675e76ac91" />
-<img width="300" height="900" alt="3" src="https://github.com/user-attachments/assets/90e81925-6cf5-41ae-a011-b0370fcf14d9" /> <img width="300" height="900" alt="10" src="https://github.com/user-attachments/assets/a485b018-b57a-4781-945c-cff042ce5a4e" />
+<img width="300" height="900" alt="4" src="https://github.com/user-attachments/assets/03636f83-12d9-4cbf-9734-1645ebf96fe0" /> <img width="300" height="900" alt="5" src="https://github.com/user-attachments/assets/aa7452e8-cb4a-4c5b-b458-db15582d176a" /> <img width="300" height="900" alt="6" src="https://github.com/user-attachments/assets/17212b9a-6693-47e2-a56e-f74e77409e14" />
+<img width="300" height="900" alt="2" src="https://github.com/user-attachments/assets/c4b82e86-dc42-4828-9f73-69675e76ac91" /> <img width="300" height="900" alt="3" src="https://github.com/user-attachments/assets/90e81925-6cf5-41ae-a011-b0370fcf14d9" /> <img width="300" height="900" alt="10" src="https://github.com/user-attachments/assets/a485b018-b57a-4781-945c-cff042ce5a4e" />
 <img width="300" height="900" alt="7" src="https://github.com/user-attachments/assets/a6df2223-3463-4cab-817b-eea083d27158" /> <img width="300" height="900" alt="8" src="https://github.com/user-attachments/assets/a9f2537d-3d89-43aa-a77d-7c58c482a4cd" /> <img width="300" height="900" alt="9" src="https://github.com/user-attachments/assets/9069fedd-a90b-4ce2-bbc1-442e3a4661c4" />
-
 <img width="910" height="900" alt="14" src="https://github.com/user-attachments/assets/c725a09b-77d2-4cd4-a7b9-b94f8dcddab2" />
 
 ## 原版訊息
