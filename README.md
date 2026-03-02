@@ -6,12 +6,13 @@
 
 ## 個人修改
 1. 多處UI修改，請自行體驗。
-2. 映射表，將網頁中的URL以映射表方式發送給LLM，以大大降低token的使用量。
-3. 網頁引索，在與網頁交互時，會自己產生「網頁引索」，點擊可自動滾動到引索位置。
-4. 支持Tavily/Exa網絡搜索。
-5. 無感智能雙向同步WebDav（支持加密儲存），真正的跨平台，跨瀏覽器雙向同步（https://infini-cloud.net 有免費20GB）。
-6. 引入Cloudflare Markdown for Agents做法，把網頁Markdown化。
-7. 支持Youtube CC字幕提取。
+2. **映射表：**將網頁中所有URL以映射表方式發送給LLM，大大降低token的使用量。
+3. **網頁引索：**與網頁交互時，可點擊LLM輸出的網頁引索，自動滾動到引索位置。
+4. 支持**Tavily**/**Exa**網絡搜索。
+5. **無感**、**智能**、**雙向**的同步WebDav（支持加密儲存），真正的**跨平台**、**跨瀏覽器**雙向同步（https://infini-cloud.net 有免費20GB，我的推薦碼：`2GZHC`）。
+6. 圖片極致壓縮，以配合WebDav功能。
+7. 引入Cloudflare Markdown for Agents做法，把網頁Markdown化。
+9. 支持Youtube CC字幕提取。
 
 <img width="300" height="900" alt="1" src="https://github.com/user-attachments/assets/681b8c94-c7ae-4d98-92d7-c5ac6119f36e" /> <img width="300" height="900" alt="12" src="https://github.com/user-attachments/assets/f8b77afd-8d71-4d4d-a152-e45d2871d26e" /> <img width="300" height="900" alt="11" src="https://github.com/user-attachments/assets/bc5ab03c-e9b1-49ba-8381-85563b33d497" />
 <img width="300" height="900" alt="4" src="https://github.com/user-attachments/assets/03636f83-12d9-4cbf-9734-1645ebf96fe0" /> <img width="300" height="900" alt="5" src="https://github.com/user-attachments/assets/aa7452e8-cb4a-4c5b-b458-db15582d176a" /> <img width="300" height="900" alt="6" src="https://github.com/user-attachments/assets/17212b9a-6693-47e2-a56e-f74e77409e14" />
