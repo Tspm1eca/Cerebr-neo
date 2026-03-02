@@ -1,5 +1,5 @@
 <p align="center">
-<img width="128" height="128" alt="icon_crop" src="https://github.com/user-attachments/assets/f3391263-9fd8-4ada-9e50-7ab5c78902ce" />
+<img width="128" height="128" alt="icon_crop_new" src="https://github.com/user-attachments/assets/5e0475c3-3c9c-42f1-a986-6f80e24c5cde" />
 </p>
 
 <h1 align="center">Cerebr-neo 網頁AI助手</h1>
