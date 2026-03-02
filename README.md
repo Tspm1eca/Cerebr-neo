@@ -13,11 +13,12 @@
 6. 引入Cloudflare Markdown for Agents做法，把網頁Markdown化。
 7. 支持Youtube CC字幕提取。
 
-<img width="300" height="600" alt="4" src="https://github.com/user-attachments/assets/1945d4f0-f281-493e-939b-2059291cc157" /> <img width="300" height="600" alt="7" src="https://github.com/user-attachments/assets/bccb3d08-8ef3-4e8c-9a4f-f6ab46c915e6" />
-<img width="300" height="600" alt="1" src="https://github.com/user-attachments/assets/43d5ec9d-da16-4985-8632-422717576a6a" /> <img width="300" height="600" alt="2" src="https://github.com/user-attachments/assets/c92be7c7-8b0a-4ad2-ac95-c14577412a51" />
-<img width="300" height="600" alt="3" src="https://github.com/user-attachments/assets/888a2cfd-7772-4d80-9d25-15c0c7367dc0" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/3a75b671-f708-4765-8373-717e30fa93df" />
-<img width="300" height="600" alt="1" src="https://github.com/user-attachments/assets/5d6e684f-e8d7-4fd4-b6c6-354d32a0f915" /> <img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/ce7214a0-a5eb-4948-8d88-0532a1cb30bf" /> 
-<img width="300" height="600" alt="2" src="https://github.com/user-attachments/assets/066ee052-a990-4807-87a6-8dfc993576c8" />
+<img width="300" height="900" alt="1" src="https://github.com/user-attachments/assets/681b8c94-c7ae-4d98-92d7-c5ac6119f36e" /> <img width="300" height="900" alt="12" src="https://github.com/user-attachments/assets/f8b77afd-8d71-4d4d-a152-e45d2871d26e" /> <img width="300" height="900" alt="11" src="https://github.com/user-attachments/assets/bc5ab03c-e9b1-49ba-8381-85563b33d497" />
+<img width="300" height="900" alt="4" src="https://github.com/user-attachments/assets/03636f83-12d9-4cbf-9734-1645ebf96fe0" /> <img width="300" height="900" alt="5" src="https://github.com/user-attachments/assets/aa7452e8-cb4a-4c5b-b458-db15582d176a" /> <img width="300" height="900" alt="2" src="https://github.com/user-attachments/assets/c4b82e86-dc42-4828-9f73-69675e76ac91" />
+<img width="300" height="900" alt="3" src="https://github.com/user-attachments/assets/90e81925-6cf5-41ae-a011-b0370fcf14d9" /> <img width="300" height="900" alt="10" src="https://github.com/user-attachments/assets/a485b018-b57a-4781-945c-cff042ce5a4e" />
+<img width="300" height="900" alt="7" src="https://github.com/user-attachments/assets/a6df2223-3463-4cab-817b-eea083d27158" /> <img width="300" height="900" alt="8" src="https://github.com/user-attachments/assets/a9f2537d-3d89-43aa-a77d-7c58c482a4cd" /> <img width="300" height="900" alt="9" src="https://github.com/user-attachments/assets/9069fedd-a90b-4ce2-bbc1-442e3a4661c4" />
+
+<img width="910" height="900" alt="14" src="https://github.com/user-attachments/assets/c725a09b-77d2-4cd4-a7b9-b94f8dcddab2" />
 
 ## 原版訊息
 
