@@ -492,16 +492,50 @@ export async function callAPI({
 
             const decoder = new TextDecoder();
 
-            const dispatchUpdate = () => {
-                if (chatManager && chatId) {
-                    const messageCopy = createRestoredMessage(currentMessage, idToUrlMap);
-                    chatManager.updateLastMessage(chatId, messageCopy, false); // 流式更新
-                    onMessageUpdate(chatId, messageCopy);
-                    lastUpdateTime = Date.now();
-                }
+            const clearScheduledUpdate = () => {
                 if (updateTimeout) {
                     clearTimeout(updateTimeout);
                     updateTimeout = null;
+                }
+            };
+
+            const updateMessageSnapshot = async ({ isFinalUpdate = false } = {}) => {
+                if (!(chatManager && chatId)) {
+                    clearScheduledUpdate();
+                    return;
+                }
+
+                const messageSnapshot = createRestoredMessage(currentMessage, idToUrlMap);
+                onMessageUpdate(chatId, messageSnapshot);
+                lastUpdateTime = Date.now();
+                clearScheduledUpdate();
+                await chatManager.updateLastMessage(chatId, messageSnapshot, isFinalUpdate);
+            };
+
+            const dispatchUpdate = () => {
+                void updateMessageSnapshot({ isFinalUpdate: false }).catch(error => {
+                    console.warn('流式消息保存失敗（已忽略）:', error);
+                });
+            };
+
+            // 僅在整個回覆流程（包含可能的 tool call）完成後觸發一次最終更新
+            const finalizeMessage = async () => {
+                const MAX_FINALIZE_RETRIES = 2;
+                const RETRY_DELAY_MS = 250;
+
+                for (let attempt = 0; attempt <= MAX_FINALIZE_RETRIES; attempt++) {
+                    try {
+                        await updateMessageSnapshot({ isFinalUpdate: true });
+                        return;
+                    } catch (error) {
+                        const isLastAttempt = attempt === MAX_FINALIZE_RETRIES;
+                        if (isLastAttempt) {
+                            console.warn('最終消息保存失敗（回覆已完成）:', error);
+                            return;
+                        }
+                        // 最終保存失敗時短暫退避重試，避免將暫時性儲存錯誤誤判為整體請求失敗
+                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * (attempt + 1)));
+                    }
                 }
             };
 
@@ -518,11 +552,8 @@ export async function callAPI({
                 );
 
                 if (done) {
-                   dispatchUpdate();
-                   // 流結束，進行最終更新
-                   const finalMessage = createRestoredMessage(currentMessage, idToUrlMap);
-                   chatManager.updateLastMessage(chatId, finalMessage, true);
-                   break;
+                    clearScheduledUpdate();
+                    break;
                 }
 
                     // 收到數據，更新超時控制狀態
@@ -660,11 +691,7 @@ export async function callAPI({
                             // 显示搜索状态
                             currentMessage.content = `🔍 正在搜索: "${searchQuery}"...\n\n`;
                             currentMessage.isSearchUsed = true; // 標記搜索已使用
-                            if (chatManager && chatId) {
-                                const messageCopy = createRestoredMessage(currentMessage, idToUrlMap);
-                                chatManager.updateLastMessage(chatId, messageCopy, false);
-                                onMessageUpdate(chatId, messageCopy);
-                            }
+                            dispatchUpdate();
 
                             // 执行网络搜索（使用統一入口）
                             const searchResults = await webSearch({
@@ -681,11 +708,7 @@ export async function callAPI({
 
                             // 搜索完成，显示等待 AI 回复的动画（使用特殊标记）
                             currentMessage.content = '{{WAITING_ANIMATION}}';
-                            if (chatManager && chatId) {
-                                const messageCopy = createRestoredMessage(currentMessage, idToUrlMap);
-                                chatManager.updateLastMessage(chatId, messageCopy, false);
-                                onMessageUpdate(chatId, messageCopy);
-                            }
+                            dispatchUpdate();
 
                             // 格式化搜索结果，并在发送给AI前映射其中的URL
                             const formattedResults = formatSearchResultsForPrompt(searchResults, userLanguage);
@@ -760,7 +783,7 @@ export async function callAPI({
                                 );
 
                                 if (secondDone) {
-                                    dispatchUpdate();
+                                    clearScheduledUpdate();
                                     break;
                                 }
 
@@ -852,6 +875,9 @@ export async function callAPI({
                     }
                 }
             }
+
+            // 直到可能的工具調用與第二次回覆都完成後，才做最終更新
+            await finalizeMessage();
 
             return currentMessage;
         } catch (error) {
