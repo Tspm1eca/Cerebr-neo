@@ -784,12 +784,19 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                         if (lastMsg.role === 'assistant') {
                             // 空回覆才 rollback 整個回合；有內容則保留部分回覆
                             if (!lastMsg.content?.trim()) {
-                                chatManager.popMessage();
-                                chatManager.popMessage();
+                                chatManager.popMessage(); // 移除空的 assistant 訊息
+                                // 僅在不會清空對話的情況下才移除用戶訊息，
+                                // 保留用戶訊息讓「重新生成」功能能正確運作
+                                if (currentChat.messages.length > 1) {
+                                    chatManager.popMessage();
+                                }
                             }
                         } else {
-                            // 沒有 assistant 回覆：只 rollback user message
-                            chatManager.popMessage();
+                            // 僅在不會清空對話的情況下才移除用戶訊息，
+                            // 保留用戶訊息讓「重新生成」功能能正確運作
+                            if (messages.length > 1) {
+                                chatManager.popMessage();
+                            }
                         }
                     }
 
