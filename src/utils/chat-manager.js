@@ -574,6 +574,13 @@ export class ChatManager {
         if (message.isSearchUsed) {
             lastMessage.isSearchUsed = true;
         }
+        if (Object.prototype.hasOwnProperty.call(message, 'isError')) {
+            if (message.isError === true) {
+                lastMessage.isError = true;
+            } else {
+                delete lastMessage.isError;
+            }
+        }
 
         this.markChatDirty(chatId);
 

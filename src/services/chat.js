@@ -870,7 +870,9 @@ export async function callAPI({
                             }
                         } catch (error) {
                             console.error('处理 web_search tool call 失败:', error);
+                            currentMessage.isError = true;
                             currentMessage.content += `\n\n⚠️ 网络搜索失败: ${error.message}`;
+                            dispatchUpdate();
                         }
                     }
                 }

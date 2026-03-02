@@ -533,6 +533,10 @@ export async function updateAIMessage({
     // 处理文本内容
     let textContent = typeof text === 'string' ? text : text.content;
     const reasoningContent = typeof text === 'string' ? null : text.reasoning_content;
+    const hasErrorFlag = typeof text === 'object' &&
+        text !== null &&
+        Object.prototype.hasOwnProperty.call(text, 'isError');
+    const isError = hasErrorFlag && text.isError === true;
 
     // 特殊處理：如果內容為空且只有 isSearchUsed 標記，則只更新等待訊息的樣式
     // 這用於 "on" 模式下搜索完成後立即標記等待訊息
@@ -707,6 +711,9 @@ export async function updateAIMessage({
     if (lastMessage) {
         if (isYouTubeChat() && !lastMessage.classList.contains('youtube-chat')) {
             lastMessage.classList.add('youtube-chat');
+        }
+        if (hasErrorFlag) {
+            lastMessage.classList.toggle('error', isError);
         }
 
         // 檢查是否使用了搜索並更新樣式
@@ -906,12 +913,16 @@ export async function updateAIMessage({
         return true; // 如果文本没有变长，也认为是成功的
     } else {
         // 创建新消息时也需要包含思考内容
+        const newMessageText = {
+            content: textContent,
+            reasoning_content: reasoningContent,
+            isSearchUsed: typeof text === 'object' ? text.isSearchUsed : false
+        };
+        if (hasErrorFlag) {
+            newMessageText.isError = isError;
+        }
         await appendMessage({
-            text: {
-                content: textContent,
-                reasoning_content: reasoningContent,
-                isSearchUsed: typeof text === 'object' ? text.isSearchUsed : false
-            },
+            text: newMessageText,
             sender: 'ai',
             chatContainer
         });
