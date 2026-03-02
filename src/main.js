@@ -559,9 +559,14 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             // 只有当仍然是当前活动的请求时才显示错误
             if (currentRequestId === activeRequestId) {
                 // 移除等待動畫（如果存在，包括 YouTube 提取狀態）
+                // 注意：updating 訊息已有串流內容，不應刪除，只清理串流狀態
                 const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
                 if (waitingMsg) {
-                    waitingMsg.remove();
+                    if (waitingMsg.classList.contains('waiting')) {
+                        waitingMsg.remove();
+                    } else {
+                        cleanupStreamingMessage(waitingMsg);
+                    }
                 }
 
                 // 根據錯誤類型顯示不同的錯誤訊息
@@ -742,9 +747,14 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             // 只有当仍然是当前活动的请求时才处理错误
             if (currentRequestId === activeRequestId) {
                 // 移除等待動畫（如果存在，包括 YouTube 提取狀態）
+                // 注意：updating 訊息已有串流內容，不應刪除，只清理串流狀態
                 const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
                 if (waitingMsg) {
-                    waitingMsg.remove();
+                    if (waitingMsg.classList.contains('waiting')) {
+                        waitingMsg.remove();
+                    } else {
+                        cleanupStreamingMessage(waitingMsg);
+                    }
                 }
 
                 // 根據錯誤類型顯示不同的錯誤訊息
@@ -781,6 +791,14 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                             // 沒有 assistant 回覆：只 rollback user message
                             chatManager.popMessage();
                         }
+                    }
+
+                    // rollback 後若對話已無任何訊息，刪除整個對話並刷新歷史列表
+                    const chatAfterRollback = chatManager.getCurrentChat();
+                    if (chatAfterRollback && chatAfterRollback.messages.length === 0) {
+                        await chatManager.deleteChat(chatAfterRollback.id);
+                        const chatCards = chatListPage.querySelector('.chat-cards');
+                        renderChatList(chatManager, chatCards);
                     }
                 }
             }
