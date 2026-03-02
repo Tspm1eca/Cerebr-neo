@@ -17,8 +17,9 @@ import {
 import { webSearch, tavilySearch, formatSearchResultsForPrompt, extractSearchQuery } from './web-search.js';
 
 // 超時配置（毫秒）
-const STREAM_TIMEOUT = 10000; // 流式響應超時：上次收到有效內容後 10 秒內無新內容則超時
+const STREAM_TIMEOUT = 20000; // 流式響應超時：上次收到有效內容後 10 秒內無新內容則超時
 const FIRST_CHUNK_TIMEOUT = 30000; // 首次數據超時：30 秒內必須收到第一個數據塊
+const FETCH_TIMEOUT = 30000; // fetch 連線超時：30 秒內必須收到 HTTP 回應
 
 /**
  * 超時錯誤類
@@ -459,15 +460,20 @@ export async function callAPI({
         };
 
         try {
-            const response = await fetch(apiConfig.baseUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiConfig.apiKey}`
-                },
-                body: JSON.stringify(requestBody),
-                signal
-            });
+            const response = await withTimeout(
+                fetch(apiConfig.baseUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiConfig.apiKey}`
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal
+                }),
+                FETCH_TIMEOUT,
+                `API 連線超時（${FETCH_TIMEOUT / 1000}秒內未收到回應）`,
+                'fetch'
+            );
 
             if (!response.ok) {
                 const error = await response.text();
@@ -737,19 +743,24 @@ export async function callAPI({
                             ];
 
                             // 发起第二次 API 调用获取最终回答
-                            const secondResponse = await fetch(apiConfig.baseUrl, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${apiConfig.apiKey}`
-                                },
-                                body: JSON.stringify({
-                                    model: apiConfig.modelName || "gpt-4o",
-                                    messages: messagesWithToolResult,
-                                    stream: true,
+                            const secondResponse = await withTimeout(
+                                fetch(apiConfig.baseUrl, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Authorization': `Bearer ${apiConfig.apiKey}`
+                                    },
+                                    body: JSON.stringify({
+                                        model: apiConfig.modelName || "gpt-4o",
+                                        messages: messagesWithToolResult,
+                                        stream: true,
+                                    }),
+                                    signal
                                 }),
-                                signal
-                            });
+                                FETCH_TIMEOUT,
+                                `API 連線超時（${FETCH_TIMEOUT / 1000}秒內未收到回應）`,
+                                'fetch'
+                            );
 
                             if (!secondResponse.ok) {
                                 const error = await secondResponse.text();
