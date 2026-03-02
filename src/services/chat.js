@@ -18,7 +18,7 @@ import { webSearch, tavilySearch, formatSearchResultsForPrompt, extractSearchQue
 
 // 超時配置（毫秒）
 const STREAM_TIMEOUT = 10000; // 流式響應超時：上次收到有效內容後 10 秒內無新內容則超時
-const FIRST_CHUNK_TIMEOUT = 60000; // 首次數據超時：60 秒內必須收到第一個數據塊
+const FIRST_CHUNK_TIMEOUT = 30000; // 首次數據超時：30 秒內必須收到第一個數據塊
 
 /**
  * 超時錯誤類

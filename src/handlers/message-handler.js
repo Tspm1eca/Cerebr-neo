@@ -798,8 +798,38 @@ export async function updateAIMessage({
             }
             }
 
-            if (textContent && reasoningDiv && !reasoningDiv.classList.contains('collapsed')) {
+            if (textContent && reasoningDiv && !reasoningDiv.classList.contains('collapsed') && !reasoningDiv._collapsing) {
+                // 平滑收縮動畫：測量展開→收合高度差，用 CSS transition 過渡
+                reasoningDiv._collapsing = true;
+                const expH = reasoningDiv.offsetHeight;
+                reasoningDiv.style.overflow = 'hidden';
+                reasoningDiv.style.height = `${expH}px`;
+                reasoningDiv.style.transition = 'none';
+
+                // 暫時套用 collapsed 測量目標高度，再移除
                 reasoningDiv.classList.add('collapsed');
+                reasoningDiv.style.height = '';
+                const colH = reasoningDiv.offsetHeight;
+                reasoningDiv.classList.remove('collapsed');
+
+                // 鎖回展開高度並強制 reflow
+                reasoningDiv.style.height = `${expH}px`;
+                reasoningDiv.offsetHeight;
+
+                // 動畫收縮
+                reasoningDiv.style.transition = 'height 0.25s ease-out';
+                reasoningDiv.style.height = `${colH}px`;
+
+                const onCollapseEnd = () => {
+                    reasoningDiv.classList.add('collapsed');
+                    reasoningDiv.style.height = '';
+                    reasoningDiv.style.overflow = '';
+                    reasoningDiv.style.transition = '';
+                    delete reasoningDiv._collapsing;
+                    reasoningDiv.removeEventListener('transitionend', onCollapseEnd);
+                };
+                reasoningDiv.addEventListener('transitionend', onCollapseEnd);
+                setTimeout(() => { if (reasoningDiv.style.transition) onCollapseEnd(); }, 300);
             }
 
             // 处理主要内容
