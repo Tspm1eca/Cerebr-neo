@@ -386,18 +386,20 @@ export function handleImageDrop(e, config) {
     e.stopPropagation();
 
     try {
-        // 处理文件拖放
+        // 处理文件拖放（支持多张图片）
         if (e.dataTransfer.files.length > 0) {
-            const file = e.dataTransfer.files[0];
-            if (file.type.startsWith('image/')) {
-                processImageWithPreview({
-                    messageInput,
-                    source: file,
-                    fileName: file.name,
-                    onImageClick,
-                    onSuccess,
-                    onError
-                });
+            const imageFiles = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
+            if (imageFiles.length > 0) {
+                for (const file of imageFiles) {
+                    processImageWithPreview({
+                        messageInput,
+                        source: file,
+                        fileName: file.name,
+                        onImageClick,
+                        onSuccess,
+                        onError
+                    });
+                }
                 messageInput.focus();
                 return;
             }

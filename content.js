@@ -550,16 +550,17 @@ class CerebrSidebar {
         }
       };
 
-      // 1. 首先尝试获取文件
+      // 1. 首先尝试获取文件（支持多张图片）
       if (dataTransfer.files && dataTransfer.files.length > 0) {
-        for (const file of dataTransfer.files) {
-          if (file.type.startsWith('image/')) {
+        const imageFiles = Array.from(dataTransfer.files).filter(file => file.type.startsWith('image/'));
+        if (imageFiles.length > 0) {
+          for (const file of imageFiles) {
             console.log('从文件获取图片:', file.name);
             const reader = new FileReader();
             reader.onload = () => sendImageToIframe(reader.result, file.name || '拖放图片');
             reader.readAsDataURL(file);
-            return;
           }
+          return;
         }
       }
 
