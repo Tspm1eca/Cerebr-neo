@@ -855,13 +855,16 @@ export async function callAPI({
 
             return currentMessage;
         } catch (error) {
-            if (error.name === 'AbortError') {
-                // 用戶中斷：將已接收的內容儲存到 IndexedDB，避免資料遺失
-                if (chatManager && chatId && (currentMessage.content || currentMessage.reasoning_content)) {
-                    const abortMessage = createRestoredMessage(currentMessage, idToUrlMap);
-                    chatManager.updateLastMessage(chatId, abortMessage, true);
+            // 無論錯誤類型，都嘗試保存已接收的部分內容，避免資料遺失
+            if (chatManager && chatId && (currentMessage.content || currentMessage.reasoning_content)) {
+                try {
+                    const partialMessage = createRestoredMessage(currentMessage, idToUrlMap);
+                    // 不使用 isFinalUpdate=true，避免在錯誤路徑觸發標題生成 API
+                    chatManager.updateLastMessage(chatId, partialMessage, false);
+                    await chatManager.flushSaveChat(chatId);
+                } catch (saveError) {
+                    console.error('保存部分串流內容失敗:', saveError);
                 }
-                throw error;
             }
             throw error;
         }

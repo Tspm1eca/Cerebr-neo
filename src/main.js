@@ -767,14 +767,18 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     skipHistory: true,
                 });
                 if (shouldRollbackUserMessage) {
-                    // 从 chatHistory 中移除最后一条记录（用户的问题）
                     const currentChat = chatManager.getCurrentChat();
-                    const messages = currentChat ? [...currentChat.messages] : [];
+                    const messages = currentChat?.messages || [];
                     if (messages.length > 0) {
-                        if (messages[messages.length - 1].role === 'assistant') {
-                            chatManager.popMessage();
-                            chatManager.popMessage();
+                        const lastMsg = messages[messages.length - 1];
+                        if (lastMsg.role === 'assistant') {
+                            // 空回覆才 rollback 整個回合；有內容則保留部分回覆
+                            if (!lastMsg.content?.trim()) {
+                                chatManager.popMessage();
+                                chatManager.popMessage();
+                            }
                         } else {
+                            // 沒有 assistant 回覆：只 rollback user message
                             chatManager.popMessage();
                         }
                     }

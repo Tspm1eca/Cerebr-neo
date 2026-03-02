@@ -244,10 +244,16 @@ export class ChatManager {
         if (!chat || chat.isNew) return;
 
         this._updateIndexEntry(chatId);
-        await this.storage.set({
-            [this._chatKey(chatId)]: chat,
-            [CHAT_INDEX_KEY]: this._chatIndex
-        });
+        try {
+            await this.storage.set({
+                [this._chatKey(chatId)]: chat,
+                [CHAT_INDEX_KEY]: this._chatIndex
+            });
+        } catch (error) {
+            console.error(`儲存聊天 ${chatId} 失敗:`, error);
+            // 不向上拋出：記憶體中的資料仍是最新的，
+            // 下次 saveChat 呼叫（如 debounce 觸發或使用者下一則訊息）會重試寫入
+        }
     }
 
     /**
@@ -580,9 +586,11 @@ export class ChatManager {
                 this.generateAndSaveTitle(currentChat);
             }
             await this.flushSaveChat(chatId);
+        } else {
+            // 串流中間更新：使用 debounce 定期寫入（500ms 防抖）
+            // 確保頁面崩潰時最多只丟失 500ms 的內容
+            this._debouncedSaveChat(chatId);
         }
-        // 串流中間更新：只保留在記憶體中，不寫入 storage
-        // flushSaveChat 會在串流結束時一次性寫入
     }
 
     async popMessage() {
