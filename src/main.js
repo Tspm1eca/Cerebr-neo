@@ -831,8 +831,14 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     };
 
     const hideMenu = () => {
+        // 先清掉舊 timer，避免殘留 timer 在點擊選單項目時把選單提前收起
+        clearTimeout(menuTimeout);
         menuTimeout = setTimeout(() => {
-            if (!settingsMenu.matches(':hover') && !webpageContentMenu.matches(':hover')) {
+            const stillHoveringSettingsArea =
+                settingsButton.matches(':hover') ||
+                settingsMenu.matches(':hover') ||
+                webpageContentMenu.matches(':hover');
+            if (!stillHoveringSettingsArea) {
                 settingsMenu.classList.remove('visible');
                 webpageContentMenu.classList.remove('visible'); // 同时隐藏二级菜单
             }
@@ -847,6 +853,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
     // 鼠标悬停在菜单上时保持显示
     settingsMenu.addEventListener('mouseenter', showMenu);
+    settingsMenu.addEventListener('pointerdown', () => clearTimeout(menuTimeout));
 
     // 鼠标离开菜单时隐藏菜单
     settingsMenu.addEventListener('mouseleave', hideMenu);

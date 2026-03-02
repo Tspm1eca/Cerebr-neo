@@ -261,8 +261,7 @@ export function initializeChatList({
         messageInput.focus();
     });
 
-    // 历史按钮点击事件
-    chatListButton.addEventListener('click', () => {
+    const openChatListPage = () => {
         showChatList(chatListPage, unifiedSettingsPage, () => {
             const searchInput = document.getElementById('chat-search-input');
             const chatCards = chatListPage.querySelector('.chat-cards');
@@ -271,6 +270,24 @@ export function initializeChatList({
             console.log(`[Cerebr] 共有 ${chatManager.getAllChats().length} 條歷史記錄`);
         });
         settingsMenu.classList.remove('visible');
+    };
+
+    // 用於去重 pointerdown 後的相容 click 事件
+    let lastPointerOpenAt = 0;
+
+    // 歷史按鈕：優先使用 pointerdown，避免 click 階段被 hover-hide 計時器打斷
+    chatListButton.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        lastPointerOpenAt = Date.now();
+        openChatListPage();
+    });
+
+    // click 後備：保留給鍵盤/非 pointer 情境，並忽略 pointerdown 之後的重複 click
+    chatListButton.addEventListener('click', (e) => {
+        if (e.detail > 0 && Date.now() - lastPointerOpenAt < 500) {
+            return;
+        }
+        openChatListPage();
     });
 
     // 搜索框事件
