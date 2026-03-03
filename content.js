@@ -828,87 +828,253 @@ function getYouTubeVideoInfo() {
   return { title, channel, description };
 }
 
-async function extractYouTubeTranscript() {
-  const watchFlexy = document.querySelector('ytd-watch-flexy');
-  if (!watchFlexy) return null;
+// --- YouTube API 字幕提取 Helper Functions ---
 
-  const transcriptPanel = watchFlexy.querySelector(
-    'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]'
-  );
-  if (!transcriptPanel) return null;
+function formatSubtitleTimestamp(totalSeconds) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = Math.floor(totalSeconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
 
-  // 檢查字幕是否已載入（有章節的影片使用 section-list，無章節的使用 segment-list）
-  let segmentsContainer = transcriptPanel.querySelector(
-    'ytd-transcript-section-list-renderer #segments-container'
-  ) || transcriptPanel.querySelector(
-    'ytd-transcript-segment-list-renderer #segments-container'
-  );
-  let hasSegments = segmentsContainer?.querySelector('ytd-transcript-segment-renderer');
+function extractCaptionTracks(html) {
+  const marker = '"captionTracks":';
+  const idx = html.indexOf(marker);
+  if (idx === -1) return null;
 
-  // 如果字幕未載入，嘗試打開面板觸發載入
-  if (!hasSegments) {
-    const wasClosed = transcriptPanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN';
-    if (wasClosed) {
-      transcriptPanel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED');
+  const arrayStart = html.indexOf('[', idx);
+  if (arrayStart === -1 || arrayStart - idx > marker.length + 5) return null;
+
+  // 用括號匹配提取 JSON 陣列，正確處理字串內的特殊字元
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = arrayStart; i < Math.min(arrayStart + 100000, html.length); i++) {
+    const ch = html[i];
+    if (esc) { esc = false; continue; }
+    if (ch === '\\') { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === '[') depth++;
+    else if (ch === ']') {
+      depth--;
+      if (depth === 0) {
+        try { return JSON.parse(html.substring(arrayStart, i + 1)); }
+        catch { return null; }
+      }
     }
+  }
+  return null;
+}
 
-    // 等待字幕段落出現（最多 8 秒）
-    const loaded = await new Promise(resolve => {
-      const observer = new MutationObserver(() => {
-        const items = transcriptPanel.querySelectorAll('ytd-transcript-segment-renderer');
-        if (items.length > 0) {
-          observer.disconnect();
-          resolve(true);
-        }
-      });
-      observer.observe(transcriptPanel, { childList: true, subtree: true });
-      setTimeout(() => { observer.disconnect(); resolve(false); }, 8000);
-    });
+function selectBestCaptionTrack(tracks) {
+  if (!tracks?.length) return null;
+  // 透過自動字幕 (ASR) 判斷影片原文語言（YouTube 只對原始音訊語言生成 ASR）
+  const asrTrack = tracks.find(t => t.kind === 'asr');
+  const originalLang = asrTrack?.languageCode;
+  // 優先級：原文手動字幕 > 英文手動字幕 > 第一個手動字幕 > 英文自動字幕
+  if (originalLang) {
+    const originalManual = tracks.find(t => t.languageCode === originalLang && t.kind !== 'asr');
+    if (originalManual) return originalManual;
+  }
+  return tracks.find(t => t.languageCode?.startsWith('en') && t.kind !== 'asr')
+    || tracks.find(t => t.kind !== 'asr')
+    || tracks.find(t => t.languageCode?.startsWith('en') && t.kind === 'asr')
+    || tracks[0];
+}
 
-    // 關閉面板（如果是我們打開的）
-    if (wasClosed) {
-      transcriptPanel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+function cleanSubtitleText(raw) {
+  if (!raw) return '';
+  // 合併換行為空格，壓縮多餘空白
+  let text = raw.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+  // 解碼殘留的 HTML 實體（YouTube 雙重編碼：&amp;#39; → &#39;）
+  if (text.includes('&')) {
+    text = new DOMParser().parseFromString(text, 'text/html').documentElement.textContent;
+  }
+  return text;
+}
+
+function parseSubtitleResponse(xmlText) {
+  const parser = new DOMParser();
+  let doc = parser.parseFromString(xmlText, 'text/xml');
+  const hasParseError = !!doc.querySelector('parsererror');
+
+  // 格式 1：<text start="0.5" dur="3.2">內容</text>（srv1 / 預設格式）
+  let elements = hasParseError ? [] : [...doc.querySelectorAll('text')];
+
+  // 格式 2：<p t="500" d="3200">內容</p>（srv3 格式，時間為毫秒）
+  if (elements.length === 0 && !hasParseError) {
+    const pElements = [...doc.querySelectorAll('p[t]')];
+    if (pElements.length > 0) {
+      let transcript = '';
+      for (const el of pElements) {
+        const ms = parseInt(el.getAttribute('t') || '0', 10);
+        const text = cleanSubtitleText(el.textContent);
+        if (text) transcript += `[${formatSubtitleTimestamp(ms / 1000)}] ${text}\n`;
+      }
+      console.log(`[YT API] Parsed ${pElements.length} segments (srv3 format)`);
+      return transcript.trim() || null;
     }
-    if (!loaded) return null;
-
-    segmentsContainer = transcriptPanel.querySelector(
-      'ytd-transcript-section-list-renderer #segments-container'
-    ) || transcriptPanel.querySelector(
-      'ytd-transcript-segment-list-renderer #segments-container'
-    );
   }
 
-  if (!segmentsContainer) {
-    console.log('[YT Transcript] segments-container not found after loading');
+  // Fallback：XML 解析失敗時改用 HTML 解析（更寬容）
+  if (elements.length === 0) {
+    doc = parser.parseFromString(`<body>${xmlText}</body>`, 'text/html');
+    elements = [...doc.querySelectorAll('text')];
+  }
+
+  if (elements.length === 0) return null;
+
+  let transcript = '';
+  for (const el of elements) {
+    const start = parseFloat(el.getAttribute('start') || '0');
+    const text = cleanSubtitleText(el.textContent);
+    if (text) transcript += `[${formatSubtitleTimestamp(start)}] ${text}\n`;
+  }
+  console.log(`[YT API] Parsed ${elements.length} segments`);
+  return transcript.trim() || null;
+}
+
+async function getPoToken() {
+  // 第一層：從 Resource Timing API 中查找已有的 timedtext 請求
+  let entry = performance
+    .getEntriesByType('resource')
+    .filter(e => e.name?.includes('/api/timedtext?'))
+    .pop();
+
+  if (entry) {
+    try {
+      const pot = new URL(entry.name).searchParams.get('pot');
+      if (pot) { console.log('[YT API] POToken from Resource Timing'); return pot; }
+    } catch {}
+  }
+
+  // 第二層：模擬點擊字幕按鈕觸發播放器發起 timedtext 請求
+  const btn = document.querySelector('button.ytp-subtitles-button.ytp-button');
+  if (btn) {
+    await new Promise(r => setTimeout(r, 500));
+    btn.click();
+    await new Promise(r => setTimeout(r, 200));
+    btn.click();
+    await new Promise(r => setTimeout(r, 800));
+
+    entry = performance
+      .getEntriesByType('resource')
+      .filter(e => e.name?.includes('/api/timedtext?'))
+      .pop();
+
+    if (entry) {
+      try {
+        const pot = new URL(entry.name).searchParams.get('pot');
+        if (pot) { console.log('[YT API] POToken from button click'); return pot; }
+      } catch {}
+    }
+  }
+
+  console.log('[YT API] POToken not available');
+  return null;
+}
+
+async function extractYouTubeTranscript() {
+  try {
+    // --- Phase 1：取得頁面 HTML 原始碼 ---
+    let pageHtml = document.documentElement.innerHTML;
+
+    if (!pageHtml.includes('/api/timedtext')) {
+      // SPA 導航可能不在當前 DOM 中，嘗試 fetch
+      console.log('[YT API] timedtext not in DOM, trying fetch...');
+      try {
+        pageHtml = await (await fetch(location.href, { credentials: 'include' })).text();
+      } catch (e) {
+        console.log('[YT API] Fetch fallback failed:', e);
+        return null;
+      }
+    }
+
+    if (!pageHtml.includes('/api/timedtext')) {
+      console.log('[YT API] No captions found for this video');
+      return null;
+    }
+
+    // --- Phase 2：提取字幕 URL（支援多語言選擇）---
+    let subtitleUrl = null;
+    let langInfo = '';
+
+    // 優先從 captionTracks 中選擇最佳語言
+    const tracks = extractCaptionTracks(pageHtml);
+    if (tracks?.length) {
+      const track = selectBestCaptionTrack(tracks);
+      if (track?.baseUrl) {
+        subtitleUrl = track.baseUrl;
+        langInfo = ` [${track.languageCode}${track.kind === 'asr' ? '/auto' : ''}]`;
+        console.log(`[YT API] Selected: ${track.languageCode} (${track.kind || 'manual'}), ${tracks.length} tracks available`);
+      }
+    }
+
+    // Fallback：直接從 HTML 中提取第一個 timedtext URL
+    if (!subtitleUrl) {
+      const start = pageHtml.indexOf('https://www.youtube.com/api/timedtext');
+      if (start !== -1) {
+        let raw = pageHtml.substring(start);
+        raw = raw.substring(0, raw.indexOf('"'));
+        subtitleUrl = raw.replaceAll('\\u0026', '&');
+        console.log('[YT API] Using first timedtext URL from HTML');
+      }
+    }
+
+    if (!subtitleUrl) {
+      console.log('[YT API] Could not extract subtitle URL');
+      return null;
+    }
+
+    // --- Phase 3：取得字幕資料（POToken + 無 Token 雙策略）---
+    let subtitleData = null;
+
+    // 策略 A：帶 POToken 請求
+    const potoken = await getPoToken();
+    if (potoken) {
+      try {
+        const resp = await fetch(`${subtitleUrl}&pot=${potoken}&c=WEB`);
+        if (resp.ok) {
+          const data = await resp.text();
+          if (data.includes('<')) subtitleData = data;
+        }
+      } catch (e) {
+        console.log('[YT API] Fetch with POToken failed:', e);
+      }
+    }
+
+    // 策略 B：不帶 POToken 請求（部分影片/地區不需要）
+    if (!subtitleData) {
+      console.log('[YT API] Trying without POToken...');
+      try {
+        const resp = await fetch(`${subtitleUrl}&c=WEB`);
+        if (resp.ok) {
+          const data = await resp.text();
+          if (data.includes('<')) subtitleData = data;
+        }
+      } catch (e) {
+        console.log('[YT API] Fetch without POToken also failed:', e);
+      }
+    }
+
+    if (!subtitleData) {
+      console.log('[YT API] All fetch strategies failed');
+      return null;
+    }
+
+    // --- Phase 4：解析字幕 XML ---
+    const transcript = parseSubtitleResponse(subtitleData);
+    if (transcript) {
+      console.log(`[YT API] Success${langInfo}, length: ${transcript.length}`);
+    }
+    return transcript;
+
+  } catch (e) {
+    console.log('[YT API] Unexpected error:', e);
     return null;
   }
-
-  // 提取字幕文字
-  let transcriptText = '';
-  let chapterCount = 0;
-  for (const segment of segmentsContainer.children) {
-    if (segment.tagName === 'YTD-TRANSCRIPT-SECTION-HEADER-RENDERER') {
-      chapterCount++;
-      const chapterTitle = segment.querySelector('.segment-timestamp')?.textContent?.trim()
-        || segment.querySelector('[class*="timestamp"]')?.textContent?.trim();
-      const chapterText = segment.querySelector('#content h2')?.textContent?.trim()
-        || segment.querySelector('#content')?.textContent?.trim()
-        || segment.querySelector('[class*="title"]')?.textContent?.trim()
-        || segment.querySelector('h2')?.textContent?.trim();
-      if (chapterText) {
-        transcriptText += `\n### ${chapterText}${chapterTitle ? ` (${chapterTitle})` : ''}\n`;
-      }
-    } else if (segment.tagName === 'YTD-TRANSCRIPT-SEGMENT-RENDERER') {
-      const timestamp = segment.querySelector('.segment-timestamp')?.textContent?.trim();
-      const text = segment.querySelector('.segment-text')?.textContent?.replace(/\s+/g, ' ').trim();
-      if (text) {
-        transcriptText += timestamp ? `[${timestamp}] ${text}\n` : `${text}\n`;
-      }
-    }
-  }
-
-  console.log(`[YT Transcript] extracted ${segmentsContainer.children.length} segments, ${chapterCount} chapters`);
-  return transcriptText.trim() || null;
 }
 
 // 修改 extractPageContent 函数
