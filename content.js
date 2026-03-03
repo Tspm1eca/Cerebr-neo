@@ -985,7 +985,17 @@ async function getPoToken() {
   return null;
 }
 
+// YouTube 字幕快取：避免同一影片重複提取
+let _ytTranscriptCache = { videoId: null, transcript: null };
+
 async function extractYouTubeTranscript() {
+  // 快取命中：同一影片直接返回
+  const videoId = new URLSearchParams(window.location.search).get('v');
+  if (videoId && _ytTranscriptCache.videoId === videoId && _ytTranscriptCache.transcript !== null) {
+    console.log(`[YT API] Cache hit for ${videoId}, length: ${_ytTranscriptCache.transcript.length}`);
+    return _ytTranscriptCache.transcript;
+  }
+
   try {
     // --- Phase 1：取得頁面 HTML 原始碼 ---
     let pageHtml = document.documentElement.innerHTML;
@@ -1067,6 +1077,10 @@ async function extractYouTubeTranscript() {
     const transcript = parseSubtitleResponse(subtitleData);
     if (transcript) {
       console.log(`[YT API] Success${langInfo}, length: ${transcript.length}`);
+      // 快取提取結果
+      if (videoId) {
+        _ytTranscriptCache = { videoId, transcript };
+      }
     }
     return transcript;
 

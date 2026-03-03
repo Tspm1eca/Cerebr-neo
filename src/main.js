@@ -674,11 +674,13 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             }
 
             // 先显示等待动画，再执行网页内容提取，避免 YouTube 字幕较长时无反馈
+            // 僅首次提問顯示提取動畫，後續提問直接顯示等待動畫（字幕已快取）
+            const isFirstMessage = !currentChat || currentChat.messages.length === 0;
             let youtubeExtractionMsg = null;
-            if (isCurrentTabYouTube) {
+            if (isCurrentTabYouTube && isFirstMessage) {
                 youtubeExtractionMsg = createYouTubeExtractionMessage(chatContainer);
             } else {
-                createWaitingMessage(chatContainer, { isYouTube: false });
+                createWaitingMessage(chatContainer, { isYouTube: isCurrentTabYouTube });
             }
             const webpageInfo = isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null;
             // YouTube 提取完成後，過渡到三點等待動畫（帶拉伸動畫）
