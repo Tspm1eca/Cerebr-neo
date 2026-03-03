@@ -884,13 +884,14 @@ function selectBestCaptionTrack(tracks) {
     || tracks[0];
 }
 
+const _entityParser = new DOMParser();
+
 function cleanSubtitleText(raw) {
   if (!raw) return '';
-  // 合併換行為空格，壓縮多餘空白
-  let text = raw.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+  let text = raw.replace(/\s+/g, ' ').trim();
   // 解碼殘留的 HTML 實體（YouTube 雙重編碼：&amp;#39; → &#39;）
   if (text.includes('&')) {
-    text = new DOMParser().parseFromString(text, 'text/html').documentElement.textContent;
+    text = _entityParser.parseFromString(text, 'text/html').documentElement.textContent;
   }
   return text;
 }
@@ -904,8 +905,10 @@ function parseSubtitleResponse(xmlText) {
   let elements = hasParseError ? [] : [...doc.querySelectorAll('text')];
 
   // 格式 2：<p t="500" d="3200">內容</p>（srv3 格式，時間為毫秒）
-  if (elements.length === 0 && !hasParseError) {
-    const pElements = [...doc.querySelectorAll('p[t]')];
+  if (elements.length === 0) {
+    const pElements = hasParseError
+      ? [] // XML 解析失敗時 srv3 也無法可靠取得，交由下方 HTML fallback
+      : [...doc.querySelectorAll('p[t]')];
     if (pElements.length > 0) {
       let transcript = '';
       for (const el of pElements) {
@@ -918,10 +921,25 @@ function parseSubtitleResponse(xmlText) {
     }
   }
 
-  // Fallback：XML 解析失敗時改用 HTML 解析（更寬容）
+  // Fallback：XML 解析失敗時改用 HTML 解析（更寬容，同時可捕獲 srv3 的 <p> 標籤）
   if (elements.length === 0) {
     doc = parser.parseFromString(`<body>${xmlText}</body>`, 'text/html');
+    // 嘗試 srv1 格式
     elements = [...doc.querySelectorAll('text')];
+    // 若仍無結果，嘗試 HTML 模式下的 srv3 格式
+    if (elements.length === 0) {
+      const pElements = [...doc.querySelectorAll('p[t]')];
+      if (pElements.length > 0) {
+        let transcript = '';
+        for (const el of pElements) {
+          const ms = parseInt(el.getAttribute('t') || '0', 10);
+          const text = cleanSubtitleText(el.textContent);
+          if (text) transcript += `[${formatSubtitleTimestamp(ms / 1000)}] ${text}\n`;
+        }
+        console.log(`[YT API] Parsed ${pElements.length} segments (srv3 via HTML fallback)`);
+        return transcript.trim() || null;
+      }
+    }
   }
 
   if (elements.length === 0) return null;
@@ -936,40 +954,31 @@ function parseSubtitleResponse(xmlText) {
   return transcript.trim() || null;
 }
 
-async function getPoToken() {
-  // 第一層：從 Resource Timing API 中查找已有的 timedtext 請求
-  let entry = performance
+function extractPotFromTimings() {
+  const entry = performance
     .getEntriesByType('resource')
     .filter(e => e.name?.includes('/api/timedtext?'))
     .pop();
+  if (!entry) return null;
+  try { return new URL(entry.name).searchParams.get('pot'); }
+  catch { return null; }
+}
 
-  if (entry) {
-    try {
-      const pot = new URL(entry.name).searchParams.get('pot');
-      if (pot) { console.log('[YT API] POToken from Resource Timing'); return pot; }
-    } catch {}
-  }
+async function getPoToken() {
+  // 第一層：從 Resource Timing API 中查找已有的 timedtext 請求
+  let pot = extractPotFromTimings();
+  if (pot) { console.log('[YT API] POToken from Resource Timing'); return pot; }
 
   // 第二層：模擬點擊字幕按鈕觸發播放器發起 timedtext 請求
   const btn = document.querySelector('button.ytp-subtitles-button.ytp-button');
   if (btn) {
-    await new Promise(r => setTimeout(r, 500));
     btn.click();
     await new Promise(r => setTimeout(r, 200));
     btn.click();
     await new Promise(r => setTimeout(r, 800));
 
-    entry = performance
-      .getEntriesByType('resource')
-      .filter(e => e.name?.includes('/api/timedtext?'))
-      .pop();
-
-    if (entry) {
-      try {
-        const pot = new URL(entry.name).searchParams.get('pot');
-        if (pot) { console.log('[YT API] POToken from button click'); return pot; }
-      } catch {}
-    }
+    pot = extractPotFromTimings();
+    if (pot) { console.log('[YT API] POToken from button click'); return pot; }
   }
 
   console.log('[YT API] POToken not available');
@@ -1017,9 +1026,11 @@ async function extractYouTubeTranscript() {
       const start = pageHtml.indexOf('https://www.youtube.com/api/timedtext');
       if (start !== -1) {
         let raw = pageHtml.substring(start);
-        raw = raw.substring(0, raw.indexOf('"'));
-        subtitleUrl = raw.replaceAll('\\u0026', '&');
-        console.log('[YT API] Using first timedtext URL from HTML');
+        const endIdx = raw.indexOf('"');
+        if (endIdx !== -1) {
+          subtitleUrl = raw.substring(0, endIdx).replaceAll('\\u0026', '&');
+          console.log('[YT API] Using first timedtext URL from HTML');
+        }
       }
     }
 
@@ -1030,32 +1041,20 @@ async function extractYouTubeTranscript() {
 
     // --- Phase 3：取得字幕資料（POToken + 無 Token 雙策略）---
     let subtitleData = null;
-
-    // 策略 A：帶 POToken 請求
     const potoken = await getPoToken();
-    if (potoken) {
-      try {
-        const resp = await fetch(`${subtitleUrl}&pot=${potoken}&c=WEB`);
-        if (resp.ok) {
-          const data = await resp.text();
-          if (data.includes('<')) subtitleData = data;
-        }
-      } catch (e) {
-        console.log('[YT API] Fetch with POToken failed:', e);
-      }
-    }
+    const fetchUrls = [];
+    if (potoken) fetchUrls.push(`${subtitleUrl}&pot=${potoken}&c=WEB`);
+    fetchUrls.push(`${subtitleUrl}&c=WEB`);
 
-    // 策略 B：不帶 POToken 請求（部分影片/地區不需要）
-    if (!subtitleData) {
-      console.log('[YT API] Trying without POToken...');
+    for (const url of fetchUrls) {
       try {
-        const resp = await fetch(`${subtitleUrl}&c=WEB`);
+        const resp = await fetch(url);
         if (resp.ok) {
           const data = await resp.text();
-          if (data.includes('<')) subtitleData = data;
+          if (data.includes('<')) { subtitleData = data; break; }
         }
       } catch (e) {
-        console.log('[YT API] Fetch without POToken also failed:', e);
+        console.log('[YT API] Fetch failed:', e);
       }
     }
 
