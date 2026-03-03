@@ -279,7 +279,10 @@ export async function callAPI({
     } else {
         userSystemPrompt = '';
     }
-    const processedSystemPrompt = userSystemPrompt.replace(/\{\{userLanguage\}\}/gm, userLanguage);
+    const userLanguageName = new Intl.DisplayNames(['en'], { type: 'language' }).of(userLanguage);
+    const processedSystemPrompt = userSystemPrompt
+        .replace(/\{\{userLanguageName\}\}/gm, userLanguageName)
+        .replace(/\{\{userLanguage\}\}/gm, userLanguage);
 
     if (webpageInfo && webpageInfo.pages && webpageInfo.pages.length > 0) {
         const pagesContent = webpageInfo.pages.map(page => {
