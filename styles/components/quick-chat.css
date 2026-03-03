@@ -381,13 +381,12 @@
     justify-content: center;
     width: 32px;
     height: 32px;
-    border-radius: 4px;
+    border-radius: 18px;
     position: relative;
 }
 
 .quick-chat-option-button:hover {
     opacity: 1;
-    background-color: var(--cerebr-button-hover-bg);
 }
 
 .quick-chat-option-button.delete {
@@ -397,6 +396,7 @@
 
 .quick-chat-option-button.delete:hover {
     opacity: 1;
+    border-radius: 18px;
     background-color: #ac0000;
 }
 
@@ -483,7 +483,6 @@
 
 .quick-chat-option-button.expand:hover {
     opacity: 1;
-    background-color: var(--cerebr-button-hover-bg);
 }
 
 /* Quick Chat Prompt Modal Styles */

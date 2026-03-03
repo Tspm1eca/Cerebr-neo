@@ -42,6 +42,9 @@ export function initAPICard({
     }
 
     const profileSelector = card.querySelector('.profile-selector');
+    const profileSelectorText = card.querySelector('.profile-selector-text');
+    const profileSelectorContainer = card.querySelector('.profile-selector-container');
+    const profileListDropdown = card.querySelector('.profile-list-dropdown');
     const renameProfileBtn = card.querySelector('.rename-profile-btn');
     const addProfileBtn = card.querySelector('.add-profile-btn');
     const deleteProfileBtn = card.querySelector('.delete-profile-btn');
@@ -66,18 +69,76 @@ export function initAPICard({
     let modelCache = {};
     let highlightedIndex = -1;
 
+    // profile 下拉菜單高亮索引
+    let profileHighlightedIndex = -1;
+
+    // 切換 profile 下拉菜單顯示
+    function toggleProfileDropdown(show) {
+        if (show) {
+            renderProfileList();
+            profileListDropdown.classList.add('visible');
+            profileSelectorContainer.classList.add('open');
+            profileHighlightedIndex = selectedIndex;
+            updateProfileHighlight();
+        } else {
+            profileListDropdown.classList.remove('visible');
+            profileSelectorContainer.classList.remove('open');
+            profileHighlightedIndex = -1;
+        }
+    }
+
+    function isProfileDropdownOpen() {
+        return profileListDropdown.classList.contains('visible');
+    }
+
+    // 渲染 profile 列表項
+    function renderProfileList() {
+        profileListDropdown.innerHTML = '';
+        apiConfigs.forEach((config, index) => {
+            const item = document.createElement('div');
+            item.className = 'profile-list-item' + (index === selectedIndex ? ' selected' : '');
+            item.textContent = config.profileName || `配置 ${index + 1}`;
+            item.dataset.index = index;
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                selectProfile(index);
+            });
+            profileListDropdown.appendChild(item);
+        });
+    }
+
+    function updateProfileHighlight() {
+        const items = profileListDropdown.querySelectorAll('.profile-list-item');
+        items.forEach((item, i) => {
+            item.classList.toggle('highlighted', i === profileHighlightedIndex);
+        });
+        if (profileHighlightedIndex >= 0 && items[profileHighlightedIndex]) {
+            items[profileHighlightedIndex].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    function selectProfile(index) {
+        if (index === selectedIndex) {
+            toggleProfileDropdown(false);
+            return;
+        }
+        saveCurrentForm();
+        selectedIndex = index;
+        updateProfileSelectorText();
+        updateFormContent(getCurrentConfig());
+        onProfileChange(selectedIndex);
+        toggleProfileDropdown(false);
+    }
+
+    // 更新顯示文字
+    function updateProfileSelectorText() {
+        const config = getCurrentConfig();
+        profileSelectorText.textContent = config?.profileName || `配置 ${selectedIndex + 1}`;
+    }
+
     // 更新 profile 下拉选单
     function updateProfileSelector() {
-        profileSelector.innerHTML = '';
-        apiConfigs.forEach((config, index) => {
-            const option = document.createElement('option');
-            option.value = index;
-            option.textContent = config.profileName || `配置 ${index + 1}`;
-            if (index === selectedIndex) {
-                option.selected = true;
-            }
-            profileSelector.appendChild(option);
-        });
+        updateProfileSelectorText();
     }
 
     // 更新表单内容
@@ -117,15 +178,41 @@ export function initAPICard({
     updateProfileSelector();
     updateFormContent(getCurrentConfig());
 
-    // Profile 选择器变更事件
-    profileSelector.addEventListener('change', (e) => {
-        // 先保存当前配置
-        saveCurrentForm();
+    // Profile 選擇器點擊事件
+    profileSelector.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleProfileDropdown(!isProfileDropdownOpen());
+    });
 
-        const newIndex = parseInt(e.target.value, 10);
-        selectedIndex = newIndex;
-        updateFormContent(getCurrentConfig());
-        onProfileChange(newIndex);
+    // Profile 選擇器鍵盤事件
+    profileSelector.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggleProfileDropdown(!isProfileDropdownOpen());
+        } else if (e.key === 'Escape') {
+            toggleProfileDropdown(false);
+        } else if (isProfileDropdownOpen()) {
+            const items = profileListDropdown.querySelectorAll('.profile-list-item');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                profileHighlightedIndex = Math.min(profileHighlightedIndex + 1, items.length - 1);
+                updateProfileHighlight();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                profileHighlightedIndex = Math.max(profileHighlightedIndex - 1, 0);
+                updateProfileHighlight();
+            } else if (e.key === 'Enter' && profileHighlightedIndex >= 0) {
+                e.preventDefault();
+                selectProfile(profileHighlightedIndex);
+            }
+        }
+    });
+
+    // 點擊外部關閉下拉菜單
+    document.addEventListener('click', (e) => {
+        if (!profileSelectorContainer.contains(e.target)) {
+            toggleProfileDropdown(false);
+        }
     });
 
     // 新增配置按钮

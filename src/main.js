@@ -1711,6 +1711,25 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
        });
    });
 
+   // Version check
+   (async () => {
+       try {
+           const currentVersion = chrome.runtime.getManifest().version;
+           const resp = await fetch('https://api.github.com/repos/Tspm1eca/Cerebr-neo/releases/latest');
+           if (!resp.ok) return;
+           const release = await resp.json();
+           const latestVersion = release.tag_name.replace(/^v/, '');
+           if (latestVersion !== currentVersion) {
+               const badge = document.getElementById('version-badge');
+               badge.textContent = `New: v${latestVersion}`;
+               badge.href = `https://github.com/Tspm1eca/Cerebr-neo/releases/tag/${release.tag_name}`;
+               badge.style.display = '';
+           }
+       } catch (e) {
+           // silently ignore version check failures
+       }
+   })();
+
     // API 设置功能
     const apiCards = unifiedSettingsPage.querySelector('.api-cards');
 

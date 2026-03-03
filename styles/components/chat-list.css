@@ -165,6 +165,10 @@
     background-color: var(--cerebr-button-hover-bg);
 }
 
+.chat-card .card-button.webpage-url-btn:hover {
+    background-color: transparent;
+}
+
 .chat-card .card-button.delete-btn:hover {
     background-color: #ac0000;
 }
@@ -227,7 +231,7 @@
 
 .clear-search-btn:hover {
     opacity: 1;
-    background-color: var(--cerebr-button-hover-bg);
+    border-radius: 18px;
 }
 
 .clear-search-btn svg {

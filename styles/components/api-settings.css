@@ -60,14 +60,60 @@
     transition: background-color 0.2s ease;
 }
 
-.back-button:hover {
-    background-color: var(--cerebr-message-user-bg);
+.back-button svg {
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.back-button:hover svg {
+    transform: scale(1.25);
 }
 
 .settings-title {
     font-size: 16px;
     font-weight: 500;
     color: var(--cerebr-text-color);
+}
+
+.settings-header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.github-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: 18px;
+    color: var(--cerebr-text-color);
+    opacity: 0.6;
+    background: none;
+    transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+
+.github-link:hover {
+    opacity: 1;
+    border-radius: 18px;
+}
+
+.version-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #fff;
+    background-color: #e53e3e;
+    border-radius: 10px;
+    text-decoration: none;
+    transition: background-color 0.2s ease;
+    white-space: nowrap;
+}
+
+.version-badge:hover {
+    background-color: #c53030;
 }
 
 .api-card:hover,
@@ -105,20 +151,22 @@
     justify-content: center;
     width: 32px;
     height: 32px;
-    border-radius: 4px;
+    border-radius: 18px;
     position: relative;
 }
 
 .card-button:hover {
     opacity: 1;
-    background-color: var(--cerebr-button-hover-bg);
+    border-radius: 18px;
 }
 
 .card-button.delete-btn:hover {
+    border-radius: 18px;
     background-color: #ac0000;
 }
 
 .card-button.delete-profile-btn:hover {
+    border-radius: 18px;
     background-color: #ac0000;
 }
 
@@ -281,6 +329,7 @@
     margin: 0;
 }
 
+.expand-prompt-btn,
 .reset-prompt-btn {
     background: none;
     border: none;
@@ -288,7 +337,7 @@
     cursor: pointer;
     color: var(--cerebr-text-color);
     opacity: 0.6;
-    border-radius: 4px;
+    border-radius: 18px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -298,7 +347,15 @@
 .system-prompt-actions .reset-prompt-btn:hover,
 .setting-header .reset-prompt-btn:hover {
     opacity: 1;
+    border-radius: 18px;
     background-color: #ac0000;
+}
+
+.system-prompt-actions .expand-prompt-btn:hover,
+.setting-header .expand-prompt-btn:hover {
+    opacity: 1;
+    background-color: transparent;
+
 }
 
 .system-prompt {
@@ -337,19 +394,16 @@
 .profile-selector {
     width: 100%;
     padding: 8px 12px;
+    padding-right: 30px;
     background: var(--cerebr-message-ai-bg);
     border: 1px solid var(--cerebr-card-border-color);
     border-radius: 4px;
     color: var(--cerebr-text-color);
     font-size: 14px;
     cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 12px center;
-    padding-right: 36px;
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
 }
 
 .profile-selector:focus {
@@ -358,10 +412,61 @@
     box-shadow: 0 0 0 1px var(--cerebr-highlight-border-color);
 }
 
-.profile-selector option {
-    background: var(--cerebr-bg-color);
-    color: var(--cerebr-text-color);
+.profile-selector-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.profile-selector-arrow {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0.6;
+    transition: transform 0.2s ease;
+    pointer-events: none;
+}
+
+.profile-selector-container.open .profile-selector-arrow {
+    transform: translateY(-50%) rotate(180deg);
+}
+
+.profile-list-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--cerebr-message-ai-bg);
+    border: 1px solid var(--cerebr-card-border-color);
+    border-radius: 4px;
+    max-height: 150px;
+    overflow-y: auto;
+    z-index: 10;
+}
+
+.profile-list-dropdown.visible {
+    display: block;
+}
+
+.profile-list-item {
     padding: 8px;
+    cursor: pointer;
+}
+
+.profile-list-item:hover,
+.profile-list-item.highlighted {
+    background-color: var(--cerebr-button-hover-bg);
+}
+
+.profile-list-item.selected {
+    background-color: transparent;
+}
+
+.profile-list-item.selected:hover {
+    background-color: var(--cerebr-button-hover-bg);
 }
 
 .profile-actions {
