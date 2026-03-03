@@ -192,18 +192,41 @@
     border: 1px solid var(--cerebr-card-border-color);
     border-radius: 6px;
     margin-top: 2px;
+    /* 展開/收合動畫 */
+    overflow: hidden;
+    max-height: 300px;
+    opacity: 1;
+    transition: max-height 0.35s ease, opacity 0.25s ease 0.05s, margin-top 0.35s ease, padding 0.35s ease, border-color 0.35s ease;
+}
+
+.webdav-sync-api-section.collapsed {
+    max-height: 0;
+    opacity: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-top: 0;
+    border-color: transparent;
+    transition: max-height 0.3s ease, opacity 0.2s ease, margin-top 0.3s ease, padding 0.3s ease, border-color 0.3s ease;
 }
 
 /* API 警告提示 */
 .webdav-api-warning {
     font-size: 11px;
     color: var(--cerebr-text-color);
-    /* padding: 4px 8px; */
-    /* padding-bottom: 8px; */
     display: flex;
     justify-content: center;
     align-items: center;
     line-height: 1.4;
+    /* 展開/收合動畫 */
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.3s ease, opacity 0.25s ease;
+}
+
+.webdav-api-warning.visible {
+    max-height: 40px;
+    opacity: 1;
 }
 
 .webdav-api-warning strong {
@@ -236,6 +259,19 @@
     flex-shrink: 0;
 }
 
+/* 需要密码警告樣式 */
+.webdav-api-warning .warning-need-password {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #ef4444;
+    opacity: 1;
+}
+
+.webdav-api-warning .warning-need-password svg {
+    flex-shrink: 0;
+}
+
 .webdav-sync-api-group {
     flex-direction: row !important;
     align-items: center;
@@ -263,8 +299,7 @@
 
 /* 加密密碼輸入組 */
 .webdav-encryption-password-group {
-    transition: opacity 0.2s ease, max-height 0.3s ease;
-    overflow: hidden;
+    transition: opacity 0.2s ease;
 }
 
 .webdav-encryption-password-group.disabled {

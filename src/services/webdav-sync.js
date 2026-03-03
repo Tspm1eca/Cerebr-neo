@@ -559,6 +559,13 @@ class WebDAVSyncManager {
     }
 
     /**
+     * 加密已启用但缺少密码
+     */
+    _isEncryptionIncomplete() {
+        return this.config.encryptApiKeys && !this.config.encryptionPassword;
+    }
+
+    /**
      * 保存 checkSyncStatus 結果到記憶體快取及跨分頁共享存儲
      * @param {Object} result - checkSyncStatus 結果
      */
@@ -836,6 +843,10 @@ class WebDAVSyncManager {
             throw new Error('WebDAV未启用');
         }
 
+        if (this._isEncryptionIncomplete()) {
+            throw new Error('加密已启用但未设置加密密码');
+        }
+
         if (this.client.syncInProgress) {
             throw new Error('同步正在进行中');
         }
@@ -1019,6 +1030,10 @@ class WebDAVSyncManager {
     async syncFromRemote(options = {}) {
         if (!this.config.enabled) {
             throw new Error('WebDAV 未启用');
+        }
+
+        if (this._isEncryptionIncomplete()) {
+            throw new Error('加密已启用但未设置加密密码');
         }
 
         if (this.client.syncInProgress) {
@@ -1831,6 +1846,12 @@ class WebDAVSyncManager {
             return { synced: false, direction: null, result: null, error: null, conflict: null };
         }
 
+        // 加密已启用但未设置密码时，跳过自动同步
+        if (this._isEncryptionIncomplete()) {
+            console.log('[WebDAV] syncOnOpen 跳过：加密已启用但未设置加密密码');
+            return { synced: false, direction: null, result: null, error: null, conflict: null };
+        }
+
         try {
             const status = await this.checkSyncStatus();
 
@@ -1875,6 +1896,12 @@ class WebDAVSyncManager {
      */
     async syncOnClose() {
         if (!this.config.enabled) {
+            return { synced: false, result: null, error: null };
+        }
+
+        // 加密已启用但未设置密码时，跳过自动同步
+        if (this._isEncryptionIncomplete()) {
+            console.log('[WebDAV] syncOnClose 跳过：加密已启用但未设置加密密码');
             return { synced: false, result: null, error: null };
         }
 

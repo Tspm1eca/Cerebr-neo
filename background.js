@@ -532,6 +532,12 @@ async function performWebDAVSyncUpload() {
         const { webdav_config: config } = await syncStorage.get('webdav_config');
         if (!config || !config.enabled) return;
 
+        // 加密已启用但未设置密码时，跳过 SW 同步
+        if (config.encryptApiKeys && !config.encryptionPassword) {
+            console.log('[WebDAV SW] 加密已启用但未设置加密密码，跳过同步');
+            return;
+        }
+
         // 2. 讀取 dirty chat IDs（重新讀取，可能已被面板清除）
         const { cerebr_dirty_chat_ids: dirtyIds } = await chrome.storage.local.get('cerebr_dirty_chat_ids');
         if (!dirtyIds || dirtyIds.length === 0) return;

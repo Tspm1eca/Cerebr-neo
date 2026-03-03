@@ -153,7 +153,10 @@ class WebDAVSettingsController {
         } = this.elements;
 
         // 启用开关事件
-        enabledSwitch?.addEventListener('change', () => this.saveSettings());
+        enabledSwitch?.addEventListener('change', () => {
+            this.saveSettings();
+            this.updateEncryptionFieldsState();
+        });
 
         // 服务器地址输入事件
         serverUrl?.addEventListener('change', () => this.saveSettings());
@@ -190,7 +193,13 @@ class WebDAVSettingsController {
         });
 
         // 加密密码输入事件
-        encryptionPassword?.addEventListener('change', () => this.saveSettings());
+        encryptionPassword?.addEventListener('change', () => {
+            this.saveSettings();
+            this.updateEncryptionFieldsState();
+        });
+        encryptionPassword?.addEventListener('input', () => {
+            this.updateEncryptionFieldsState();
+        });
         encryptionPassword?.addEventListener('click', (e) => e.stopPropagation());
 
         // 加密密码显示/隐藏切换
@@ -246,6 +255,16 @@ class WebDAVSettingsController {
 
         // 更新表单禁用状态
         this.updateFormState(config.enabled);
+
+        // 初始載入時跳過動畫
+        const apiSection = document.querySelector('.webdav-sync-api-section');
+        if (apiSection) {
+            apiSection.style.transition = 'none';
+            apiSection.offsetHeight; // 強制 reflow
+            requestAnimationFrame(() => {
+                apiSection.style.transition = '';
+            });
+        }
 
         // 更新加密字段状态
         this.updateEncryptionFieldsState();
@@ -308,6 +327,16 @@ class WebDAVSettingsController {
                 form.classList.add('disabled');
             }
         }
+
+        // 展開/收合同步 API 配置區域
+        const apiSection = document.querySelector('.webdav-sync-api-section');
+        if (apiSection) {
+            if (enabled) {
+                apiSection.classList.remove('collapsed');
+            } else {
+                apiSection.classList.add('collapsed');
+            }
+        }
     }
 
     /**
@@ -315,12 +344,16 @@ class WebDAVSettingsController {
      */
     updateEncryptionFieldsState() {
         const {
+            enabledSwitch,
             syncApiSwitch,
             encryptApiSwitch,
             encryptionPassword,
-            encryptionPasswordGroup
+            encryptionPasswordGroup,
+            syncUpload,
+            syncDownload
         } = this.elements;
 
+        const webdavEnabled = enabledSwitch?.checked || false;
         const syncApiEnabled = syncApiSwitch?.checked || false;
         const encryptEnabled = encryptApiSwitch?.checked || false;
 
@@ -348,29 +381,51 @@ class WebDAVSettingsController {
             }
         }
 
-        // 更新警告提示
-        this.updateWarningDisplay(syncApiEnabled && encryptEnabled);
+        // 更新警告提示（區域顯隱已由 webdav-sync-api-section 的收合動畫處理）
+        const hasPassword = !!(encryptionPassword?.value);
+        this.updateWarningDisplay(syncApiEnabled, encryptEnabled, hasPassword);
+
+        // 更新同步按钮状态：WebDAV 未启用或加密开启但未输入密码时禁用
+        const shouldDisable = !webdavEnabled || (syncApiEnabled && encryptEnabled && !hasPassword);
+        if (syncUpload) syncUpload.disabled = shouldDisable;
+        if (syncDownload) syncDownload.disabled = shouldDisable;
     }
 
     /**
      * 更新警告提示显示
+     * @param {boolean} syncApiEnabled - 是否启用同步 API 配置
      * @param {boolean} isEncrypted - 是否启用加密
+     * @param {boolean} hasPassword - 是否已输入加密密码
      */
-    updateWarningDisplay(isEncrypted) {
+    updateWarningDisplay(syncApiEnabled, isEncrypted, hasPassword) {
         const warningContainer = document.getElementById('webdav-api-warning');
         if (!warningContainer) return;
 
         const unencryptedWarning = warningContainer.querySelector('.warning-unencrypted');
         const encryptedWarning = warningContainer.querySelector('.warning-encrypted');
+        const needPasswordWarning = warningContainer.querySelector('.warning-need-password');
 
-        if (unencryptedWarning && encryptedWarning) {
-            if (isEncrypted) {
-                unencryptedWarning.style.display = 'none';
+        if (unencryptedWarning && encryptedWarning && needPasswordWarning) {
+            // 同步 API 配置關閉時收合警告（內容由 overflow:hidden 隱藏）
+            if (!syncApiEnabled) {
+                warningContainer.classList.remove('visible');
+                return;
+            }
+
+            // 切換內部警告類型
+            unencryptedWarning.style.display = 'none';
+            encryptedWarning.style.display = 'none';
+            needPasswordWarning.style.display = 'none';
+
+            // 按条件显示对应警告
+            if (isEncrypted && hasPassword) {
                 encryptedWarning.style.display = 'flex';
+            } else if (isEncrypted) {
+                needPasswordWarning.style.display = 'flex';
             } else {
                 unencryptedWarning.style.display = 'flex';
-                encryptedWarning.style.display = 'none';
             }
+            warningContainer.classList.add('visible');
         }
     }
 

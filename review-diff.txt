@@ -1,0 +1,242 @@
+diff --git a/background.js b/background.js
+index 5fb5204..96c962c 100644
+--- a/background.js
++++ b/background.js
+@@ -531,8 +531,14 @@ async function performWebDAVSyncUpload() {
+         const syncStorage = await getSyncStorage();
+         const { webdav_config: config } = await syncStorage.get('webdav_config');
+         if (!config || !config.enabled) return;
+ 
++        // 加密已启用但未设置密码时，跳过 SW 同步
++        if (config.encryptApiKeys && !config.encryptionPassword) {
++            console.log('[WebDAV SW] 加密已启用但未设置加密密码，跳过同步');
++            return;
++        }
++
+         // 2. 讀取 dirty chat IDs（重新讀取，可能已被面板清除）
+         const { cerebr_dirty_chat_ids: dirtyIds } = await chrome.storage.local.get('cerebr_dirty_chat_ids');
+         if (!dirtyIds || dirtyIds.length === 0) return;
+ 
+diff --git a/index.html b/index.html
+index e729789..0f4769e 100644
+--- a/index.html
++++ b/index.html
+@@ -519,8 +519,16 @@
+                                                 <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                             </svg>
+                                             <strong>API 配置以加密储存</strong>
+                                         </span>
++                                        <span class="warning-need-password" style="display: none;">
++                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
++                                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
++                                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
++                                                <line x1="12" y1="16" x2="12" y2="16.01" stroke-width="3" stroke-linecap="round"></line>
++                                            </svg>
++                                            <strong>请输入加密密码以启用同步</strong>
++                                        </span>
+                                     </div>
+                                 </div>
+ 
+                                 <!-- 同步操作按鈕 -->
+diff --git a/src/components/webdav-settings.js b/src/components/webdav-settings.js
+index 449e7b9..63ecc6d 100644
+--- a/src/components/webdav-settings.js
++++ b/src/components/webdav-settings.js
+@@ -152,9 +152,12 @@ class WebDAVSettingsController {
+             syncDownload
+         } = this.elements;
+ 
+         // 启用开关事件
+-        enabledSwitch?.addEventListener('change', () => this.saveSettings());
++        enabledSwitch?.addEventListener('change', () => {
++            this.saveSettings();
++            this.updateEncryptionFieldsState();
++        });
+ 
+         // 服务器地址输入事件
+         serverUrl?.addEventListener('change', () => this.saveSettings());
+         serverUrl?.addEventListener('click', (e) => e.stopPropagation());
+@@ -189,9 +192,12 @@ class WebDAVSettingsController {
+             this.updateEncryptionFieldsState();
+         });
+ 
+         // 加密密码输入事件
+-        encryptionPassword?.addEventListener('change', () => this.saveSettings());
++        encryptionPassword?.addEventListener('change', () => {
++            this.saveSettings();
++            this.updateEncryptionFieldsState();
++        });
+         encryptionPassword?.addEventListener('click', (e) => e.stopPropagation());
+ 
+         // 加密密码显示/隐藏切换
+         toggleEncryptionPassword?.addEventListener('click', (e) => {
+@@ -314,14 +320,16 @@ class WebDAVSettingsController {
+      * 更新加密字段的启用/禁用状态
+      */
+     updateEncryptionFieldsState() {
+         const {
++            enabledSwitch,
+             syncApiSwitch,
+             encryptApiSwitch,
+             encryptionPassword,
+             encryptionPasswordGroup
+         } = this.elements;
+ 
++        const webdavEnabled = enabledSwitch?.checked || false;
+         const syncApiEnabled = syncApiSwitch?.checked || false;
+         const encryptEnabled = encryptApiSwitch?.checked || false;
+ 
+         // 加密开关只有在同步 API 配置启用时才可用
+@@ -348,29 +356,62 @@ class WebDAVSettingsController {
+             }
+         }
+ 
+         // 更新警告提示
+-        this.updateWarningDisplay(syncApiEnabled && encryptEnabled);
++        const hasPassword = !!(encryptionPassword?.value);
++        this.updateWarningDisplay(webdavEnabled, syncApiEnabled && encryptEnabled, hasPassword);
++
++        // 更新同步按钮状态：加密开启但未输入密码时禁用
++        this.updateSyncButtonsState(syncApiEnabled && encryptEnabled && !hasPassword);
++    }
++
++    /**
++     * 更新同步按钮的启用/禁用状态
++     * @param {boolean} shouldDisable - 是否禁用按钮
++     */
++    updateSyncButtonsState(shouldDisable) {
++        const { syncUpload, syncDownload } = this.elements;
++
++        if (syncUpload) {
++            syncUpload.disabled = shouldDisable;
++        }
++        if (syncDownload) {
++            syncDownload.disabled = shouldDisable;
++        }
+     }
+ 
+     /**
+      * 更新警告提示显示
++     * @param {boolean} webdavEnabled - WebDAV 是否启用
+      * @param {boolean} isEncrypted - 是否启用加密
++     * @param {boolean} hasPassword - 是否已输入加密密码
+      */
+-    updateWarningDisplay(isEncrypted) {
++    updateWarningDisplay(webdavEnabled, isEncrypted, hasPassword = true) {
+         const warningContainer = document.getElementById('webdav-api-warning');
+         if (!warningContainer) return;
+ 
+         const unencryptedWarning = warningContainer.querySelector('.warning-unencrypted');
+         const encryptedWarning = warningContainer.querySelector('.warning-encrypted');
++        const needPasswordWarning = warningContainer.querySelector('.warning-need-password');
+ 
+-        if (unencryptedWarning && encryptedWarning) {
+-            if (isEncrypted) {
++        if (unencryptedWarning && encryptedWarning && needPasswordWarning) {
++            if (!webdavEnabled) {
++                // WebDAV 未启用时隐藏所有警告
++                unencryptedWarning.style.display = 'none';
++                encryptedWarning.style.display = 'none';
++                needPasswordWarning.style.display = 'none';
++            } else if (isEncrypted && hasPassword) {
+                 unencryptedWarning.style.display = 'none';
+                 encryptedWarning.style.display = 'flex';
++                needPasswordWarning.style.display = 'none';
++            } else if (isEncrypted && !hasPassword) {
++                unencryptedWarning.style.display = 'none';
++                encryptedWarning.style.display = 'none';
++                needPasswordWarning.style.display = 'flex';
+             } else {
+                 unencryptedWarning.style.display = 'flex';
+                 encryptedWarning.style.display = 'none';
++                needPasswordWarning.style.display = 'none';
+             }
+         }
+     }
+ 
+diff --git a/src/services/webdav-sync.js b/src/services/webdav-sync.js
+index bf03597..0cb2885 100644
+--- a/src/services/webdav-sync.js
++++ b/src/services/webdav-sync.js
+@@ -835,8 +835,12 @@ class WebDAVSyncManager {
+         if (!this.config.enabled) {
+             throw new Error('WebDAV未启用');
+         }
+ 
++        if (this.config.encryptApiKeys && !this.config.encryptionPassword) {
++            throw new Error('加密已启用但未设置加密密码');
++        }
++
+         if (this.client.syncInProgress) {
+             throw new Error('同步正在进行中');
+         }
+ 
+@@ -1020,8 +1024,12 @@ class WebDAVSyncManager {
+         if (!this.config.enabled) {
+             throw new Error('WebDAV 未启用');
+         }
+ 
++        if (this.config.encryptApiKeys && !this.config.encryptionPassword) {
++            throw new Error('加密已启用但未设置加密密码');
++        }
++
+         if (this.client.syncInProgress) {
+             throw new Error('同步正在进行中');
+         }
+ 
+@@ -1830,8 +1838,14 @@ class WebDAVSyncManager {
+         if (!this.config.enabled) {
+             return { synced: false, direction: null, result: null, error: null, conflict: null };
+         }
+ 
++        // 加密已启用但未设置密码时，跳过自动同步
++        if (this.config.encryptApiKeys && !this.config.encryptionPassword) {
++            console.log('[WebDAV] syncOnOpen 跳过：加密已启用但未设置加密密码');
++            return { synced: false, direction: null, result: null, error: null, conflict: null };
++        }
++
+         try {
+             const status = await this.checkSyncStatus();
+ 
+             if (!status.needsSync) {
+@@ -1877,8 +1891,14 @@ class WebDAVSyncManager {
+         if (!this.config.enabled) {
+             return { synced: false, result: null, error: null };
+         }
+ 
++        // 加密已启用但未设置密码时，跳过自动同步
++        if (this.config.encryptApiKeys && !this.config.encryptionPassword) {
++            console.log('[WebDAV] syncOnClose 跳过：加密已启用但未设置加密密码');
++            return { synced: false, result: null, error: null };
++        }
++
+         const now = Date.now();
+         if ((now - this._lastSyncOnCloseTime) < SYNC_ON_CLOSE_THROTTLE_MS) {
+             console.log('[WebDAV] syncOnClose 节流：距离上次同步不到 ' + (SYNC_ON_CLOSE_THROTTLE_MS / 1000) + ' 秒，跳过');
+             return { synced: false, result: null, error: null };
+diff --git a/styles/components/webdav-sync.css b/styles/components/webdav-sync.css
+index 9d06f6c..ddd3dc2 100644
+--- a/styles/components/webdav-sync.css
++++ b/styles/components/webdav-sync.css
+@@ -235,8 +235,21 @@
+ .webdav-api-warning .warning-encrypted svg {
+     flex-shrink: 0;
+ }
+ 
++/* 需要密码警告樣式 */
++.webdav-api-warning .warning-need-password {
++    display: flex;
++    align-items: center;
++    gap: 6px;
++    color: #ef4444;
++    opacity: 1;
++}
++
++.webdav-api-warning .warning-need-password svg {
++    flex-shrink: 0;
++}
++
+ .webdav-sync-api-group {
+     flex-direction: row !important;
+     align-items: center;
+     justify-content: space-between;
