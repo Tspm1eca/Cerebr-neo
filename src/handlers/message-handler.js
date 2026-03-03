@@ -240,7 +240,7 @@ export async function appendMessage({
         // 添加文本容器
         const reasoningTextDiv = document.createElement('div');
         reasoningTextDiv.className = 'reasoning-text';
-        reasoningTextDiv.innerHTML = processMathAndMarkdown(reasoningContent, { timestamps: isYouTubeChat() }).trim();
+        reasoningTextDiv.innerHTML = processMathAndMarkdown(reasoningContent.replace(/\\n/g, '\n'), { timestamps: isYouTubeChat() }).trim();
         reasoningDiv.appendChild(reasoningTextDiv);
 
         // 添加点击事件处理折叠/展开
@@ -791,7 +791,7 @@ export async function updateAIMessage({
                 // 更新原始文本属性
                 reasoningTextDiv.setAttribute('data-original-text', reasoningContent);
                 // 更新显示内容
-                reasoningTextDiv.innerHTML = processMathAndMarkdown(reasoningContent, { timestamps: isYouTubeChat() }).trim();
+                reasoningTextDiv.innerHTML = processMathAndMarkdown(reasoningContent.replace(/\\n/g, '\n'), { timestamps: isYouTubeChat() }).trim();
                 if (textMayContainMath(reasoningContent)) {
                     await renderMathInElement(reasoningTextDiv);
                 }
