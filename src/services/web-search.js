@@ -259,29 +259,28 @@ function normalizeExaResponse(exaResponse, query) {
 /**
  * 格式化 Tavily 搜索結果為系統提示格式
  * @param {TavilySearchResponse} searchResponse - Tavily 搜索響應
- * @param {string} [userLanguage='zh-TW'] - 用戶語言
+ * @param {string} [userLanguage=navigator.language] - 用戶語言
  * @returns {string} 格式化的搜索結果文本
  */
-export function formatSearchResultsForPrompt(searchResponse, userLanguage = 'zh-TW') {
+export function formatSearchResultsForPrompt(searchResponse) {
     if (!searchResponse || !searchResponse.results || searchResponse.results.length === 0) {
         return '';
     }
 
-    const isChineseUser = userLanguage.startsWith('zh');
-    const header = isChineseUser ? '網絡搜索結果' : 'Web Search Results';
-    const answerLabel = isChineseUser ? 'AI 摘要' : 'AI Summary';
-    const sourceLabel = isChineseUser ? '來源' : 'Source';
+    const header = 'Web Search Results';
+    const answerLabel = 'AI Summary';
+    const sourceLabel = 'Source';
 
-    let formattedText = `--- ${header} ---\n`;
-    formattedText += `查詢: "${searchResponse.query}"\n`;
+    let formattedText = `# ${header}\n`;
+    formattedText += `Query: "${searchResponse.query}"\n`;
 
     // 如果有 AI 生成的答案，先顯示
     if (searchResponse.answer) {
-        formattedText += `\n${answerLabel}:\n${searchResponse.answer}\n`;
+        formattedText += `\n## ${answerLabel}:\n${searchResponse.answer}\n`;
     }
 
     // 格式化每個搜索結果
-    formattedText += `\n${sourceLabel}:\n`;
+    formattedText += `\n## ${sourceLabel}:\n`;
     searchResponse.results.forEach((result) => {
         const titleText = result.title || '';
         const contentText = result.content || '';

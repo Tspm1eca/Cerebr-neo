@@ -1130,8 +1130,8 @@ async function extractPageContent(skipWaitContent = false) {
         let content = `# ${title}\n`;
         if (channel) content += `Channel: ${channel}\n`;
         content += `URL: ${window.location.href}\n\n`;
-        if (description) content += `## Description\n${description}\n\n`;
-        content += `## Transcript\n${transcript}`;
+        if (description) content += `### Description\n${description}\n`;
+        content += `### Transcript\n${transcript}`;
 
         console.log('YouTube 字幕提取完成，內容長度:', content.length);
         return { title, url: window.location.href, content };
@@ -1323,6 +1323,7 @@ async function extractPageContent(skipWaitContent = false) {
     mainContent = mainContent
       // GFM 表格插件會把表格單元格中的換行轉成字面 <br>，在此還原為真正的換行
       .replace(/(?:\s*<br\s*\/?>\s*)+/gi, '\n')
+      .replace(/^(#{1,4})\s/gm, '##$1 ')  // 標題層級下移 2 級，避免與系統提示詞的 # / ## 結構衝突
       .replace(/\[([^\]]*\n[^\]]*)\]\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g, (_, inner, url) => {
         // 修復多行連結：將包含換行的連結文字壓縮為單行
         // 文字為空時（如圖片連結被清除後）整個連結移除
