@@ -379,6 +379,13 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 }
             }
         } finally {
+            // 安全網：確保連線被中止（abort 是冪等的，重複呼叫無副作用）
+            if (currentController) {
+                currentController.abort();
+                currentController = null;
+            }
+            abortControllerRef.current = null;
+
             // 清除串流標記
             chatManager.setStreamingChatId(null);
             // 恢復按鈕顯示：使用 CSS 類觸發動畫

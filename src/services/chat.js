@@ -17,9 +17,9 @@ import {
 import { webSearch, tavilySearch, formatSearchResultsForPrompt, extractSearchQuery } from './web-search.js';
 
 // 超時配置（毫秒）
-const STREAM_TIMEOUT = 20000; // 流式響應超時：上次收到有效內容後 10 秒內無新內容則超時
-const FIRST_CHUNK_TIMEOUT = 30000; // 首次數據超時：30 秒內必須收到第一個數據塊
-const FETCH_TIMEOUT = 30000; // fetch 連線超時：30 秒內必須收到 HTTP 回應
+const STREAM_TIMEOUT = 45000; // 流式響應超時：上次收到有效內容後 45 秒內無新內容則超時
+const FIRST_CHUNK_TIMEOUT = 90000; // 首次數據超時：90 秒內必須收到第一個數據塊
+const FETCH_TIMEOUT = 20000; // fetch 連線超時：20 秒內必須收到 HTTP 回應
 
 /**
  * 超時錯誤類
@@ -897,6 +897,9 @@ export async function callAPI({
 
             return currentMessage;
         } catch (error) {
+            // 中止底層 HTTP 連線，避免超時後連線仍掛著
+            controller.abort();
+
             // 無論錯誤類型，都嘗試保存已接收的部分內容，避免資料遺失
             if (chatManager && chatId && (currentMessage.content || currentMessage.reasoning_content)) {
                 try {
