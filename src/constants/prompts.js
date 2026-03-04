@@ -1,4 +1,4 @@
-export const DEFAULT_SYSTEM_PROMPT = "# 連結格式\n回覆中有兩種連結，格式完全不同，不可混用。\n\n## 語言\n必須用{{userLanguageName}}回答問題。\n\n## A. 引用連結 — 引用網頁原文\n模板：[數字](#:~:text=原文片段)\n\n規則：\n- 方括號內只寫數字編號（[1]、[2]、[3]...），按順序遞增\n- 原文片段必須照抄網頁原文，禁止翻譯或改寫，上限50字符，選有辨識度的文字\n- 把編號附在句尾\n\n正確示範：全球能源報告。[1](#:~:text=global temperatures rose by 1.5°C)\n\n## B. 超連結 — 連結到URL代號\n模板：[描述文字](URLREF代號)\n\n規則：\n- 方括號內寫描述文字，語言必須與回覆一致\n- 圓括號內填URL代號，如 URLREF1、URLREF2（所有URL均以代號提供）\n\n正確示範：根據[全球能源報告](URLREF1)的最新數據顯示…\n\n## 速查\n| 類型 | 方括號寫什麼 | 圓括號寫什麼 | 示例 |\n|------|------------|------------|------|\n| 引用 | 數字 | #:~:text=原文 | [1](#:~:text=原文) |\n| 超連結 | 描述文字 | URLREF代號 | [全球能源報告](URLREF1) |";
+export const DEFAULT_SYSTEM_PROMPT = "# 連結格式\n回覆中有兩種連結，格式完全不同，不可混用。\n\n## 語言\n必須用{{userLanguageName}}回答問題。\n\n## A. 引用連結 — 引用網頁原文\n模板：[數字](#:~:text=原文片段)\n\n規則：\n- 方括號內只寫數字編號（[1]、[2]、[3]...），按順序遞增\n- 原文片段必須照抄網頁原文，禁止翻譯或改寫，上限50字符，選有辨識度的文字\n- 把編號附在句尾\n\n正確示範：全球能源報告。[1](#:~:text=global temperatures rose by 1.5°C)\n\n## B. 超連結 — 連結到URL代號\n模板：[描述文字](URLREF代號)\n\n規則：\n- 圓括號內填URL代號，如 URLREF1、URLREF2（所有URL均以代號提供）\n\n正確示範：根據[全球能源報告](URLREF1)的最新數據顯示…\n\n## 速查\n| 類型 | 方括號寫什麼 | 圓括號寫什麼 | 示例 |\n|------|------------|------------|------|\n| 引用 | 數字 | #:~:text=原文 | [1](#:~:text=原文) |\n| 超連結 | 描述文字 | URLREF代號 | [全球能源報告](URLREF1) |";
 
 export const WEB_SEARCH_SYSTEM_PROMPT = '# Role\nYou are a practical AI assistant that provides detailed answers based on search results.\n\n## Language\n- You must answer all questions in {{userLanguageName}}\n\n## Citation Rules (Mandatory)\nEach source in the search results is marked with a URL alias (URLREF1, URLREF2, ...). When citing, you must embed the alias as a Markdown link:\n- Format: [number](URLREF alias)\n- Correct: Miller was arrested and later faced federal charges.[1](URLREF1),[2](URLREF2)\n- Incorrect: Miller was arrested.[1] <- Missing link, this format is not allowed';
 
@@ -24,7 +24,7 @@ export const DEFAULT_QUICK_CHAT_OPTIONS = [
     {
         id: 'option-3',
         title: '列出新聞',
-        prompt: '```\n# 任務\n以表格方式列出不少於20條最重要的新聞\n\n## 表格格式\n| 譯文標題 | 原文標題 |\n| :--- | :--- |\n| 譯文標題 [1](#:~:text=原文片段) | <新聞連結> |\n| 譯文標題 [2](#:~:text=原文片段) | <新聞連結> |\n```',
+        prompt: '```\n# 任務\n以表格方式列出不少於20條最重要的新聞\n\n## 規則\n新聞連結需要使用原文語言\n\n## 表格格式\n| 譯文標題 | 原文標題 |\n| :--- | :--- |\n| 譯文標題 [1](#:~:text=原文片段) | <新聞連結> |\n| 譯文標題 [2](#:~:text=原文片段) | <新聞連結> |\n```',
         icon: '📰'
     }
 ];

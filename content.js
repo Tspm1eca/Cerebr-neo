@@ -1143,7 +1143,7 @@ async function extractPageContent(skipWaitContent = false) {
         let content = `# ${title}\n`;
         if (channel) content += `Channel: ${channel}\n`;
         content += `URL: ${window.location.href}\n\n`;
-        if (description) content += `### Description\n${description}\n`;
+        if (description) content += `### Description\n${description}\n\n`;
         content += `### Transcript\n${transcript}`;
 
         console.log('YouTube 字幕提取完成，內容長度:', content.length);
