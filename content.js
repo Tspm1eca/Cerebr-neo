@@ -985,15 +985,94 @@ async function getPoToken() {
   return null;
 }
 
+// --- YouTube 章節提取 ---
+
+function extractRendererTitle(r) {
+  return r?.title?.simpleText || r?.title?.runs?.map(x => x.text).join('') || '';
+}
+
+function extractYouTubeChapters(html) {
+  // 從頁面 HTML 中提取 ytInitialData，再從 engagementPanels 中找 macroMarkersListRenderer
+  let ytData = null;
+
+  // 嘗試從 HTML 中解析 ytInitialData JSON
+  const regex = /ytInitialData\s*=\s*(\{.*?\});\s*<\/script/s;
+  const match = html.match(regex);
+  if (match) {
+    try { ytData = JSON.parse(match[1]); } catch (e) {
+      console.log('[YT API] Failed to parse ytInitialData:', e.message);
+    }
+  }
+
+  if (!ytData) return null;
+
+  // 路徑 A：engagementPanels → macroMarkersListRenderer
+  const panels = ytData?.engagementPanels || [];
+  for (const panel of panels) {
+    const contents = panel?.engagementPanelSectionListRenderer?.content
+      ?.macroMarkersListRenderer?.contents;
+    if (!contents) continue;
+
+    const chapters = [];
+    for (const item of contents) {
+      const r = item?.macroMarkersListItemRenderer;
+      if (!r) continue;
+      const title = extractRendererTitle(r);
+      const startSec = r?.onTap?.watchEndpoint?.startTimeSeconds ?? null;
+      const timeLabel = r?.timeDescription?.simpleText || '';
+      if (title && startSec !== null) {
+        chapters.push({ title, startSec, timeLabel });
+      }
+    }
+    if (chapters.length > 0) {
+      console.log(`[YT API] Found ${chapters.length} chapters from macroMarkersListRenderer`);
+      return chapters;
+    }
+  }
+
+  // 路徑 B：playerOverlays → markersMap → DESCRIPTION_CHAPTERS / AUTO_CHAPTERS
+  const markersMap = ytData?.playerOverlays?.playerOverlayRenderer
+    ?.decoratedPlayerBarRenderer?.decoratedPlayerBarRenderer?.playerBar
+    ?.multiMarkersPlayerBarRenderer?.markersMap;
+  if (markersMap) {
+    for (const entry of markersMap) {
+      if (entry?.key !== 'DESCRIPTION_CHAPTERS' && entry?.key !== 'AUTO_CHAPTERS') continue;
+      const chapterList = entry.value?.chapters || [];
+      const chapters = [];
+      for (const ch of chapterList) {
+        const r = ch?.chapterRenderer;
+        if (!r) continue;
+        const title = extractRendererTitle(r);
+        const ms = r?.timeRangeStartMillis ?? null;
+        if (title && ms !== null) {
+          const startSec = Math.floor(ms / 1000);
+          chapters.push({ title, startSec, timeLabel: formatSubtitleTimestamp(startSec) });
+        }
+      }
+      if (chapters.length > 0) {
+        console.log(`[YT API] Found ${chapters.length} chapters from ${entry.key}`);
+        return chapters;
+      }
+    }
+  }
+
+  return null;
+}
+
+function formatChaptersText(chapters) {
+  if (!chapters?.length) return '';
+  return chapters.map(ch => `[${ch.timeLabel || formatSubtitleTimestamp(ch.startSec)}] ${ch.title}`).join('\n');
+}
+
 // YouTube 字幕快取：避免同一影片重複提取
-let _ytTranscriptCache = { videoId: null, transcript: null };
+let _ytTranscriptCache = { videoId: null, transcript: null, chapters: null };
 
 async function extractYouTubeTranscript() {
   // 快取命中：同一影片直接返回
   const videoId = new URLSearchParams(window.location.search).get('v');
   if (videoId && _ytTranscriptCache.videoId === videoId && _ytTranscriptCache.transcript !== null) {
     console.log(`[YT API] Cache hit for ${videoId}, length: ${_ytTranscriptCache.transcript.length}`);
-    return _ytTranscriptCache.transcript;
+    return { transcript: _ytTranscriptCache.transcript, chapters: _ytTranscriptCache.chapters };
   }
 
   try {
@@ -1007,13 +1086,16 @@ async function extractYouTubeTranscript() {
         pageHtml = await (await fetch(location.href, { credentials: 'include' })).text();
       } catch (e) {
         console.log('[YT API] Fetch fallback failed:', e);
-        return null;
+        return { transcript: null, chapters: null };
       }
     }
 
+    // 先提取章節（不依賴字幕，提前執行）
+    const chapters = extractYouTubeChapters(pageHtml);
+
     if (!pageHtml.includes('/api/timedtext')) {
       console.log('[YT API] No captions found for this video');
-      return null;
+      return { transcript: null, chapters };
     }
 
     // --- Phase 2：提取字幕 URL（支援多語言選擇）---
@@ -1046,7 +1128,7 @@ async function extractYouTubeTranscript() {
 
     if (!subtitleUrl) {
       console.log('[YT API] Could not extract subtitle URL');
-      return null;
+      return { transcript: null, chapters };
     }
 
     // --- Phase 3：取得字幕資料（POToken + 無 Token 雙策略）---
@@ -1070,7 +1152,7 @@ async function extractYouTubeTranscript() {
 
     if (!subtitleData) {
       console.log('[YT API] All fetch strategies failed');
-      return null;
+      return { transcript: null, chapters };
     }
 
     // --- Phase 4：解析字幕 XML ---
@@ -1079,14 +1161,14 @@ async function extractYouTubeTranscript() {
       console.log(`[YT API] Success${langInfo}, length: ${transcript.length}`);
       // 快取提取結果
       if (videoId) {
-        _ytTranscriptCache = { videoId, transcript };
+        _ytTranscriptCache = { videoId, transcript, chapters };
       }
     }
-    return transcript;
+    return { transcript, chapters };
 
   } catch (e) {
     console.log('[YT API] Unexpected error:', e);
-    return null;
+    return { transcript: null, chapters: null };
   }
 }
 
@@ -1136,24 +1218,27 @@ async function extractPageContent(skipWaitContent = false) {
     }
     // === YouTube 字幕提取 ===
     if (isYouTubeVideoPage()) {
-      const transcript = await extractYouTubeTranscript();
-      const { title, channel, description } = getYouTubeVideoInfo();
+      const result = await extractYouTubeTranscript();
+      const { transcript, chapters } = result;
+      const { channel, description } = getYouTubeVideoInfo();
 
       if (transcript) {
-        let content = `# ${title}\n`;
+        let content = '';
         if (channel) content += `Channel: ${channel}\n`;
         content += `URL: ${window.location.href}\n\n`;
         if (description) content += `### Description\n${description}\n\n`;
+        if (chapters?.length) {
+          content += `### Chapters\n${formatChaptersText(chapters)}\n\n`;
+        }
         content += `### Transcript\n${transcript}`;
 
         console.log('YouTube 字幕提取完成，內容長度:', content.length);
-        return { title, url: window.location.href, content };
+        return { url: window.location.href, content };
       }
       // 在 YouTube watch 頁面強制依賴字幕：提取失敗時直接返回錯誤，不回退到一般頁面提取
       const errorMessage = '无法提取 YouTube 字幕，找不到CC字幕。';
       console.warn('YouTube 字幕不可用，终止后续流程');
       return {
-        title,
         url: window.location.href,
         error: {
           code: 'YOUTUBE_TRANSCRIPT_UNAVAILABLE',

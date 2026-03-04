@@ -288,7 +288,7 @@ export async function callAPI({
         const pagesContent = webpageInfo.pages.map(page => {
             const prefix = page.isCurrent ? '# Current webpage content' : '# Other opened webpage';
             const contentWithMappedUrls = extractAndReplaceUrls(page.content, urlToIdMap, idToUrlMap);
-            return `\n\n${prefix}\n\n## Web title\n${page.title}\n\n## Web URL\n${page.url}\n\n## Web content\n\n${contentWithMappedUrls}`;
+            return `\n\n${prefix}\n\n## Web title\n${page.title}\n\n## Web URL\n${page.url}\n\n## Web content\n${contentWithMappedUrls}`;
         }).join('\n\n---\n');
 
         systemMessageContent = `${processedSystemPrompt}${pagesContent}`;
