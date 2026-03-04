@@ -157,11 +157,11 @@ export async function initQuickChat({
         // 初始化快速選項提示詞模態框
         const quickChatPromptModal = document.getElementById('quick-chat-prompt-modal');
         if (quickChatPromptModal) {
-            const modalTextarea = quickChatPromptModal.querySelector('.quick-chat-prompt-modal-textarea');
-            const modalCloseBtn = quickChatPromptModal.querySelector('.quick-chat-prompt-modal-close');
-            const modalCancelBtn = quickChatPromptModal.querySelector('.quick-chat-prompt-modal-cancel');
-            const modalSaveBtn = quickChatPromptModal.querySelector('.quick-chat-prompt-modal-save');
-            const modalContent = quickChatPromptModal.querySelector('.quick-chat-prompt-modal-content');
+            const modalTextarea = quickChatPromptModal.querySelector('.prompt-modal-textarea');
+            const modalCloseBtn = quickChatPromptModal.querySelector('.prompt-modal-close');
+            const modalCancelBtn = quickChatPromptModal.querySelector('.prompt-modal-cancel');
+            const modalSaveBtn = quickChatPromptModal.querySelector('.prompt-modal-save');
+            const modalContent = quickChatPromptModal.querySelector('.prompt-modal-content');
 
             // 模態框關閉按鈕
             modalCloseBtn?.addEventListener('click', (e) => {
@@ -281,7 +281,7 @@ export async function initQuickChat({
             itemElement.innerHTML = `
                 <div class="quick-chat-option-header">
                     <div class="quick-chat-option-info">
-                        <input type="text" class="quick-chat-option-icon-input" value="${option.icon}" maxlength="2" placeholder="📝">
+                        <input type="text" class="quick-chat-option-icon-input" value="${option.icon}" maxlength="2">
                         <input type="text" class="quick-chat-option-title-input" value="${option.title}" placeholder="选项标题">
                     </div>
                     <div class="quick-chat-option-actions">
@@ -298,7 +298,7 @@ export async function initQuickChat({
                         </button>
                     </div>
                 </div>
-                <textarea class="quick-chat-option-prompt-input" placeholder="输入提示词...">${option.prompt}</textarea>
+                <textarea class="quick-chat-option-prompt-input" placeholder="输入提示词">${option.prompt}</textarea>
             `;
 
             // 添加事件監聽器
@@ -310,11 +310,11 @@ export async function initQuickChat({
 
             // 獲取模態框元素
             const quickChatPromptModal = document.getElementById('quick-chat-prompt-modal');
-            const modalTextarea = quickChatPromptModal?.querySelector('.quick-chat-prompt-modal-textarea');
-            const modalCloseBtn = quickChatPromptModal?.querySelector('.quick-chat-prompt-modal-close');
-            const modalCancelBtn = quickChatPromptModal?.querySelector('.quick-chat-prompt-modal-cancel');
-            const modalSaveBtn = quickChatPromptModal?.querySelector('.quick-chat-prompt-modal-save');
-            const modalContent = quickChatPromptModal?.querySelector('.quick-chat-prompt-modal-content');
+            const modalTextarea = quickChatPromptModal?.querySelector('.prompt-modal-textarea');
+            const modalCloseBtn = quickChatPromptModal?.querySelector('.prompt-modal-close');
+            const modalCancelBtn = quickChatPromptModal?.querySelector('.prompt-modal-cancel');
+            const modalSaveBtn = quickChatPromptModal?.querySelector('.prompt-modal-save');
+            const modalContent = quickChatPromptModal?.querySelector('.prompt-modal-content');
 
             // 阻止输入框点击事件冒泡，防止触发外部的点击处理（如关闭菜单等）导致焦点丢失
             const stopPropagation = (e) => {

@@ -1711,24 +1711,34 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
        });
    });
 
-   // Version check
-   (async () => {
-       try {
-           const currentVersion = chrome.runtime.getManifest().version;
-           const resp = await fetch('https://api.github.com/repos/Tspm1eca/Cerebr-neo/releases/latest');
-           if (!resp.ok) return;
-           const release = await resp.json();
-           const latestVersion = release.tag_name.replace(/^v/, '');
-           if (latestVersion !== currentVersion) {
-               const badge = document.getElementById('version-badge');
-               badge.textContent = `New: v${latestVersion}`;
-               badge.href = `https://github.com/Tspm1eca/Cerebr-neo/releases/tag/${release.tag_name}`;
-               badge.style.display = '';
+   // Show current extension version by default, and pin a "New" badge when update is available.
+   const versionBadge = document.getElementById('version-badge');
+   if (versionBadge) {
+       const currentVersion = chrome.runtime.getManifest().version;
+       versionBadge.textContent = `v${currentVersion}`;
+       versionBadge.title = `Current version: v${currentVersion}`;
+       versionBadge.setAttribute('aria-label', `Current version: v${currentVersion}`);
+
+       (async () => {
+           try {
+               const resp = await fetch('https://api.github.com/repos/Tspm1eca/Cerebr-neo/releases/latest');
+               if (!resp.ok) return;
+
+               const release = await resp.json();
+               const tagName = typeof release?.tag_name === 'string' ? release.tag_name : '';
+               const latestVersion = tagName.replace(/^v/, '');
+               if (!latestVersion || latestVersion === currentVersion) return;
+
+               versionBadge.textContent = `New: v${latestVersion}`;
+               versionBadge.href = `https://github.com/Tspm1eca/Cerebr-neo/releases/tag/${encodeURIComponent(tagName)}`;
+               versionBadge.title = `New version available: v${latestVersion} (current: v${currentVersion})`;
+               versionBadge.setAttribute('aria-label', `New version available: v${latestVersion}`);
+               versionBadge.classList.add('has-update');
+           } catch (e) {
+               // silently ignore version check failures
            }
-       } catch (e) {
-           // silently ignore version check failures
-       }
-   })();
+       })();
+   }
 
     // API 设置功能
     const apiCards = unifiedSettingsPage.querySelector('.api-cards');

@@ -259,7 +259,7 @@
 }
 
 #chat-search-input::placeholder {
-    color: var(--cerebr-text-color-secondary);
+    color: var(--cerebr-icon-color);
 }
 
 /* 清除所有對話按鈕樣式 */

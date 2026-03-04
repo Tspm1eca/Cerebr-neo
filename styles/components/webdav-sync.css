@@ -190,7 +190,7 @@
     padding: 8px;
     background-color: var(--cerebr-message-ai-bg);
     border: 1px solid var(--cerebr-card-border-color);
-    border-radius: 6px;
+    border-radius: 12px;
     margin-top: 2px;
     /* 展開/收合動畫 */
     overflow: hidden;
@@ -359,7 +359,7 @@
     font-weight: 500;
     font-family: var(--cerebr-font-family);
     border: none;
-    border-radius: 18px;
+    border-radius: 12px;
     cursor: pointer;
     transition: all 0.2s ease;
 }

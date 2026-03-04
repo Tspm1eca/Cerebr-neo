@@ -60,10 +60,10 @@ export function initAPICard({
 
     // 系统提示模态框
     const systemPromptModal = document.getElementById('system-prompt-modal');
-    const modalTextarea = systemPromptModal?.querySelector('.system-prompt-modal-textarea');
-    const modalCloseBtn = systemPromptModal?.querySelector('.system-prompt-modal-close');
-    const modalCancelBtn = systemPromptModal?.querySelector('.system-prompt-modal-cancel');
-    const modalSaveBtn = systemPromptModal?.querySelector('.system-prompt-modal-save');
+    const modalTextarea = systemPromptModal?.querySelector('.prompt-modal-textarea');
+    const modalCloseBtn = systemPromptModal?.querySelector('.prompt-modal-close');
+    const modalCancelBtn = systemPromptModal?.querySelector('.prompt-modal-cancel');
+    const modalSaveBtn = systemPromptModal?.querySelector('.prompt-modal-save');
 
     // 模型列表缓存
     let modelCache = {};
@@ -428,7 +428,7 @@ export function initAPICard({
 
     // 展开编辑系统提示按钮
     if (expandPromptBtn && systemPromptModal) {
-        const modalContent = systemPromptModal.querySelector('.system-prompt-modal-content');
+        const modalContent = systemPromptModal.querySelector('.prompt-modal-content');
 
         expandPromptBtn.addEventListener('click', (e) => {
             e.stopPropagation();
