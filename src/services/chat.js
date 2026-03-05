@@ -887,10 +887,12 @@ export async function callAPI({
             if (toolCalls.length > 0 && useToolCalling) {
                 console.log('AI 决定调用工具:', toolCalls);
 
-                // 处理每个 tool call
-                for (const toolCall of toolCalls) {
-                    if (toolCall.function.name === 'web_search') {
-                        try {
+                try {
+                    // 先收集所有 tool call 的搜索結果
+                    const toolResultMessages = [];
+
+                    for (const toolCall of toolCalls) {
+                        if (toolCall.function.name === 'web_search') {
                             const args = JSON.parse(toolCall.function.arguments);
                             const searchQuery = args.query;
 
@@ -898,7 +900,7 @@ export async function callAPI({
 
                             // 显示搜索状态
                             currentMessage.content = `🔍 正在搜索: "${searchQuery}"...\n\n`;
-                            currentMessage.isSearchUsed = true; // 標記搜索已使用
+                            currentMessage.isSearchUsed = true;
                             dispatchUpdate();
 
                             // 执行网络搜索（使用統一入口）
@@ -914,180 +916,183 @@ export async function callAPI({
                                 includeAnswer: true
                             });
 
-                            // 搜索完成，显示等待 AI 回复的动画（使用特殊标记）
-                            currentMessage.content = '{{WAITING_ANIMATION}}';
-                            dispatchUpdate();
-
                             // 格式化搜索结果，并在发送给AI前映射其中的URL
                             const formattedResults = formatSearchResultsForPrompt(searchResults, userLanguage);
                             const mappedFormattedResults = extractAndReplaceUrls(formattedResults, urlToIdMap, idToUrlMap);
 
-                            // 构建包含工具结果的新消息列表
-                            const messagesWithToolResult = [
-                                ...processedMessages,
-                                {
-                                    role: 'assistant',
-                                    content: null,
-                                    tool_calls: toolCalls.map(tc => ({
-                                        id: tc.id,
-                                        type: tc.type,
-                                        function: {
-                                            name: tc.function.name,
-                                            arguments: tc.function.arguments
-                                        }
-                                    }))
-                                },
-                                {
-                                    role: 'tool',
-                                    tool_call_id: toolCall.id,
-                                    content: mappedFormattedResults || '搜索未返回结果'
-                                }
-                            ];
-
-                            // 发起第二次 API 调用获取最终回答
-                            const secondResponse = await withTimeout(
-                                fetch(apiConfig.baseUrl, {
-                                    method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json',
-                                        'Authorization': `Bearer ${apiConfig.apiKey}`
-                                    },
-                                    body: JSON.stringify({
-                                        model: apiConfig.modelName || "gpt-4o",
-                                        messages: messagesWithToolResult,
-                                        stream: true,
-                                    }),
-                                    signal
-                                }),
-                                FETCH_TIMEOUT,
-                                `API 連線超時（${FETCH_TIMEOUT / 1000}秒內未收到回應）`,
-                                'fetch'
-                            );
-
-                            if (!secondResponse.ok) {
-                                const error = await secondResponse.text();
-                                throw new Error(error);
-                            }
-
-                            // 处理第二次响应的流
-                            const secondReader = secondResponse.body.getReader();
-                            let secondBuffer = '';
-                            currentMessage.content = ''; // 清空等待动画，准备接收 AI 回复
-
-                            // 第二次流的超時控制
-                            let isSecondFirstChunk = true;
-                            let lastSecondStreamContentTime = 0;
-
-                            // 重置 think 標籤狀態
-                            isThinking = false;
-
-                            const secondDecoder = new TextDecoder();
-
-                            while (true) {
-                                // 計算當前應使用的超時時間
-                                const { timeout: secondTimeout, message: secondTimeoutMessage, type: secondTimeoutType } = calcStreamTimeout(isSecondFirstChunk, lastSecondStreamContentTime);
-
-                                // 使用帶超時的 read 操作
-                                const { done: secondDone, value: secondValue } = await withTimeout(
-                                    secondReader.read(),
-                                    secondTimeout,
-                                    secondTimeoutMessage,
-                                    secondTimeoutType
-                                );
-
-                                if (secondDone) {
-                                    clearScheduledUpdate();
-                                    break;
-                                }
-
-                                // 收到數據，更新超時控制狀態
-                                if (isSecondFirstChunk) {
-                                    lastSecondStreamContentTime = Date.now();
-                                }
-                                isSecondFirstChunk = false;
-
-                                const secondChunk = secondDecoder.decode(secondValue);
-                                secondBuffer += secondChunk;
-                                let hasSecondNewStreamContentInChunk = false;
-
-                                let secondNewlineIndex;
-                                while ((secondNewlineIndex = secondBuffer.indexOf('\n')) !== -1) {
-                                    const secondLine = secondBuffer.slice(0, secondNewlineIndex);
-                                    secondBuffer = secondBuffer.slice(secondNewlineIndex + 1);
-
-                                    if (secondLine.startsWith('data: ')) {
-                                        const secondData = secondLine.slice(6);
-                                        if (secondData === '[DONE]') continue;
-
-                                        try {
-                                            const secondDelta = JSON.parse(secondData).choices[0]?.delta;
-                                            let hasUpdate = false;
-
-                                            if (secondDelta?.reasoning_content) {
-                                                currentMessage.reasoning_content += secondDelta.reasoning_content;
-                                                hasUpdate = true;
-                                                hasSecondNewStreamContentInChunk = true;
-                                            }
-
-                                            if (secondDelta?.content) {
-                                                let contentBuffer = secondDelta.content;
-                                                while (contentBuffer.length > 0) {
-                                                    if (!isThinking) {
-                                                        const thinkStartIndex = contentBuffer.search(/<think>|<thinking>/);
-                                                        if (thinkStartIndex !== -1) {
-                                                            currentMessage.content += contentBuffer.substring(0, thinkStartIndex);
-                                                            const tagMatch = contentBuffer.match(/<think>|<thinking>/)[0];
-                                                            contentBuffer = contentBuffer.substring(thinkStartIndex + tagMatch.length);
-                                                            isThinking = true;
-                                                        } else {
-                                                            currentMessage.content += contentBuffer;
-                                                            contentBuffer = '';
-                                                        }
-                                                    }
-
-                                                    if (isThinking) {
-                                                        const thinkEndIndex = contentBuffer.search(/<\/think>|<\/thinking>/);
-                                                        if (thinkEndIndex !== -1) {
-                                                            currentMessage.reasoning_content += contentBuffer.substring(0, thinkEndIndex);
-                                                            const tagMatch = contentBuffer.match(/<\/think>|<\/thinking>/)[0];
-                                                            contentBuffer = contentBuffer.substring(thinkEndIndex + tagMatch.length);
-                                                            isThinking = false;
-                                                        } else {
-                                                            currentMessage.reasoning_content += contentBuffer;
-                                                            contentBuffer = '';
-                                                        }
-                                                    }
-                                                }
-                                                hasUpdate = true;
-                                                hasSecondNewStreamContentInChunk = true;
-                                            }
-
-                                            if (hasUpdate) {
-                                                if (!updateTimeout) {
-                                                    if (Date.now() - lastUpdateTime > UPDATE_INTERVAL) {
-                                                        dispatchUpdate();
-                                                    } else {
-                                                        updateTimeout = setTimeout(dispatchUpdate, UPDATE_INTERVAL - (Date.now() - lastUpdateTime));
-                                                    }
-                                                }
-                                            }
-                                        } catch (e) {
-                                            console.error('解析第二次响应数据时出错:', e);
-                                        }
-                                    }
-                                }
-
-                                if (hasSecondNewStreamContentInChunk) {
-                                    lastSecondStreamContentTime = Date.now();
-                                }
-                            }
-                        } catch (error) {
-                            console.error('处理 web_search tool call 失败:', error);
-                            currentMessage.isError = true;
-                            currentMessage.content += `\n\n⚠️ 网络搜索失败: ${error.message}`;
-                            dispatchUpdate();
+                            toolResultMessages.push({
+                                role: 'tool',
+                                tool_call_id: toolCall.id,
+                                content: mappedFormattedResults || '搜索未返回结果'
+                            });
                         }
                     }
+
+                    // 搜索完成，显示等待 AI 回复的动画（使用特殊标记）
+                    currentMessage.content = '{{WAITING_ANIMATION}}';
+                    dispatchUpdate();
+
+                    // 构建包含所有工具结果的新消息列表
+                    const messagesWithToolResult = [
+                        ...processedMessages,
+                        {
+                            role: 'assistant',
+                            content: '',
+                            tool_calls: toolCalls.map(tc => ({
+                                id: tc.id,
+                                type: tc.type,
+                                function: {
+                                    name: tc.function.name,
+                                    arguments: tc.function.arguments
+                                }
+                            }))
+                        },
+                        ...toolResultMessages
+                    ];
+
+                    // 发起第二次 API 调用获取最终回答
+                    const secondResponse = await withTimeout(
+                        fetch(apiConfig.baseUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiConfig.apiKey}`
+                            },
+                            body: JSON.stringify({
+                                model: apiConfig.modelName || "gpt-4o",
+                                messages: messagesWithToolResult,
+                                tools: [WEB_SEARCH_TOOL],
+                                stream: true,
+                            }),
+                            signal
+                        }),
+                        FETCH_TIMEOUT,
+                        `API 連線超時（${FETCH_TIMEOUT / 1000}秒內未收到回應）`,
+                        'fetch'
+                    );
+
+                    if (!secondResponse.ok) {
+                        const error = await secondResponse.text();
+                        throw new Error(error);
+                    }
+
+                    // 处理第二次响应的流
+                    const secondReader = secondResponse.body.getReader();
+                    let secondBuffer = '';
+                    currentMessage.content = ''; // 清空等待动画，准备接收 AI 回复
+
+                    // 第二次流的超時控制
+                    let isSecondFirstChunk = true;
+                    let lastSecondStreamContentTime = 0;
+
+                    // 重置 think 標籤狀態
+                    isThinking = false;
+
+                    const secondDecoder = new TextDecoder();
+
+                    while (true) {
+                        // 計算當前應使用的超時時間
+                        const { timeout: secondTimeout, message: secondTimeoutMessage, type: secondTimeoutType } = calcStreamTimeout(isSecondFirstChunk, lastSecondStreamContentTime);
+
+                        // 使用帶超時的 read 操作
+                        const { done: secondDone, value: secondValue } = await withTimeout(
+                            secondReader.read(),
+                            secondTimeout,
+                            secondTimeoutMessage,
+                            secondTimeoutType
+                        );
+
+                        if (secondDone) {
+                            clearScheduledUpdate();
+                            break;
+                        }
+
+                        // 收到數據，更新超時控制狀態
+                        if (isSecondFirstChunk) {
+                            lastSecondStreamContentTime = Date.now();
+                        }
+                        isSecondFirstChunk = false;
+
+                        const secondChunk = secondDecoder.decode(secondValue);
+                        secondBuffer += secondChunk;
+                        let hasSecondNewStreamContentInChunk = false;
+
+                        let secondNewlineIndex;
+                        while ((secondNewlineIndex = secondBuffer.indexOf('\n')) !== -1) {
+                            const secondLine = secondBuffer.slice(0, secondNewlineIndex);
+                            secondBuffer = secondBuffer.slice(secondNewlineIndex + 1);
+
+                            if (secondLine.startsWith('data: ')) {
+                                const secondData = secondLine.slice(6);
+                                if (secondData === '[DONE]') continue;
+
+                                try {
+                                    const secondDelta = JSON.parse(secondData).choices[0]?.delta;
+                                    let hasUpdate = false;
+
+                                    if (secondDelta?.reasoning_content) {
+                                        currentMessage.reasoning_content += secondDelta.reasoning_content;
+                                        hasUpdate = true;
+                                        hasSecondNewStreamContentInChunk = true;
+                                    }
+
+                                    if (secondDelta?.content) {
+                                        let contentBuffer = secondDelta.content;
+                                        while (contentBuffer.length > 0) {
+                                            if (!isThinking) {
+                                                const thinkStartIndex = contentBuffer.search(/<think>|<thinking>/);
+                                                if (thinkStartIndex !== -1) {
+                                                    currentMessage.content += contentBuffer.substring(0, thinkStartIndex);
+                                                    const tagMatch = contentBuffer.match(/<think>|<thinking>/)[0];
+                                                    contentBuffer = contentBuffer.substring(thinkStartIndex + tagMatch.length);
+                                                    isThinking = true;
+                                                } else {
+                                                    currentMessage.content += contentBuffer;
+                                                    contentBuffer = '';
+                                                }
+                                            }
+
+                                            if (isThinking) {
+                                                const thinkEndIndex = contentBuffer.search(/<\/think>|<\/thinking>/);
+                                                if (thinkEndIndex !== -1) {
+                                                    currentMessage.reasoning_content += contentBuffer.substring(0, thinkEndIndex);
+                                                    const tagMatch = contentBuffer.match(/<\/think>|<\/thinking>/)[0];
+                                                    contentBuffer = contentBuffer.substring(thinkEndIndex + tagMatch.length);
+                                                    isThinking = false;
+                                                } else {
+                                                    currentMessage.reasoning_content += contentBuffer;
+                                                    contentBuffer = '';
+                                                }
+                                            }
+                                        }
+                                        hasUpdate = true;
+                                        hasSecondNewStreamContentInChunk = true;
+                                    }
+
+                                    if (hasUpdate) {
+                                        if (!updateTimeout) {
+                                            if (Date.now() - lastUpdateTime > UPDATE_INTERVAL) {
+                                                dispatchUpdate();
+                                            } else {
+                                                updateTimeout = setTimeout(dispatchUpdate, UPDATE_INTERVAL - (Date.now() - lastUpdateTime));
+                                            }
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.error('解析第二次响应数据时出错:', e);
+                                }
+                            }
+                        }
+
+                        if (hasSecondNewStreamContentInChunk) {
+                            lastSecondStreamContentTime = Date.now();
+                        }
+                    }
+                } catch (error) {
+                    console.error('处理 web_search tool call 失败:', error);
+                    currentMessage.isError = true;
+                    currentMessage.content += `\n\n⚠️ 网络搜索失败: ${error.message}`;
+                    dispatchUpdate();
                 }
             }
 
