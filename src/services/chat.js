@@ -15,6 +15,7 @@ import {
     WEB_SEARCH_TOOL_QUERY_DESCRIPTION
 } from '../constants/prompts.js';
 import { webSearch, formatSearchResultsForPrompt } from './web-search.js';
+import { t } from '../utils/i18n.js';
 
 // 超時配置（毫秒）
 const STREAM_TIMEOUT = 45000; // 流式響應超時：上次收到有效內容後 45 秒內無新內容則超時
@@ -42,20 +43,20 @@ function calcStreamTimeout(isFirstChunk, lastContentTime) {
     if (isFirstChunk) {
         return {
             timeout: FIRST_CHUNK_TIMEOUT,
-            message: `等待 AI 响应超时（${FIRST_CHUNK_TIMEOUT / 1000}秒內未收到任何数据）`,
+            message: t('service.waitingTimeout', { seconds: FIRST_CHUNK_TIMEOUT / 1000 }),
             type: 'first_chunk'
         };
     }
     const remaining = STREAM_TIMEOUT - (Date.now() - lastContentTime);
     if (remaining <= 0) {
         throw new TimeoutError(
-            `流式响应超时（${STREAM_TIMEOUT / 1000}秒內未收到新內容）`,
+            t('service.streamTimeout', { seconds: STREAM_TIMEOUT / 1000 }),
             'stream'
         );
     }
     return {
         timeout: remaining,
-        message: `流式响应超时（${STREAM_TIMEOUT / 1000}秒內未收到新內容）`,
+        message: t('service.streamTimeout', { seconds: STREAM_TIMEOUT / 1000 }),
         type: 'stream'
     };
 }
@@ -90,10 +91,10 @@ function withTimeout(promise, timeout, errorMessage, errorType = 'stream') {
  */
 async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessages = []) {
     if (!rawQuery || typeof rawQuery !== 'string' || !rawQuery.trim()) {
-        throw new Error('关键字提取输入为空');
+        throw new Error(t('service.keywordEmpty'));
     }
     if (!apiConfig?.baseUrl || !apiConfig?.apiKey) {
-        throw new Error('API 配置不完整，无法提取关键字');
+        throw new Error(t('service.keywordApiIncomplete'));
     }
 
     const normalizedRawQuery = rawQuery.trim();
@@ -125,18 +126,18 @@ async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessage
                 })
             }),
             FETCH_TIMEOUT,
-            `關鍵字提取連線超時（${FETCH_TIMEOUT / 1000}秒內未收到回應）`,
+            t('service.keywordTimeout', { seconds: FETCH_TIMEOUT / 1000 }),
             'fetch'
         );
     } catch (error) {
         if (error instanceof TimeoutError) {
-            throw new Error(`關鍵字提取超時: ${error.message}`);
+            throw new Error(t('service.keywordTimeoutShort') + error.message);
         }
-        throw new Error(`關鍵字提取請求失敗: ${error.message}`);
+        throw new Error(t('service.keywordRequestFailed') + error.message);
     }
 
     if (!response.ok) {
-        let errorMessage = `關鍵字提取 API 錯誤: ${response.status}`;
+        let errorMessage = t('service.keywordApiError') + response.status;
         try {
             const errorText = await response.text();
             if (errorText) {
@@ -152,7 +153,7 @@ async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessage
     try {
         data = await response.json();
     } catch {
-        throw new Error('關鍵字提取響應解析失敗：返回非 JSON');
+        throw new Error(t('service.keywordParseFailed'));
     }
 
     const extractedQuery = (data?.choices?.[0]?.message?.content ?? '');
@@ -165,7 +166,7 @@ async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessage
         .trim();
 
     if (!normalizedQuery) {
-        throw new Error('關鍵字提取為空');
+        throw new Error(t('service.keywordResultEmpty'));
     }
 
     return normalizedQuery;
@@ -430,7 +431,7 @@ export async function callAPI({
     searchConfig = null  // 新的搜索配置
 }, chatManager, chatId, onMessageUpdate) {
     if (!apiConfig?.baseUrl || !apiConfig?.apiKey) {
-        throw new Error('API 配置不完整');
+        throw new Error(t('api.apiIncomplete'));
     }
 
     // 初始化URL映射表
@@ -512,7 +513,7 @@ export async function callAPI({
         }
 
         if (!rawQuery.trim()) {
-            throw new Error('网络搜索已开启，但未找到可用的提取关键字的文本查询');
+            throw new Error(t('service.searchNoQuery'));
         }
 
         let extractedQuery;
@@ -530,7 +531,7 @@ export async function callAPI({
         searchUsedInOnMode = true;
         if (chatManager && chatId) {
             const searchingStatusMessage = {
-                content: `🔍 正在搜索: "${extractedQuery}"...\n\n`,
+                content: t('service.searching', { query: extractedQuery }),
                 reasoning_content: '',
                 isSearchUsed: true
             };
@@ -673,7 +674,7 @@ export async function callAPI({
                     signal
                 }),
                 FETCH_TIMEOUT,
-                `API 连线超时（${FETCH_TIMEOUT / 1000}秒內未收到回应）`,
+                t('service.fetchTimeout', { seconds: FETCH_TIMEOUT / 1000 }),
                 'fetch'
             );
 
@@ -899,7 +900,7 @@ export async function callAPI({
                             console.log('执行 AI 请求的网络搜索:', searchQuery);
 
                             // 显示搜索状态
-                            currentMessage.content = `🔍 正在搜索: "${searchQuery}"...\n\n`;
+                            currentMessage.content = t('service.searching', { query: searchQuery });
                             currentMessage.isSearchUsed = true;
                             dispatchUpdate();
 
@@ -923,7 +924,7 @@ export async function callAPI({
                             toolResultMessages.push({
                                 role: 'tool',
                                 tool_call_id: toolCall.id,
-                                content: mappedFormattedResults || '搜索未返回结果'
+                                content: mappedFormattedResults || t('service.searchNoResults')
                             });
                         }
                     }
@@ -967,7 +968,7 @@ export async function callAPI({
                             signal
                         }),
                         FETCH_TIMEOUT,
-                        `API 連線超時（${FETCH_TIMEOUT / 1000}秒內未收到回應）`,
+                        t('service.fetchTimeout', { seconds: FETCH_TIMEOUT / 1000 }),
                         'fetch'
                     );
 
@@ -1091,7 +1092,7 @@ export async function callAPI({
                 } catch (error) {
                     console.error('处理 web_search tool call 失败:', error);
                     currentMessage.isError = true;
-                    currentMessage.content += `\n\n⚠️ 网络搜索失败: ${error.message}`;
+                    currentMessage.content += `\n\n${t('service.webSearchFailed', { message: error.message })}`;
                     dispatchUpdate();
                 }
             }

@@ -1,0 +1,10 @@
+{
+  "extensionDescription": {
+    "message": "Cerebr-neo Web AI Assistant",
+    "description": "Extension description shown in Chrome Web Store and extensions page"
+  },
+  "commandNewChat": {
+    "message": "New Chat",
+    "description": "Keyboard shortcut description for creating a new chat"
+  }
+}

@@ -1,0 +1,229 @@
+/**
+ * 简体中文语言包 (zh-CN)
+ */
+export default {
+    // ===== 通用 =====
+    common: {
+        cancel: '取消',
+        confirm: '确定',
+        save: '保存',
+        delete: '删除',
+        reset: '重置',
+        close: '关闭',
+        loading: '加载中...',
+        unknown: '未知',
+        error: '错误',
+        success: '成功',
+    },
+
+    // ===== 右键菜单 =====
+    contextMenu: {
+        edit: '修改',
+        copyMessage: '复制消息',
+        copyCode: '复制代码',
+        copyImage: '复制图片',
+        copyMath: '复制公式',
+        regenerate: '重新生成',
+        deleteMessage: '删除消息',
+    },
+
+    // ===== 输入框 =====
+    input: {
+        placeholder: '输入消息',
+        newChat: '新对话',
+        stopResponse: '停止生成',
+        searchModel: '搜索模型',
+        configureApiFirst: '请先配置 API',
+        noMatchingModels: '没有匹配的模型',
+    },
+
+    // ===== 设置菜单 =====
+    settingsMenu: {
+        sendWebpage: '传送网页',
+        webSearch: '网络搜索',
+        sidePanel: '侧栏模式',
+        floatingMode: '悬浮模式',
+        webpageContent: '网页内容',
+        history: '历史',
+        settings: '设置',
+    },
+
+    // ===== 设置页面 =====
+    settings: {
+        title: '设置',
+        tabQuickChat: '快速选项',
+        tabApiSettings: 'API 设置',
+        tabWebdav: 'WebDAV',
+    },
+
+    // ===== 快速选项 =====
+    quickChat: {
+        addOption: '添加选项',
+        resetAll: '重置所有为默认',
+        emptyTitle: '还没有常用选项',
+        emptyHint: '点击下方按钮添加您的第一个选项',
+        titlePlaceholder: '选项标题',
+        promptPlaceholder: '输入提示词',
+        expandEdit: '展开编辑',
+        newOption: '新选项',
+        maxOptionsAlert: '最多只能添加四个快速选项。',
+        defaultNewPrompt: '请输入您的提示词',
+        defaultOption1Title: '列点总结',
+        defaultOption2Title: '200字总结',
+        defaultOption3Title: '列出新闻',
+    },
+
+    // ===== API 设置 =====
+    api: {
+        configLabel: 'API配置',
+        profileDefault: '配置 {{index}}',
+        renameProfile: '重命名配置',
+        addProfile: '新增配置',
+        deleteProfile: '删除当前配置',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: '输入 API Key',
+        baseUrl: 'Base URL',
+        chatModel: '对话模型',
+        modelPlaceholder: '输入模型名称',
+        titleModel: '标题生成模型',
+        titleModelPlaceholder: '输入模型名称（可选）',
+        systemPrompt: '系统提示',
+        systemPromptPlaceholder: '输入系统提示词',
+        expandEdit: '展开编辑',
+        resetPrompt: '还原默认提示词',
+        testConnection: '测试连接',
+        webSearch: '网络搜索',
+        optionalNoSearch: '(可选，无需添加 /search)',
+        tavilyApiKeyPlaceholder: '输入 Tavily API Key',
+        exaApiKeyPlaceholder: '输入 Exa API Key',
+        notFoundMainCard: '找不到主 API 卡片元素',
+        atLeastOneProfile: '至少需要保留一个配置',
+        enterApiKeyAndUrl: '请输入API Key和Base URL',
+        cannotFetchModels: '无法获取模型列表',
+        enterAllFields: '请输入 API Key, Base URL, 和模型名称',
+        connectionFailed: '连接失败',
+        testMessage: 'ok，你好',
+        apiIncomplete: 'API 配置不完整',
+    },
+
+    // ===== WebDAV =====
+    webdav: {
+        enableWebdav: '启用 WebDAV',
+        serverUrl: '服务器地址',
+        username: '用户名',
+        usernamePlaceholder: '输入用户名',
+        password: '密码',
+        passwordPlaceholder: '输入密码',
+        togglePassword: '显示/隐藏密码',
+        syncPath: '同步路径',
+        syncPathOptional: '(可选)',
+        syncApiConfig: '同步API配置',
+        encryptApiConfig: '加密API配置',
+        encryptionPassword: '加密密码',
+        encryptionPasswordPlaceholder: '输入加密密码',
+        encryptionHint: '请牢记密码，丢失后无法恢复加密数据',
+        warningUnencrypted: 'API 配置以明文储存',
+        warningEncrypted: 'API 配置以加密储存',
+        warningNeedPassword: '输入加密密码以启用同步',
+        uploadToCloud: '上传到云端',
+        downloadFromCloud: '从云端下载',
+        lastSync: '上次同步：',
+        neverSynced: '从未同步',
+        connectionFailed: 'WebDAV 连接失败',
+        enableFirst: '请先启用 WebDAV',
+        uploadFailed: '上传失败: ',
+        enableSyncFirst: '请先启用 WebDAV 同步',
+        syncFailed: '同步失败',
+        webdavSyncFailed: 'WebDAV 同步失败',
+        conflictTitle: '同步冲突',
+        conflictMessage: '本地和云端数据都有更改，请选择要保留的版本：',
+        useLocal: '使用本地数据',
+        useRemote: '使用云端数据',
+        conflictDialogMissing: '冲突对话框元素不存在，使用自动解决',
+    },
+
+    // ===== 聊天列表 =====
+    chatList: {
+        title: '历史',
+        searchPlaceholder: '搜索对话',
+        clearAll: '清除所有对话',
+        newChat: '新对话',
+        clearAllConfirm: '您确定要清除所有对话历史记录吗？',
+        clearAllWarning: '此操作无法撤销。',
+        allCleared: '所有对话已清除',
+        clearFailed: '清除对话失败: ',
+    },
+
+    // ===== 模态框 =====
+    modal: {
+        editSystemPrompt: '编辑系统提示',
+        editPrompt: '编辑提示词',
+        renameProfileTitle: '重命名配置',
+        renameProfileLabel: '请输入新的配置名称：',
+        renameProfilePlaceholder: '配置名称',
+        deleteProfileConfirm: '确定要删除当前配置吗？',
+        cannotUndo: '此操作无法撤销。',
+        resetQuickChatConfirm: '您确定要重置为默认选项吗？',
+        resetQuickChatWarning: '此操作将删除所有自定义选项且无法撤销。',
+        deleteQuickChatConfirm: '确定要删除这个选项吗？',
+        resetPromptConfirm: '确定要还原系统提示为默认值吗？',
+    },
+
+    // ===== CSS 内容 =====
+    css: {
+        notFound: '未找到',
+        cannotJump: '无法跳转',
+    },
+
+    // ===== 聊天容器 =====
+    chat: {
+        copyImageFailed: '复制图片失败，请稍后重试。',
+        editCancel: '取消',
+        editSave: '保存',
+        editSaveAndResend: '保存并重新发送',
+    },
+
+    // ===== 服务层错误 =====
+    service: {
+        waitingTimeout: '等待 AI 响应超时（{{seconds}}秒内未收到任何数据）',
+        streamTimeout: '流式响应超时（{{seconds}}秒内未收到新内容）',
+        fetchTimeout: 'API 连接超时（{{seconds}}秒内未收到回应）',
+        keywordEmpty: '关键字提取输入为空',
+        keywordApiIncomplete: 'API 配置不完整，无法提取关键字',
+        keywordTimeout: '关键字提取连线超时（{{seconds}}秒内未收到回应）',
+        keywordTimeoutShort: '关键字提取超时: ',
+        keywordRequestFailed: '关键字提取请求失败: ',
+        keywordApiError: '关键字提取 API 错误: ',
+        keywordParseFailed: '关键字提取响应解析失败：返回非 JSON',
+        keywordResultEmpty: '关键字提取为空',
+        searchNoQuery: '网络搜索已开启，但未找到可用的提取关键字的文本查询',
+        searchNoResults: '搜索未返回结果',
+        searching: '🔍 正在搜索: "{{query}}"...\n\n',
+        webSearchFailed: '⚠️ 网络搜索失败: {{message}}',
+        regenerateFailed: '重新生成失败: {{message}}',
+        sendFailed: '发送失败: {{message}}',
+        youtubeExtractFailed: '无法提取 YouTube 字幕。',
+        tavilyKeyMissing: 'Tavily API Key 未设置',
+        exaKeyMissing: 'Exa API Key 未设置',
+        searchQueryEmpty: '搜索查询不能为空',
+        tavilyApiError: 'Tavily API 错误: ',
+        exaApiError: 'Exa API 错误: ',
+        networkError: '网络连接失败，请检查网络状态',
+        tavilyConnectionFailed: 'Tavily 连接失败',
+        exaConnectionFailed: 'Exa 连接失败',
+    },
+
+    searchTriggers: {},
+
+    searchProvider: {
+        switchTitle: '点击切换搜索提供者：Tavily ↔ Exa',
+        triStateTitle: '点击切换：关闭 → 自动 → 开启',
+        triStateOff: '关闭 - 点击切换到自动',
+        triStateAuto: '自动（AI 决定）- 点击切换到开启',
+        triStateOn: '开启 - 点击切换到关闭',
+        currentTavily: '当前: Tavily - 点击切换到 Exa',
+        currentExa: '当前: Exa - 点击切换到 Tavily',
+        enterTavilyKey: '请输入 Tavily API Key',
+        enterExaKey: '请输入 Exa API Key',
+    },
+};

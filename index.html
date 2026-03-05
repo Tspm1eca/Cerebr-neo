@@ -37,21 +37,21 @@
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
-            修改
+            <span data-i18n="contextMenu.edit">修改</span>
         </div>
         <div class="context-menu-item" id="copy-message">
             <svg viewBox="0 0 24 24">
                 <rect x="8" y="8" width="12" height="12" rx="1"/>
                 <path d="M4 16V4a1 1 0 0 1 1-1h11"/>
             </svg>
-            复制消息
+            <span data-i18n="contextMenu.copyMessage">复制消息</span>
         </div>
         <div class="context-menu-item" id="copy-code">
             <svg viewBox="0 0 24 24">
                 <path d="M16 18L22 12L16 6"/>
                 <path d="M8 6L2 12L8 18"/>
             </svg>
-            复制代码
+            <span data-i18n="contextMenu.copyCode">复制代码</span>
         </div>
         <div class="context-menu-item" id="copy-image">
             <svg viewBox="0 0 24 24">
@@ -59,19 +59,19 @@
                 <circle cx="8.5" cy="8.5" r="1.5"/>
                 <polyline points="21 15 16 10 5 21"/>
             </svg>
-            复制图片
+            <span data-i18n="contextMenu.copyImage">复制图片</span>
         </div>
         <div class="context-menu-item" id="copy-math">
             <svg viewBox="0 0 24 24">
                 <path fill="currentColor" d="M6 19.5c.2 0 .32-.08.45-.25l5.75-8.5 5.65-8.2c.08-.1.1-.2.1-.28 0-.23-.2-.38-.43-.38-.2 0-.33.06-.48.28l-5.65 8.2-5.75 8.5c-.08.1-.1.2-.1.29 0 .24.2.34.46.34zM5.2 8.1v2.1c0 .27.17.42.41.42.23 0 .41-.15.41-.42V8.1h2c.27 0 .41-.17.41-.41 0-.23-.14-.41-.41-.41h-2V4.6c0-.27-.18-.42-.41-.42-.24 0-.41.15-.41.42v2.68h-2c-.27 0-.41.18-.41.41 0 .24.14.41.41.41h2zm9.2 8.6c0 .23.15.4.35.4h5.1c.27 0 .41-.17.41-.4 0-.23-.14-.4-.41-.4h-5.1c-.2 0-.35.17-.35.4z"/>
             </svg>
-            复制公式
+            <span data-i18n="contextMenu.copyMath">复制公式</span>
         </div>
         <div class="context-menu-item" id="regenerate-message">
             <svg viewBox="0 0 24 24">
                 <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" fill="currentColor"></path>
             </svg>
-            重新生成
+            <span data-i18n="contextMenu.regenerate">重新生成</span>
         </div>
         <div class="context-menu-item" id="delete-message">
             <svg viewBox="0 0 24 24">
@@ -79,7 +79,7 @@
                 <path d="M3 7h18"/>
                 <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/>
             </svg>
-            删除消息
+            <span data-i18n="contextMenu.deleteMessage">删除消息</span>
         </div>
     </div>
     <div id="input-container">
@@ -93,12 +93,12 @@
                 </svg>
             </button>
             <div class="button-switch-container">
-                <button id="new-chat-button" title="新对话">
+                <button id="new-chat-button" data-i18n-title="input.newChat" title="新对话">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                         <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                     </svg>
                 </button>
-                <button id="stop-response-button" title="停止生成">
+                <button id="stop-response-button" data-i18n-title="input.stopResponse" title="停止生成">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                         <rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor"/>
                     </svg>
@@ -107,32 +107,32 @@
             <!-- 模型選擇子菜單 -->
             <div id="model-selector-menu">
                 <div class="model-selector-search">
-                    <input type="text" class="model-search-input" placeholder="搜索模型...">
+                    <input type="text" class="model-search-input" data-i18n-placeholder="input.searchModel" placeholder="搜索模型...">
                 </div>
                 <div class="model-selector-list">
                     <!-- 模型列表將由 JavaScript 動態生成 -->
                 </div>
-                <div class="model-selector-empty" style="display: none;">
+                <div class="model-selector-empty" style="display: none;" data-i18n="input.configureApiFirst">
                     请先配置 API
                 </div>
             </div>
         </div>
         <div id="settings-menu">
             <div class="menu-item" id="send-webpage-toggle">
-                <span>传送网页</span>
+                <span data-i18n="settingsMenu.sendWebpage">传送网页</span>
                 <label class="switch">
                     <input type="checkbox" id="send-webpage-switch">
                     <span class="slider"></span>
                 </label>
             </div>
             <div class="menu-item" id="web-search-toggle">
-                <span>网络搜索</span>
+                <span data-i18n="settingsMenu.webSearch">网络搜索</span>
                 <div class="web-search-controls">
-                    <button class="provider-toggle-button" id="search-provider-switch" data-value="tavily" title="点击切换搜索提供者：Tavily ↔ Exa">
+                    <button class="provider-toggle-button" id="search-provider-switch" data-value="tavily" data-i18n-title="searchProvider.switchTitle" title="点击切换搜索提供者：Tavily ↔ Exa">
                         <span class="provider-label provider-tavily">T</span>
                         <span class="provider-label provider-exa">E</span>
                     </button>
-                    <button class="tri-state-button" id="web-search-switch" data-value="off" title="点击切换：关闭 → 自动 → 开启">
+                    <button class="tri-state-button" id="web-search-switch" data-value="off" data-i18n-title="searchProvider.triStateTitle" title="点击切换：关闭 → 自动 → 开启">
                         <svg class="icon-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="18" y1="6" x2="6" y2="18"></line>
                             <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -148,33 +148,33 @@
                 </div>
             </div>
             <div class="menu-item" id="side-panel-toggle">
-                <span>侧栏模式</span>
+                <span data-i18n="settingsMenu.sidePanel">侧栏模式</span>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                     <line x1="15" y1="3" x2="15" y2="21"></line>
                 </svg>
             </div>
             <div class="menu-item" id="webpage-qa">
-                <span>网页内容</span>
+                <span data-i18n="settingsMenu.webpageContent">网页内容</span>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                     <path d="M6 12L10 8L6 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                 </svg>
             </div>
             <div class="menu-item" id="chat-list">
-                <span>历史</span>
+                <span data-i18n="settingsMenu.history">历史</span>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                     <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
             </div>
             <div class="menu-item" id="unified-settings-toggle">
-                <span>设置</span>
+                <span data-i18n="settingsMenu.settings">设置</span>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                     <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
             </div>
         </div>
         <div id="message-input-shell" class="message-input-shell">
-            <div id="message-input" contenteditable="true" placeholder="输入消息..." enterkeyhint="send" role="textbox" aria-label="消息输入框" aria-multiline="true" spellcheck="true"></div>
+            <div id="message-input" contenteditable="true" data-i18n-placeholder="input.placeholder" placeholder="输入消息..." enterkeyhint="send" data-i18n-aria-label="input.placeholder" role="textbox" aria-label="消息输入框" aria-multiline="true" spellcheck="true"></div>
             <div class="fake-caret" aria-hidden="true"></div>
             <div class="persistent-placeholder" aria-hidden="true"></div>
         </div>
@@ -186,14 +186,14 @@
                     <path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                 </svg>
             </button>
-            <span class="settings-title">历史</span>
-            <button class="clear-all-btn" title="清除所有对话">
+            <span class="settings-title" data-i18n="chatList.title">历史</span>
+            <button class="clear-all-btn" data-i18n-title="chatList.clearAll" title="清除所有对话">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                     <path d="M2 4h12M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1m2 0v9a1 1 0 01-1 1H4a1 1 0 01-1-1V4h10z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
             </button>
             <div class="search-container">
-                <input type="search" id="chat-search-input" placeholder="搜索对话">
+                <input type="search" id="chat-search-input" data-i18n-placeholder="chatList.searchPlaceholder" placeholder="搜索对话">
                 <button class="clear-search-btn" style="display: none;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                         <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -205,7 +205,7 @@
             <!-- 对话卡片模板 -->
             <div class="chat-card template" style="display: none;">
                 <div class="card-content">
-                    <div class="chat-title">新对话</div>
+                    <div class="chat-title" data-i18n="chatList.newChat">新对话</div>
                     <div class="card-actions">
                         <button class="card-button webpage-url-btn" style="display: none;" title="">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -228,11 +228,11 @@
     <!-- Clear All Chats Confirmation Modal -->
     <div id="clear-all-chats-confirm-modal" class="confirm-modal" style="display: none;">
         <div class="confirm-modal-content">
-            <p>您确定要清除所有对话历史记录吗？</p>
-            <small>此操作无法撤销。</small>
+            <p data-i18n="chatList.clearAllConfirm">您确定要清除所有对话历史记录吗？</p>
+            <small data-i18n="chatList.clearAllWarning">此操作无法撤销。</small>
             <div class="confirm-modal-actions">
-                <button id="cancel-clear-all-chats" class="modal-button cancel">取消</button>
-                <button id="confirm-clear-all-chats" class="modal-button confirm">确定</button>
+                <button id="cancel-clear-all-chats" class="modal-button cancel" data-i18n="common.cancel">取消</button>
+                <button id="confirm-clear-all-chats" class="modal-button confirm" data-i18n="common.confirm">确定</button>
             </div>
         </div>
     </div>
@@ -245,7 +245,7 @@
                     <path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                 </svg>
             </button>
-            <span class="settings-title">设置</span>
+            <span class="settings-title" data-i18n="settings.title">设置</span>
             <div class="settings-header-right">
                 <a class="github-link" href="https://github.com/Tspm1eca/Cerebr-neo" target="_blank" title="Cerebr-neo">
                     <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
@@ -256,9 +256,9 @@
             </div>
         </div>
         <div class="settings-tabs">
-            <button class="tab-button active" data-tab="quick-chat-tab">快速选项</button>
-            <button class="tab-button" data-tab="api-settings-tab">API 设置</button>
-            <button class="tab-button" data-tab="webdav-sync-tab">WebDAV</button>
+            <button class="tab-button active" data-tab="quick-chat-tab" data-i18n="settings.tabQuickChat">快速选项</button>
+            <button class="tab-button" data-tab="api-settings-tab" data-i18n="settings.tabApiSettings">API 设置</button>
+            <button class="tab-button" data-tab="webdav-sync-tab" data-i18n="settings.tabWebdav">WebDAV</button>
         </div>
         <div class="settings-content">
             <div id="quick-chat-tab" class="tab-content active">
@@ -267,8 +267,8 @@
                         <!-- Quick chat options will be dynamically generated here -->
                     </div>
                     <div class="quick-chat-settings-actions">
-                        <button id="add-quick-chat-option" class="add-button">添加选项</button>
-                        <button id="reset-quick-chat-options" class="reset-button">重置所有为默认</button>
+                        <button id="add-quick-chat-option" class="add-button" data-i18n="quickChat.addOption">添加选项</button>
+                        <button id="reset-quick-chat-options" class="reset-button" data-i18n="quickChat.resetAll">重置所有为默认</button>
                     </div>
                 </div>
             </div>
@@ -279,7 +279,7 @@
                             <div class="api-form">
                                 <!-- 搜索提供者切换 -->
                                 <div class="form-group">
-                                    <label>网络搜索</label>
+                                    <label data-i18n="api.webSearch">网络搜索</label>
                                     <div class="search-provider-toggle">
                                         <button type="button" class="provider-btn active" data-provider="tavily">Tavily</button>
                                         <button type="button" class="provider-btn" data-provider="exa">Exa</button>
@@ -291,8 +291,8 @@
                                     <div class="form-group">
                                         <label>Tavily API Key</label>
                                         <div class="tavily-key-container">
-                                            <input type="text" id="tavily-api-key" class="tavily-api-key" placeholder="输入 Tavily API Key">
-                                            <button id="test-tavily-btn" class="test-tavily-btn" title="测试连接">
+                                            <input type="text" id="tavily-api-key" class="tavily-api-key" data-i18n-placeholder="api.tavilyApiKeyPlaceholder" placeholder="输入 Tavily API Key">
+                                            <button id="test-tavily-btn" class="test-tavily-btn" data-i18n-title="api.testConnection" title="测试连接">
                                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <line x1="22" y1="2" x2="11" y2="13"></line>
                                                     <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -301,7 +301,7 @@
                                         </div>
                                     </div>
                                     <div class="form-group">
-                                        <label>Tavily API URL <span class="optional-label">(可选，无需添加 /search)</span></label>
+                                        <label>Tavily API URL <span class="optional-label" data-i18n="api.optionalNoSearch">(可选，无需添加 /search)</span></label>
                                         <input type="text" id="tavily-api-url" class="tavily-api-url" placeholder="https://api.tavily.com">
                                     </div>
                                 </div>
@@ -311,8 +311,8 @@
                                     <div class="form-group">
                                         <label>Exa API Key</label>
                                         <div class="exa-key-container">
-                                            <input type="text" id="exa-api-key" class="exa-api-key" placeholder="输入 Exa API Key">
-                                            <button id="test-exa-btn" class="test-exa-btn" title="测试连接">
+                                            <input type="text" id="exa-api-key" class="exa-api-key" data-i18n-placeholder="api.exaApiKeyPlaceholder" placeholder="输入 Exa API Key">
+                                            <button id="test-exa-btn" class="test-exa-btn" data-i18n-title="api.testConnection" title="测试连接">
                                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                     <line x1="22" y1="2" x2="11" y2="13"></line>
                                                     <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -321,7 +321,7 @@
                                         </div>
                                     </div>
                                     <div class="form-group">
-                                        <label>Exa API URL <span class="optional-label">(可选，无需添加 /search)</span></label>
+                                        <label>Exa API URL <span class="optional-label" data-i18n="api.optionalNoSearch">(可选，无需添加 /search)</span></label>
                                         <input type="text" id="exa-api-url" class="exa-api-url" placeholder="https://api.exa.ai">
                                     </div>
                                 </div>
@@ -335,19 +335,19 @@
                                 <!-- Profile selector -->
                                 <div class="form-group profile-selector-group">
                                     <div class="form-group-header">
-                                        <label>API配置</label>
+                                        <label data-i18n="api.configLabel">API配置</label>
                                         <div class="profile-actions">
-                                            <button class="card-button rename-profile-btn" title="重命名配置">
+                                            <button class="card-button rename-profile-btn" data-i18n-title="api.renameProfile" title="重命名配置">
                                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                                                     <path d="M11.5 2.5L13.5 4.5L5 13H3V11L11.5 2.5Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                                                 </svg>
                                             </button>
-                                            <button class="card-button add-profile-btn" title="新增配置">
+                                            <button class="card-button add-profile-btn" data-i18n-title="api.addProfile" title="新增配置">
                                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                                                     <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                                                 </svg>
                                             </button>
-                                            <button class="card-button delete-profile-btn" title="删除当前配置">
+                                            <button class="card-button delete-profile-btn" data-i18n-title="api.deleteProfile" title="删除当前配置">
                                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                                                     <path d="M3 4H13" stroke="currentColor" stroke-width="1.5"/>
                                                     <path d="M5 4V12H11V4" stroke="currentColor" stroke-width="1.5"/>
@@ -366,18 +366,18 @@
                                     </div>
                                 </div>
                                 <div class="form-group">
-                                    <label>API Key</label>
-                                    <input type="text" class="api-key" placeholder="输入 API Key">
+                                    <label data-i18n="api.apiKey">API Key</label>
+                                    <input type="text" class="api-key" data-i18n-placeholder="api.apiKeyPlaceholder" placeholder="输入 API Key">
                                 </div>
                                 <div class="form-group">
-                                    <label>Base URL</label>
+                                    <label data-i18n="api.baseUrl">Base URL</label>
                                     <input type="text" class="base-url" placeholder="https://api.CloseAi.com/v1/chat/completions">
                                 </div>
                                 <div class="form-group">
-                                    <label>对话模型</label>
+                                    <label data-i18n="api.chatModel">对话模型</label>
                                     <div class="model-name-container">
-                                        <input type="text" class="model-name" placeholder="输入模型名称" list="model-list-datalist">
-                                        <button class="test-connection-btn" title="测试连接">
+                                        <input type="text" class="model-name" data-i18n-placeholder="api.modelPlaceholder" placeholder="输入模型名称" list="model-list-datalist">
+                                        <button class="test-connection-btn" data-i18n-title="api.testConnection" title="测试连接">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <line x1="22" y1="2" x2="11" y2="13"></line>
                                                 <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -387,10 +387,10 @@
                                     </div>
                                 </div>
                                 <div class="form-group">
-                                    <label>标题生成模型</label>
+                                    <label data-i18n="api.titleModel">标题生成模型</label>
                                     <div class="model-name-container">
-                                        <input type="text" class="title-model-name" placeholder="输入模型名称（可选）" list="title-model-list-datalist">
-                                        <button class="test-connection-btn" title="测试连接">
+                                        <input type="text" class="title-model-name" data-i18n-placeholder="api.titleModelPlaceholder" placeholder="输入模型名称（可选）" list="title-model-list-datalist">
+                                        <button class="test-connection-btn" data-i18n-title="api.testConnection" title="测试连接">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <line x1="22" y1="2" x2="11" y2="13"></line>
                                                 <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -401,14 +401,14 @@
                                 </div>
                                 <div class="setting-item system-prompt-item">
                                     <div class="setting-header">
-                                        <label for="system-prompt">系统提示</label>
+                                        <label for="system-prompt" data-i18n="api.systemPrompt">系统提示</label>
                                         <div class="system-prompt-actions">
-                                            <button class="expand-prompt-btn" title="展开编辑">
+                                            <button class="expand-prompt-btn" data-i18n-title="api.expandEdit" title="展开编辑">
                                                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                                                     <path d="M2 6V2H6M14 6V2H10M2 10V14H6M14 10V14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                                                 </svg>
                                             </button>
-                                            <button class="reset-prompt-btn" title="还原默认提示词">
+                                            <button class="reset-prompt-btn" data-i18n-title="api.resetPrompt" title="还原默认提示词">
                                                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                                                     <path d="M2 8C2 4.68629 4.68629 2 8 2C9.29583 2 10.4934 2.41098 11.4704 3.11604L13 1.5M13 5.5H9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                                                     <path d="M14 8C14 11.3137 11.3137 14 8 14C6.70417 14 5.50659 13.589 4.52962 12.884L3 14.5M3 10.5H7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -416,7 +416,7 @@
                                             </button>
                                         </div>
                                     </div>
-                                    <textarea id="system-prompt" class="system-prompt" rows="4" placeholder="输入系统提示词..."></textarea>
+                                    <textarea id="system-prompt" class="system-prompt" rows="4" data-i18n-placeholder="api.systemPromptPlaceholder" placeholder="输入系统提示词..."></textarea>
                                 </div>
                             </div>
                         </div>
@@ -430,7 +430,7 @@
                             <div class="webdav-form">
                                 <!-- 啟用開關 -->
                                 <div class="form-group webdav-enable-group">
-                                    <label>启用 WebDAV</label>
+                                    <label data-i18n="webdav.enableWebdav">启用 WebDAV</label>
                                     <label class="switch">
                                         <input type="checkbox" id="webdav-enabled-switch">
                                         <span class="slider"></span>
@@ -439,10 +439,10 @@
 
                                 <!-- 伺服器設置 -->
                                 <div class="form-group">
-                                    <label>服务器地址</label>
+                                    <label data-i18n="webdav.serverUrl">服务器地址</label>
                                     <div class="webdav-server-container">
                                         <input type="text" id="webdav-server-url" class="webdav-input" placeholder="https://dav.example.com">
-                                        <button type="button" id="webdav-test-connection" class="test-connection-btn" title="测试连接">
+                                        <button type="button" id="webdav-test-connection" class="test-connection-btn" data-i18n-title="api.testConnection" title="测试连接">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <line x1="22" y1="2" x2="11" y2="13"></line>
                                                 <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -452,15 +452,15 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label>用户名</label>
-                                    <input type="text" id="webdav-username" class="webdav-input" placeholder="输入用户名">
+                                    <label data-i18n="webdav.username">用户名</label>
+                                    <input type="text" id="webdav-username" class="webdav-input" data-i18n-placeholder="webdav.usernamePlaceholder" placeholder="输入用户名">
                                 </div>
 
                                 <div class="form-group">
-                                    <label>密码</label>
+                                    <label data-i18n="webdav.password">密码</label>
                                     <div class="webdav-password-container">
-                                        <input type="password" id="webdav-password" class="webdav-input" placeholder="输入密码">
-                                        <button type="button" id="webdav-toggle-password" class="toggle-password-btn" title="显示/隐藏密码">
+                                        <input type="password" id="webdav-password" class="webdav-input" data-i18n-placeholder="webdav.passwordPlaceholder" placeholder="输入密码">
+                                        <button type="button" id="webdav-toggle-password" class="toggle-password-btn" data-i18n-title="webdav.togglePassword" title="显示/隐藏密码">
                                             <svg class="eye-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                                                 <circle cx="12" cy="12" r="3"></circle>
@@ -474,14 +474,14 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label>同步路径 <span class="optional-label">(可选)</span></label>
-                                    <input type="text" id="webdav-sync-path" class="webdav-input" placeholder="/cerebr-sync/">
+                                    <label data-i18n="webdav.syncPath">同步路径</label> <span class="optional-label" data-i18n="webdav.syncPathOptional">(可选)</span>
+                                    <input type="text" id="webdav-sync-path" class="webdav-input" placeholder="/Cerebr-neo">
                                 </div>
 
                                 <!-- 同步 API 配置選項 -->
                                 <div class="webdav-sync-api-section">
                                     <div class="form-group webdav-sync-api-group">
-                                        <label>同步API配置</label>
+                                        <label data-i18n="webdav.syncApiConfig">同步API配置</label>
                                         <label class="switch">
                                             <input type="checkbox" id="webdav-sync-api-switch">
                                             <span class="slider"></span>
@@ -490,7 +490,7 @@
 
                                     <!-- 加密 API Keys 選項 -->
                                     <div class="form-group webdav-encrypt-toggle">
-                                        <label>加密API配置</label>
+                                        <label data-i18n="webdav.encryptApiConfig">加密API配置</label>
                                         <label class="switch">
                                             <input type="checkbox" id="webdav-encrypt-api-switch">
                                             <span class="slider"></span>
@@ -499,10 +499,10 @@
 
                                     <!-- 加密密碼輸入 -->
                                     <div class="form-group webdav-encryption-password-group" id="webdav-encryption-password-group">
-                                        <label>加密密码</label>
+                                        <label data-i18n="webdav.encryptionPassword">加密密码</label>
                                         <div class="webdav-password-container">
-                                            <input type="password" id="webdav-encryption-password" class="webdav-input" placeholder="输入加密密码">
-                                            <button type="button" id="webdav-toggle-encryption-password" class="toggle-password-btn" title="显示/隐藏密码">
+                                            <input type="password" id="webdav-encryption-password" class="webdav-input" data-i18n-placeholder="webdav.encryptionPasswordPlaceholder" placeholder="输入加密密码">
+                                            <button type="button" id="webdav-toggle-encryption-password" class="toggle-password-btn" data-i18n-title="webdav.togglePassword" title="显示/隐藏密码">
                                                 <svg class="eye-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                                                     <circle cx="12" cy="12" r="3"></circle>
@@ -513,7 +513,7 @@
                                                 </svg>
                                             </button>
                                         </div>
-                                        <div class="webdav-encryption-hint">
+                                        <div class="webdav-encryption-hint" data-i18n="webdav.encryptionHint">
                                             请牢记密码，丢失后无法恢复加密数据
                                         </div>
                                     </div>
@@ -523,14 +523,14 @@
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
                                             </svg>
-                                            <strong>API 配置以明文储存</strong>
+                                            <strong data-i18n="webdav.warningUnencrypted">API 配置以明文储存</strong>
                                         </span>
                                         <span class="warning-encrypted" style="display: none;">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                                                 <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
                                             </svg>
-                                            <strong>API 配置以加密储存</strong>
+                                            <strong data-i18n="webdav.warningEncrypted">API 配置以加密储存</strong>
                                         </span>
                                         <span class="warning-need-password" style="display: none;">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -538,7 +538,7 @@
                                                 <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
                                                 <circle cx="12" cy="16" r="1.5" fill="currentColor" stroke="none"></circle>
                                             </svg>
-                                            <strong>输入加密密码以启用同步</strong>
+                                            <strong data-i18n="webdav.warningNeedPassword">输入加密密码以启用同步</strong>
                                         </span>
                                     </div>
                                 </div>
@@ -551,7 +551,7 @@
                                             <polyline points="17 8 12 3 7 8"></polyline>
                                             <line x1="12" y1="3" x2="12" y2="15"></line>
                                         </svg>
-                                        上传到云端
+                                        <span data-i18n="webdav.uploadToCloud">上传到云端</span>
                                     </button>
                                     <button type="button" id="webdav-sync-download" class="webdav-action-btn webdav-download-btn">
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -559,14 +559,14 @@
                                             <polyline points="7 10 12 15 17 10"></polyline>
                                             <line x1="12" y1="15" x2="12" y2="3"></line>
                                         </svg>
-                                        从云端下载
+                                        <span data-i18n="webdav.downloadFromCloud">从云端下载</span>
                                     </button>
                                 </div>
 
                                 <!-- 最後同步時間 -->
                                 <div class="webdav-last-sync">
-                                    <span class="webdav-last-sync-label">上次同步：</span>
-                                    <span id="webdav-last-sync-time" class="webdav-last-sync-time">从未同步</span>
+                                    <span class="webdav-last-sync-label" data-i18n="webdav.lastSync">上次同步：</span>
+                                    <span id="webdav-last-sync-time" class="webdav-last-sync-time" data-i18n="webdav.neverSynced">从未同步</span>
                                 </div>
                             </div>
                         </div>
@@ -585,9 +585,9 @@
                     <line x1="12" y1="9" x2="12" y2="13"></line>
                     <line x1="12" y1="17" x2="12.01" y2="17"></line>
                 </svg>
-                <span>同步冲突</span>
+                <span data-i18n="webdav.conflictTitle">同步冲突</span>
             </div>
-            <p class="conflict-message">本地和云端数据都有更改，请选择要保留的版本：</p>
+            <p class="conflict-message" data-i18n="webdav.conflictMessage">本地和云端数据都有更改，请选择要保留的版本：</p>
             <div class="conflict-info">
                 <button class="conflict-option conflict-option-btn" id="conflict-use-local">
                     <div class="conflict-option-header">
@@ -596,7 +596,7 @@
                             <line x1="8" y1="21" x2="16" y2="21"></line>
                             <line x1="12" y1="17" x2="12" y2="21"></line>
                         </svg>
-                        <span>使用本地数据</span>
+                        <span data-i18n="webdav.useLocal">使用本地数据</span>
                     </div>
                     <div class="conflict-option-time" id="conflict-local-time">--</div>
                 </button>
@@ -605,7 +605,7 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
                         </svg>
-                        <span>使用云端数据</span>
+                        <span data-i18n="webdav.useRemote">使用云端数据</span>
                     </div>
                     <div class="conflict-option-time" id="conflict-remote-time">--</div>
                 </button>
@@ -617,17 +617,17 @@
     <div id="system-prompt-modal" class="system-prompt-modal" style="display: none;">
         <div class="prompt-modal-content">
             <div class="prompt-modal-header">
-                <span class="prompt-modal-title">编辑系统提示</span>
+                <span class="prompt-modal-title" data-i18n="modal.editSystemPrompt">编辑系统提示</span>
                 <button class="prompt-modal-close">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                         <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                 </button>
             </div>
-            <textarea class="prompt-modal-textarea" placeholder="输入系统提示词..."></textarea>
+            <textarea class="prompt-modal-textarea" data-i18n-placeholder="api.systemPromptPlaceholder" placeholder="输入系统提示词..."></textarea>
             <div class="prompt-modal-actions">
-                <button class="prompt-modal-cancel">取消</button>
-                <button class="prompt-modal-save">保存</button>
+                <button class="prompt-modal-cancel" data-i18n="common.cancel">取消</button>
+                <button class="prompt-modal-save" data-i18n="common.save">保存</button>
             </div>
         </div>
     </div>
@@ -636,17 +636,17 @@
     <div id="quick-chat-prompt-modal" class="quick-chat-prompt-modal" style="display: none;">
         <div class="prompt-modal-content">
             <div class="prompt-modal-header">
-                <span class="prompt-modal-title">编辑提示词</span>
+                <span class="prompt-modal-title" data-i18n="modal.editPrompt">编辑提示词</span>
                 <button class="prompt-modal-close">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                         <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                 </button>
             </div>
-            <textarea class="prompt-modal-textarea" placeholder="输入提示词"></textarea>
+            <textarea class="prompt-modal-textarea" data-i18n-placeholder="quickChat.promptPlaceholder" placeholder="输入提示词"></textarea>
             <div class="prompt-modal-actions">
-                <button class="prompt-modal-cancel">取消</button>
-                <button class="prompt-modal-save">保存</button>
+                <button class="prompt-modal-cancel" data-i18n="common.cancel">取消</button>
+                <button class="prompt-modal-save" data-i18n="common.save">保存</button>
             </div>
         </div>
     </div>
@@ -654,11 +654,11 @@
     <!-- Reset Confirmation Modal (shared) -->
     <div id="reset-confirm-modal-1" class="confirm-modal" style="display: none;">
         <div class="confirm-modal-content">
-            <p>您确定要重置为默认选项吗？</p>
-            <small>此操作将删除所有自定义选项且无法撤销。</small>
+            <p data-i18n="modal.resetQuickChatConfirm">您确定要重置为默认选项吗？</p>
+            <small data-i18n="modal.resetQuickChatWarning">此操作将删除所有自定义选项且无法撤销。</small>
             <div class="confirm-modal-actions">
-                <button id="cancel-reset-1" class="modal-button cancel">取消</button>
-                <button id="confirm-reset-1" class="modal-button confirm">确定</button>
+                <button id="cancel-reset-1" class="modal-button cancel" data-i18n="common.cancel">取消</button>
+                <button id="confirm-reset-1" class="modal-button confirm" data-i18n="common.confirm">确定</button>
             </div>
         </div>
     </div>
@@ -666,11 +666,11 @@
     <!-- Delete Quick Chat Option Confirmation Modal -->
     <div id="delete-quick-chat-option-modal" class="confirm-modal" style="display: none;">
         <div class="confirm-modal-content">
-            <p>确定要删除这个选项吗？</p>
-            <small>此操作无法撤销。</small>
+            <p data-i18n="modal.deleteQuickChatConfirm">确定要删除这个选项吗？</p>
+            <small data-i18n="modal.cannotUndo">此操作无法撤销。</small>
             <div class="confirm-modal-actions">
-                <button id="cancel-delete-quick-chat-option" class="modal-button cancel">取消</button>
-                <button id="confirm-delete-quick-chat-option" class="modal-button confirm">确定</button>
+                <button id="cancel-delete-quick-chat-option" class="modal-button cancel" data-i18n="common.cancel">取消</button>
+                <button id="confirm-delete-quick-chat-option" class="modal-button confirm" data-i18n="common.confirm">确定</button>
             </div>
         </div>
     </div>
@@ -679,7 +679,7 @@
     <div id="rename-profile-modal" class="input-modal" style="display: none;">
         <div class="input-modal-content">
             <div class="input-modal-header">
-                <span class="input-modal-title">重命名配置</span>
+                <span class="input-modal-title" data-i18n="modal.renameProfileTitle">重命名配置</span>
                 <button class="input-modal-close">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                         <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -687,12 +687,12 @@
                 </button>
             </div>
             <div class="input-modal-body">
-                <label for="rename-profile-input">请输入新的配置名称：</label>
-                <input type="text" id="rename-profile-input" class="input-modal-input" placeholder="配置名称">
+                <label for="rename-profile-input" data-i18n="modal.renameProfileLabel">请输入新的配置名称：</label>
+                <input type="text" id="rename-profile-input" class="input-modal-input" data-i18n-placeholder="modal.renameProfilePlaceholder" placeholder="配置名称">
             </div>
             <div class="input-modal-actions">
-                <button id="rename-profile-cancel" class="modal-button cancel">取消</button>
-                <button id="rename-profile-confirm" class="modal-button confirm">确定</button>
+                <button id="rename-profile-cancel" class="modal-button cancel" data-i18n="common.cancel">取消</button>
+                <button id="rename-profile-confirm" class="modal-button confirm" data-i18n="common.confirm">确定</button>
             </div>
         </div>
     </div>
@@ -700,11 +700,11 @@
     <!-- Delete Profile Confirmation Modal -->
     <div id="delete-profile-confirm-modal" class="confirm-modal" style="display: none;">
         <div class="confirm-modal-content">
-            <p>确定要删除当前配置吗？</p>
-            <small>此操作无法撤销。</small>
+            <p data-i18n="modal.deleteProfileConfirm">确定要删除当前配置吗？</p>
+            <small data-i18n="modal.cannotUndo">此操作无法撤销。</small>
             <div class="confirm-modal-actions">
-                <button id="cancel-delete-profile" class="modal-button cancel">取消</button>
-                <button id="confirm-delete-profile" class="modal-button confirm">确定</button>
+                <button id="cancel-delete-profile" class="modal-button cancel" data-i18n="common.cancel">取消</button>
+                <button id="confirm-delete-profile" class="modal-button confirm" data-i18n="common.confirm">确定</button>
             </div>
         </div>
     </div>
@@ -712,11 +712,11 @@
     <!-- Reset System Prompt Confirmation Modal -->
     <div id="reset-prompt-confirm-modal" class="confirm-modal" style="display: none;">
         <div class="confirm-modal-content">
-            <p>确定要还原系统提示为默认值吗？</p>
-            <small>此操作无法撤销。</small>
+            <p data-i18n="modal.resetPromptConfirm">确定要还原系统提示为默认值吗？</p>
+            <small data-i18n="modal.cannotUndo">此操作无法撤销。</small>
             <div class="confirm-modal-actions">
-                <button id="cancel-reset-prompt" class="modal-button cancel">取消</button>
-                <button id="confirm-reset-prompt" class="modal-button confirm">确定</button>
+                <button id="cancel-reset-prompt" class="modal-button cancel" data-i18n="common.cancel">取消</button>
+                <button id="confirm-reset-prompt" class="modal-button confirm" data-i18n="common.confirm">确定</button>
             </div>
         </div>
     </div>

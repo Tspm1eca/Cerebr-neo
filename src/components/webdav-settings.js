@@ -5,6 +5,7 @@
 
 import { webdavSyncManager } from '../services/webdav-sync.js';
 import { validatePassword } from '../utils/crypto.js';
+import { t } from '../utils/i18n.js';
 
 /**
  * 显示 Toast 提示
@@ -33,7 +34,7 @@ function showToast(message, type = 'success') {
  * @returns {string} 格式化后的时间字符串，格式为 YYYY/MM/DD HH:mm
  */
 function formatTimestamp(timestamp) {
-    if (!timestamp) return '未知';
+    if (!timestamp) return t('common.unknown');
     try {
         const date = new Date(timestamp);
         // 格式化为 YYYY/MM/DD HH:mm
@@ -44,7 +45,7 @@ function formatTimestamp(timestamp) {
         const minutes = String(date.getMinutes()).padStart(2, '0');
         return `${year}/${month}/${day} ${hours}:${minutes}`;
     } catch (e) {
-        return '未知';
+        return t('common.unknown');
     }
 }
 
@@ -62,7 +63,7 @@ function showConflictDialog(conflictInfo) {
         const useRemoteBtn = document.getElementById('conflict-use-remote');
 
         if (!modal || !useLocalBtn || !useRemoteBtn) {
-            console.warn('[WebDAV] 冲突对话框元素不存在，使用自动解决');
+            console.warn(`[WebDAV] ${t('webdav.conflictDialogMissing')}`);
             resolve(conflictInfo.recommendation);
             return;
         }
@@ -248,7 +249,7 @@ class WebDAVSettingsController {
         if (serverUrl) serverUrl.value = config.serverUrl || '';
         if (username) username.value = config.username || '';
         if (password) password.value = config.password || '';
-        if (syncPath) syncPath.value = config.syncPath || '/cerebr-sync/';
+        if (syncPath) syncPath.value = config.syncPath || '/Cerebr-neo';
         if (syncApiSwitch) syncApiSwitch.checked = config.syncApiConfig || false;
         if (encryptApiSwitch) encryptApiSwitch.checked = config.encryptApiKeys || false;
         if (encryptionPassword) encryptionPassword.value = config.encryptionPassword || '';
@@ -304,7 +305,7 @@ class WebDAVSettingsController {
             serverUrl: serverUrl?.value.trim() || '',
             username: username?.value.trim() || '',
             password: password?.value || '',
-            syncPath: syncPath?.value.trim() || '/cerebr-sync/',
+            syncPath: syncPath?.value.trim() || '/Cerebr-neo',
             syncApiConfig: syncApiSwitch?.checked || false,
             encryptApiKeys: encryptEnabled,
             encryptionPassword: encryptPwd
@@ -447,7 +448,7 @@ class WebDAVSettingsController {
             const minutes = String(date.getMinutes()).padStart(2, '0');
             lastSyncTime.textContent = `${year}/${month}/${day} ${hours}:${minutes}`;
         } else {
-            lastSyncTime.textContent = '从未同步';
+            lastSyncTime.textContent = t('webdav.neverSynced');
         }
     }
 
@@ -521,7 +522,7 @@ class WebDAVSettingsController {
                 </svg>
             `;
         } catch (error) {
-            showToast(`WebDAV 连接失败<br>${error.message}`, 'error');
+            showToast(`${t('webdav.connectionFailed')}<br>${error.message}`, 'error');
             testConnection.classList.add('error');
             testConnection.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -546,7 +547,7 @@ class WebDAVSettingsController {
         const { enabledSwitch, syncUpload } = this.elements;
 
         if (!enabledSwitch?.checked) {
-            showToast('请先启用 WebDAV', 'error');
+            showToast(t('webdav.enableFirst'), 'error');
             return;
         }
 
@@ -560,7 +561,7 @@ class WebDAVSettingsController {
             showToast(result.message, 'success');
             await this.updateLastSyncTimeDisplay();
         } catch (error) {
-            showToast('上传失败: ' + error.message, 'error');
+            showToast(t('webdav.uploadFailed') + error.message, 'error');
         } finally {
             syncUpload.classList.remove('syncing');
             syncUpload.disabled = false;
@@ -574,7 +575,7 @@ class WebDAVSettingsController {
         const { enabledSwitch, syncDownload } = this.elements;
 
         if (!enabledSwitch?.checked) {
-            showToast('请先启用 WebDAV 同步', 'error');
+            showToast(t('webdav.enableSyncFirst'), 'error');
             return;
         }
 
@@ -593,7 +594,7 @@ class WebDAVSettingsController {
                 await this.callbacks.onDataReload(result);
             }
         } catch (error) {
-            showToast('同步失败<br>' + error.message, 'error');
+            showToast(t('webdav.syncFailed') + '<br>' + error.message, 'error');
         } finally {
             syncDownload.classList.remove('syncing');
             syncDownload.disabled = false;
@@ -614,7 +615,7 @@ class WebDAVSettingsController {
 
             // 如果有错误，显示 Toast 提示
             if (syncResult.error) {
-                showToast(`WebDAV 同步失败<br>${syncResult.error}`, 'error');
+                showToast(`${t('webdav.webdavSyncFailed')}<br>${syncResult.error}`, 'error');
                 return syncResult;
             }
 
@@ -638,7 +639,7 @@ class WebDAVSettingsController {
             }
             return syncResult;
         } catch (error) {
-            showToast(`WebDAV 同步失败<br>${error.message}`, 'error');
+            showToast(`${t('webdav.webdavSyncFailed')}<br>${error.message}`, 'error');
             return { synced: false, direction: null, result: null, error: error.message };
         }
     }

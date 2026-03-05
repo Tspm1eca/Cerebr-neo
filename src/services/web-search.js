@@ -37,6 +37,8 @@
  * @property {SearchResult[]} results - 搜索結果列表
  */
 
+import { t } from '../utils/i18n.js';
+
 const DEFAULT_TAVILY_API_URL = 'https://api.tavily.com/search';
 const DEFAULT_EXA_API_URL = 'https://api.exa.ai/search';
 
@@ -73,11 +75,11 @@ export async function tavilySearch({
     excludeDomains = []
 }) {
     if (!apiKey) {
-        throw new Error('Tavily API Key 未設置');
+        throw new Error(t('service.tavilyKeyMissing'));
     }
 
     if (!query || query.trim() === '') {
-        throw new Error('搜索查詢不能為空');
+        throw new Error(t('service.searchQueryEmpty'));
     }
 
     const requestBody = {
@@ -120,7 +122,7 @@ export async function tavilySearch({
         });
 
         if (!response.ok) {
-            let errorMessage = `Tavily API 錯誤: ${response.status}`;
+            let errorMessage = t('service.tavilyApiError') + response.status;
             try {
                 const errorData = await response.json();
                 if (errorData.detail) {
@@ -138,7 +140,7 @@ export async function tavilySearch({
         return data;
     } catch (error) {
         if (error.name === 'TypeError' && error.message.includes('fetch')) {
-            throw new Error('網絡連接失敗，請檢查網絡狀態');
+            throw new Error(t('service.networkError'));
         }
         throw error;
     }
@@ -160,11 +162,11 @@ export async function exaSearch({
     excludeDomains = []
 }) {
     if (!apiKey) {
-        throw new Error('Exa API Key 未設置');
+        throw new Error(t('service.exaKeyMissing'));
     }
 
     if (!query || query.trim() === '') {
-        throw new Error('搜索查詢不能為空');
+        throw new Error(t('service.searchQueryEmpty'));
     }
 
     const requestBody = {
@@ -207,7 +209,7 @@ export async function exaSearch({
         });
 
         if (!response.ok) {
-            let errorMessage = `Exa API 錯誤: ${response.status}`;
+            let errorMessage = t('service.exaApiError') + response.status;
             try {
                 const errorData = await response.json();
                 if (errorData.error) {
@@ -227,7 +229,7 @@ export async function exaSearch({
         return normalizeExaResponse(data, query);
     } catch (error) {
         if (error.name === 'TypeError' && error.message.includes('fetch')) {
-            throw new Error('網絡連接失敗，請檢查網絡狀態');
+            throw new Error(t('service.networkError'));
         }
         throw error;
     }

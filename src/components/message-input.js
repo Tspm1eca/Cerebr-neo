@@ -5,6 +5,7 @@
 
 import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePreview, addImageToPreview, clearImagePreview, getPreviewImages } from '../utils/ui.js';
 import { handleImageDrop, compressImage, createThumbnailImage, processImageWithPreview } from '../utils/image.js';
+import { t } from '../utils/i18n.js';
 
 // 跟踪输入法状态
 let isComposing = false;
@@ -674,7 +675,7 @@ export function initMessageInput(config) {
  */
 export function setPlaceholder({ messageInput, placeholder, timeout }) {
     if (messageInput) {
-        const originalPlaceholder = messageInput.getAttribute('data-original-placeholder') || '输入消息...';
+        const originalPlaceholder = messageInput.getAttribute('data-original-placeholder') || t('input.placeholder');
         messageInput.setAttribute('placeholder', placeholder);
         if (timeout) {
             setTimeout(() => {

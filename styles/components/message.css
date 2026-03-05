@@ -166,7 +166,7 @@
 }
 
 .message a.citation-link.citation-not-found::after {
-    content: '未找到';
+    content: var(--i18n-not-found, 'Not found');
     position: absolute;
     bottom: calc(100% + 4px);
     left: 50%;
@@ -228,7 +228,7 @@
 }
 
 .message a.timestamp-link.timestamp-not-found::after {
-    content: '无法跳转';
+    content: var(--i18n-cannot-jump, 'Cannot jump');
     position: absolute;
     bottom: calc(100% + 4px);
     left: 50%;

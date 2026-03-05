@@ -21,6 +21,7 @@ import { initWebpageMenu, getEnabledTabsContent } from './components/webpage-men
 import { initQuickChat, toggleQuickChatOptions } from './components/quick-chat.js';
 import { initWebDAVSettings, showToast as showWebDAVToast } from './components/webdav-settings.js';
 import { webdavSyncManager } from './services/webdav-sync.js';
+import { initI18n, t } from './utils/i18n.js';
 
 // 存储用户的问题历史
 let userQuestions = [];
@@ -126,6 +127,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
  document.addEventListener('DOMContentLoaded', async () => {
      // 初始化 sync 模式（必須在任何 syncStorageAdapter 呼叫之前）
      await initSyncMode();
+
+     // 初始化 i18n（必須在 initSyncMode 之後，DOM 元素存取之前）
+     await initI18n();
 
      const chatContainer = document.getElementById('chat-container');
     const messageInput = document.getElementById('message-input');
@@ -579,9 +583,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 }
 
                 // 根據錯誤類型顯示不同的錯誤訊息
-                let errorMessage = '重新生成失败: ' + error.message;
+                let errorMessage = t('service.regenerateFailed', { message: error.message });
                 if (error?.code === 'YOUTUBE_TRANSCRIPT_UNAVAILABLE') {
-                    errorMessage = error.message || '无法提取 YouTube 字幕。';
+                    errorMessage = error.message || t('service.youtubeExtractFailed');
                 }
                 if (error instanceof TimeoutError) {
                     errorMessage = '⏱️ ' + error.message;
@@ -774,9 +778,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 }
 
                 // 根據錯誤類型顯示不同的錯誤訊息
-                let errorMessage = '发送失败: ' + error.message;
+                let errorMessage = t('service.sendFailed', { message: error.message });
                 if (error?.code === 'YOUTUBE_TRANSCRIPT_UNAVAILABLE') {
-                    errorMessage = error.message || '无法提取 YouTube 字幕。';
+                    errorMessage = error.message || t('service.youtubeExtractFailed');
                 }
                 if (error instanceof TimeoutError) {
                     errorMessage = '⏱️ ' + error.message;
@@ -981,7 +985,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             if (filteredModels.length === 0) {
                 listContainer.innerHTML = '';
                 listContainer.style.display = 'none';
-                emptyContainer.textContent = '没有匹配的模型';
+                emptyContainer.textContent = t('input.noMatchingModels');
                 emptyContainer.style.display = 'block';
                 return;
             }
@@ -1073,7 +1077,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
         // 更新搜索框的 placeholder 顯示當前模型
         if (searchInput) {
-            searchInput.placeholder = config?.modelName ? `${config.modelName}` : '搜索模型...';
+            searchInput.placeholder = config?.modelName ? `${config.modelName}` : t('input.searchModel');
             searchInput.value = '';
         }
 
@@ -1229,9 +1233,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     if (sidePanelToggle) {
         // 更新按钮状态或文本
         if (isSidePanel) {
-            sidePanelToggle.querySelector('span').textContent = '悬浮模式';
+            sidePanelToggle.querySelector('span').textContent = t('settingsMenu.floatingMode');
         } else {
-            sidePanelToggle.querySelector('span').textContent = '侧栏模式';
+            sidePanelToggle.querySelector('span').textContent = t('settingsMenu.sidePanel');
         }
 
         sidePanelToggle.addEventListener('click', async () => {
@@ -1351,11 +1355,11 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         webSearchSwitch.dataset.value = webSearchMode;
         // 更新 title 提示
         const titles = {
-            'off': '关闭 - 点击切换到自动',
-            'auto': '自动（AI决定）- 点击切换到开启',
-            'on': '开启 - 点击切换到关闭'
+            'off': t('searchProvider.triStateOff'),
+            'auto': t('searchProvider.triStateAuto'),
+            'on': t('searchProvider.triStateOn')
         };
-        webSearchSwitch.title = titles[webSearchMode] || '点击切换';
+        webSearchSwitch.title = titles[webSearchMode] || t('searchProvider.triStateTitle');
     }
 
     // 循环切换模式：off -> auto -> on -> off
@@ -1461,8 +1465,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
       if (searchProviderSwitch) {
           searchProviderSwitch.dataset.value = searchProvider;
           searchProviderSwitch.title = searchProvider === 'tavily'
-              ? '当前: Tavily - 点击切换到 Exa'
-              : '当前: Exa - 点击切换到 Tavily';
+              ? t('searchProvider.currentTavily')
+              : t('searchProvider.currentExa');
       }
   }
 
@@ -1557,7 +1561,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
       const url = buildSearchUrl(tavilyApiUrlInput.value, 'https://api.tavily.com/search');
 
       if (!key) {
-          showToast('请输入 Tavily API Key', 'error');
+          showToast(t('searchProvider.enterTavilyKey'), 'error');
           return;
       }
 
@@ -1603,7 +1607,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
       } catch (error) {
           console.error('Tavily test connection error:', error);
-          showToast(`Tavily 连接失败<br>${error.message}`, 'error');
+          showToast(`${t('service.tavilyConnectionFailed')}<br>${error.message}`, 'error');
           button.classList.add('error');
           button.innerHTML = `
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1626,7 +1630,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
       const url = buildSearchUrl(exaApiUrlInput.value, 'https://api.exa.ai/search');
 
       if (!key) {
-          showToast('请输入 Exa API Key', 'error');
+          showToast(t('searchProvider.enterExaKey'), 'error');
           return;
       }
 
@@ -1674,7 +1678,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
       } catch (error) {
           console.error('Exa test connection error:', error);
-          showToast(`Exa 连接失败<br>${error.message}`, 'error');
+          showToast(`${t('service.exaConnectionFailed')}<br>${error.message}`, 'error');
           button.classList.add('error');
           button.innerHTML = `
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

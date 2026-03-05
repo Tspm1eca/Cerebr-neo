@@ -6,9 +6,9 @@
 import { syncStorageAdapter } from '../utils/storage-adapter.js';
 import { clearMessageInput } from './message-input.js';
 import {
-    DEFAULT_NEW_QUICK_CHAT_PROMPT,
     createDefaultQuickChatOptions
 } from '../constants/prompts.js';
+import { t } from '../utils/i18n.js';
 
 // 存儲鍵名
 const QUICK_CHAT_OPTIONS_KEY = 'quickChatOptions';
@@ -259,8 +259,8 @@ export async function initQuickChat({
                             <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
-                        <p>还没有常用选项</p>
-                        <small>点击下方按钮添加您的第一个选项</small>
+                        <p>${t('quickChat.emptyTitle')}</p>
+                        <small>${t('quickChat.emptyHint')}</small>
                     </div>
                 `;
                 return;
@@ -282,15 +282,15 @@ export async function initQuickChat({
                 <div class="quick-chat-option-header">
                     <div class="quick-chat-option-info">
                         <input type="text" class="quick-chat-option-icon-input" value="${option.icon}" maxlength="2">
-                        <input type="text" class="quick-chat-option-title-input" value="${option.title}" placeholder="选项标题">
+                        <input type="text" class="quick-chat-option-title-input" value="${option.title}" placeholder="${t('quickChat.titlePlaceholder')}">
                     </div>
                     <div class="quick-chat-option-actions">
-                        <button class="quick-chat-option-button expand" title="展开编辑">
+                        <button class="quick-chat-option-button expand" title="${t('quickChat.expandEdit')}">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                                 <path d="M2 6V2H6M14 6V2H10M2 10V14H6M14 10V14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                         </button>
-                        <button class="quick-chat-option-button delete" title="删除">
+                        <button class="quick-chat-option-button delete" title="${t('common.delete')}">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                                 <path d="M3 4H13" stroke="currentColor" stroke-width="1.5"/>
                                 <path d="M5 4V12H11V4" stroke="currentColor" stroke-width="1.5"/>
@@ -298,7 +298,7 @@ export async function initQuickChat({
                         </button>
                     </div>
                 </div>
-                <textarea class="quick-chat-option-prompt-input" placeholder="输入提示词">${option.prompt}</textarea>
+                <textarea class="quick-chat-option-prompt-input" placeholder="${t('quickChat.promptPlaceholder')}">${option.prompt}</textarea>
             `;
 
             // 添加事件監聽器
@@ -417,14 +417,14 @@ export async function initQuickChat({
         // 添加新選項
         function addNewQuickChatOption() {
             if (quickChatOptions.length >= 4) {
-                alert('最多只能添加四个快速选项。');
+                alert(t('quickChat.maxOptionsAlert'));
                 return;
             }
 
             const newOption = {
                 id: 'custom-' + Date.now(),
-                title: '新选项',
-                prompt: DEFAULT_NEW_QUICK_CHAT_PROMPT,
+                title: t('quickChat.newOption'),
+                prompt: t('quickChat.defaultNewPrompt'),
                 icon: '⭐'
             };
 

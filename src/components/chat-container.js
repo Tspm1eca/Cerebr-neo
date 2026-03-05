@@ -5,6 +5,7 @@ import { updateAIMessage } from '../handlers/message-handler.js';
 import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from '../../htmd/latex.js';
 import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
 import { isTimestampLink, extractSeekSeconds } from '../../htmd/timestamp.js';
+import { t } from '../utils/i18n.js';
 
 /**
  * 初始化聊天容器的所有功能
@@ -373,19 +374,19 @@ export function initChatContainer({
                 // 取消按钮 - 使用 X 图标
                 const cancelButton = document.createElement('button');
                 cancelButton.className = 'message-edit-cancel';
-                cancelButton.title = '取消';
+                cancelButton.title = t('chat.editCancel');
                 cancelButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
 
                 // 保存按钮 - 使用勾选图标
                 const saveButton = document.createElement('button');
                 saveButton.className = 'message-edit-save';
-                saveButton.title = '保存';
+                saveButton.title = t('chat.editSave');
                 saveButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
 
                 // 保存并重新发送按钮 - 使用发送图标
                 const saveAndResendButton = document.createElement('button');
                 saveAndResendButton.className = 'message-edit-resend';
-                saveAndResendButton.title = '保存并重新发送';
+                saveAndResendButton.title = t('chat.editSaveAndResend');
                 saveAndResendButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>`;
 
                 editActions.appendChild(cancelButton);
@@ -677,7 +678,7 @@ export function initChatContainer({
 
             } catch (err) {
                 console.error('复制图片失败:', err);
-                alert(err.message || '复制图片失败，请稍后重试。');
+                alert(err.message || t('chat.copyImageFailed'));
             } finally {
                 hideContextMenu({
                     contextMenu,

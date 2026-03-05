@@ -12,6 +12,7 @@
  */
 
 import { DEFAULT_SYSTEM_PROMPT } from '../constants/prompts.js';
+import { t } from '../utils/i18n.js';
 
 export { DEFAULT_SYSTEM_PROMPT };
 
@@ -37,7 +38,7 @@ export function initAPICard({
 }) {
     const card = document.querySelector('.api-card.main-api-card');
     if (!card) {
-        console.error('找不到主 API 卡片元素');
+        console.error(t('api.notFoundMainCard'));
         return;
     }
 
@@ -97,7 +98,7 @@ export function initAPICard({
         apiConfigs.forEach((config, index) => {
             const item = document.createElement('div');
             item.className = 'profile-list-item' + (index === selectedIndex ? ' selected' : '');
-            item.textContent = config.profileName || `配置 ${index + 1}`;
+            item.textContent = config.profileName || t('api.profileDefault', { index: index + 1 });
             item.dataset.index = index;
             item.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -133,7 +134,7 @@ export function initAPICard({
     // 更新顯示文字
     function updateProfileSelectorText() {
         const config = getCurrentConfig();
-        profileSelectorText.textContent = config?.profileName || `配置 ${selectedIndex + 1}`;
+        profileSelectorText.textContent = config?.profileName || t('api.profileDefault', { index: selectedIndex + 1 });
     }
 
     // 更新 profile 下拉选单
@@ -226,7 +227,7 @@ export function initAPICard({
             baseUrl: 'https://api.CloseAi.com/v1/chat/completions',
             modelName: '',
             titleModelName: '',
-            profileName: `配置 ${apiConfigs.length + 1}`,
+            profileName: t('api.profileDefault', { index: apiConfigs.length + 1 }),
             advancedSettings: {
                 systemPrompt: DEFAULT_SYSTEM_PROMPT,
                 isExpanded: false
@@ -252,7 +253,7 @@ export function initAPICard({
     renameProfileBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         const config = getCurrentConfig();
-        const currentName = config.profileName || `配置 ${selectedIndex + 1}`;
+        const currentName = config.profileName || t('api.profileDefault', { index: selectedIndex + 1 });
 
         if (renameProfileModal && renameProfileInput) {
             renameProfileInput.value = currentName;
@@ -328,7 +329,7 @@ export function initAPICard({
         e.stopPropagation();
 
         if (apiConfigs.length <= 1) {
-            showToast('至少需要保留一个配置', 'error');
+            showToast(t('api.atLeastOneProfile'), 'error');
             return;
         }
 
@@ -509,7 +510,7 @@ export function initAPICard({
         const cacheKey = `${baseUrl}:${apiKey}`;
 
         if (!apiKey || !baseUrl) {
-            dropdown.innerHTML = '<div class="model-list-item">请输入API Key和Base URL</div>';
+            dropdown.innerHTML = `<div class="model-list-item">${t('api.enterApiKeyAndUrl')}</div>`;
             dropdown.classList.add('visible');
             return;
         }
@@ -519,7 +520,7 @@ export function initAPICard({
             return;
         }
 
-        dropdown.innerHTML = '<div class="model-list-item">加载中...</div>';
+        dropdown.innerHTML = `<div class="model-list-item">${t('common.loading')}</div>`;
         dropdown.classList.add('visible');
 
         try {
@@ -530,7 +531,7 @@ export function initAPICard({
             });
 
             if (!response.ok) {
-                throw new Error('无法获取模型列表');
+                throw new Error(t('api.cannotFetchModels'));
             }
 
             const data = await response.json();
@@ -594,7 +595,7 @@ export function initAPICard({
         const baseUrl = baseUrlInput.value;
 
         if (!apiKey || !baseUrl || !modelName) {
-            showToast('请输入 API Key, Base URL, 和模型名称', 'error');
+            showToast(t('api.enterAllFields'), 'error');
             return;
         }
 
@@ -615,7 +616,7 @@ export function initAPICard({
                 },
                 body: JSON.stringify({
                     model: modelName,
-                    messages: [{ role: 'user', content: 'ok，你好' }],
+                    messages: [{ role: 'user', content: t('api.testMessage') }],
                     stream: false
                 })
             });
@@ -640,7 +641,7 @@ export function initAPICard({
 
         } catch (error) {
             console.error('Test connection error:', error);
-            showToast(`连接失败<br>${error.message}`, 'error');
+            showToast(`${t('api.connectionFailed')}<br>${error.message}`, 'error');
             button.classList.add('error');
             button.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -1,6 +1,7 @@
 import { appendMessage } from '../handlers/message-handler.js';
 import { storageAdapter, browserAdapter, isExtensionEnvironment } from '../utils/storage-adapter.js';
 import { toggleQuickChatOptions } from './quick-chat.js';
+import { t } from '../utils/i18n.js';
 
 export async function renderChatList(chatManager, chatCards, searchTerm = '') {
     const template = chatCards.querySelector('.chat-card.template');
@@ -347,7 +348,7 @@ export function initializeChatList({
                 // 顯示成功提示
                 const successMessage = document.createElement('div');
                 successMessage.className = 'success-toast';
-                successMessage.textContent = '所有对话已清除';
+                successMessage.textContent = t('chatList.allCleared');
                 document.body.appendChild(successMessage);
 
                 // 2.7秒後開始淡出動畫，3秒後移除提示
@@ -365,7 +366,7 @@ export function initializeChatList({
                 // 顯示錯誤提示
                 const errorMessage = document.createElement('div');
                 errorMessage.className = 'error-toast';
-                errorMessage.textContent = '清除对话失败: ' + error.message;
+                errorMessage.textContent = t('chatList.clearFailed') + error.message;
                 document.body.appendChild(errorMessage);
 
                 // 2.7秒後開始淡出動畫，3秒後移除提示

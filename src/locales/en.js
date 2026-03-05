@@ -1,0 +1,229 @@
+/**
+ * English language pack (en)
+ */
+export default {
+    // ===== Common =====
+    common: {
+        cancel: 'Cancel',
+        confirm: 'OK',
+        save: 'Save',
+        delete: 'Delete',
+        reset: 'Reset',
+        close: 'Close',
+        loading: 'Loading...',
+        unknown: 'Unknown',
+        error: 'Error',
+        success: 'Success',
+    },
+
+    // ===== Context Menu =====
+    contextMenu: {
+        edit: 'Edit',
+        copyMessage: 'Copy Message',
+        copyCode: 'Copy Code',
+        copyImage: 'Copy Image',
+        copyMath: 'Copy Formula',
+        regenerate: 'Regenerate',
+        deleteMessage: 'Delete Message',
+    },
+
+    // ===== Input =====
+    input: {
+        placeholder: 'Type a message',
+        newChat: 'New Chat',
+        stopResponse: 'Stop',
+        searchModel: 'Search models',
+        configureApiFirst: 'Configure API first',
+        noMatchingModels: 'No matching models',
+    },
+
+    // ===== Settings Menu =====
+    settingsMenu: {
+        sendWebpage: 'Send Webpage',
+        webSearch: 'Web Search',
+        sidePanel: 'Side Panel',
+        floatingMode: 'Floating Mode',
+        webpageContent: 'Page Content',
+        history: 'History',
+        settings: 'Settings',
+    },
+
+    // ===== Settings Page =====
+    settings: {
+        title: 'Settings',
+        tabQuickChat: 'Quick Options',
+        tabApiSettings: 'API Settings',
+        tabWebdav: 'WebDAV',
+    },
+
+    // ===== Quick Chat =====
+    quickChat: {
+        addOption: 'Add Option',
+        resetAll: 'Reset All to Default',
+        emptyTitle: 'No quick options yet',
+        emptyHint: 'Click the button below to add your first option',
+        titlePlaceholder: 'Option title',
+        promptPlaceholder: 'Enter prompt',
+        expandEdit: 'Expand editor',
+        newOption: 'New Option',
+        maxOptionsAlert: 'You can add up to 4 quick options.',
+        defaultNewPrompt: 'Enter your prompt',
+        defaultOption1Title: 'Bullet Summary',
+        defaultOption2Title: '200-Word Summary',
+        defaultOption3Title: 'List News',
+    },
+
+    // ===== API Settings =====
+    api: {
+        configLabel: 'API Config',
+        profileDefault: 'Profile {{index}}',
+        renameProfile: 'Rename profile',
+        addProfile: 'Add profile',
+        deleteProfile: 'Delete current profile',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'Enter API Key',
+        baseUrl: 'Base URL',
+        chatModel: 'Chat Model',
+        modelPlaceholder: 'Enter model name',
+        titleModel: 'Title Generation Model',
+        titleModelPlaceholder: 'Enter model name (optional)',
+        systemPrompt: 'System Prompt',
+        systemPromptPlaceholder: 'Enter system prompt',
+        expandEdit: 'Expand editor',
+        resetPrompt: 'Reset to default prompt',
+        testConnection: 'Test connection',
+        webSearch: 'Web Search',
+        optionalNoSearch: '(optional, no need to add /search)',
+        tavilyApiKeyPlaceholder: 'Enter Tavily API Key',
+        exaApiKeyPlaceholder: 'Enter Exa API Key',
+        notFoundMainCard: 'Main API card element not found',
+        atLeastOneProfile: 'At least one profile is required',
+        enterApiKeyAndUrl: 'Please enter API Key and Base URL',
+        cannotFetchModels: 'Unable to fetch model list',
+        enterAllFields: 'Please enter API Key, Base URL, and model name',
+        connectionFailed: 'Connection failed',
+        testMessage: 'ok, hello',
+        apiIncomplete: 'API configuration is incomplete',
+    },
+
+    // ===== WebDAV =====
+    webdav: {
+        enableWebdav: 'Enable WebDAV',
+        serverUrl: 'Server URL',
+        username: 'Username',
+        usernamePlaceholder: 'Enter username',
+        password: 'Password',
+        passwordPlaceholder: 'Enter password',
+        togglePassword: 'Show/hide password',
+        syncPath: 'Sync Path',
+        syncPathOptional: '(optional)',
+        syncApiConfig: 'Sync API Config',
+        encryptApiConfig: 'Encrypt API Config',
+        encryptionPassword: 'Encryption Password',
+        encryptionPasswordPlaceholder: 'Enter encryption password',
+        encryptionHint: 'Remember this password — encrypted data cannot be recovered without it',
+        warningUnencrypted: 'API config stored in plain text',
+        warningEncrypted: 'API config stored encrypted',
+        warningNeedPassword: 'Enter encryption password to enable sync',
+        uploadToCloud: 'Upload to Cloud',
+        downloadFromCloud: 'Download from Cloud',
+        lastSync: 'Last sync: ',
+        neverSynced: 'Never synced',
+        connectionFailed: 'WebDAV connection failed',
+        enableFirst: 'Please enable WebDAV first',
+        uploadFailed: 'Upload failed: ',
+        enableSyncFirst: 'Please enable WebDAV sync first',
+        syncFailed: 'Sync failed',
+        webdavSyncFailed: 'WebDAV sync failed',
+        conflictTitle: 'Sync Conflict',
+        conflictMessage: 'Both local and cloud data have changed. Choose which version to keep:',
+        useLocal: 'Use Local Data',
+        useRemote: 'Use Cloud Data',
+        conflictDialogMissing: 'Conflict dialog elements missing, using auto-resolve',
+    },
+
+    // ===== Chat List =====
+    chatList: {
+        title: 'History',
+        searchPlaceholder: 'Search chats',
+        clearAll: 'Clear all chats',
+        newChat: 'New Chat',
+        clearAllConfirm: 'Are you sure you want to clear all chat history?',
+        clearAllWarning: 'This action cannot be undone.',
+        allCleared: 'All chats cleared',
+        clearFailed: 'Failed to clear chats: ',
+    },
+
+    // ===== Modals =====
+    modal: {
+        editSystemPrompt: 'Edit System Prompt',
+        editPrompt: 'Edit Prompt',
+        renameProfileTitle: 'Rename Profile',
+        renameProfileLabel: 'Enter new profile name:',
+        renameProfilePlaceholder: 'Profile name',
+        deleteProfileConfirm: 'Delete this profile?',
+        cannotUndo: 'This action cannot be undone.',
+        resetQuickChatConfirm: 'Reset to default options?',
+        resetQuickChatWarning: 'This will delete all custom options and cannot be undone.',
+        deleteQuickChatConfirm: 'Delete this option?',
+        resetPromptConfirm: 'Reset system prompt to default?',
+    },
+
+    // ===== CSS Content =====
+    css: {
+        notFound: 'Not found',
+        cannotJump: 'Cannot jump',
+    },
+
+    // ===== Chat Container =====
+    chat: {
+        copyImageFailed: 'Failed to copy image. Please try again later.',
+        editCancel: 'Cancel',
+        editSave: 'Save',
+        editSaveAndResend: 'Save and resend',
+    },
+
+    // ===== Service Errors =====
+    service: {
+        waitingTimeout: 'AI response timeout (no data received within {{seconds}}s)',
+        streamTimeout: 'Stream timeout (no new content within {{seconds}}s)',
+        fetchTimeout: 'API connection timeout (no response within {{seconds}}s)',
+        keywordEmpty: 'Keyword extraction input is empty',
+        keywordApiIncomplete: 'API configuration is incomplete, cannot extract keywords',
+        keywordTimeout: 'Keyword extraction connection timeout (no response within {{seconds}}s)',
+        keywordTimeoutShort: 'Keyword extraction timeout: ',
+        keywordRequestFailed: 'Keyword extraction request failed: ',
+        keywordApiError: 'Keyword extraction API error: ',
+        keywordParseFailed: 'Keyword extraction response parse failed: not JSON',
+        keywordResultEmpty: 'Keyword extraction returned empty',
+        searchNoQuery: 'Web search is enabled but no text query found for keyword extraction',
+        searchNoResults: 'Search returned no results',
+        searching: '🔍 Searching: "{{query}}"...\n\n',
+        webSearchFailed: '⚠️ Web search failed: {{message}}',
+        regenerateFailed: 'Regeneration failed: {{message}}',
+        sendFailed: 'Send failed: {{message}}',
+        youtubeExtractFailed: 'Unable to extract YouTube transcript.',
+        tavilyKeyMissing: 'Tavily API Key is not set',
+        exaKeyMissing: 'Exa API Key is not set',
+        searchQueryEmpty: 'Search query cannot be empty',
+        tavilyApiError: 'Tavily API error: ',
+        exaApiError: 'Exa API error: ',
+        networkError: 'Network connection failed. Please check your network.',
+        tavilyConnectionFailed: 'Tavily connection failed',
+        exaConnectionFailed: 'Exa connection failed',
+    },
+
+    searchTriggers: {},
+
+    searchProvider: {
+        switchTitle: 'Click to switch search provider: Tavily ↔ Exa',
+        triStateTitle: 'Click to toggle: Off → Auto → On',
+        triStateOff: 'Off - Click to switch to Auto',
+        triStateAuto: 'Auto (AI decides) - Click to switch to On',
+        triStateOn: 'On - Click to switch to Off',
+        currentTavily: 'Current: Tavily - Click to switch to Exa',
+        currentExa: 'Current: Exa - Click to switch to Tavily',
+        enterTavilyKey: 'Please enter Tavily API Key',
+        enterExaKey: 'Please enter Exa API Key',
+    },
+};
