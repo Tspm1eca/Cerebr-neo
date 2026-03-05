@@ -290,7 +290,7 @@ export async function initQuickChat({
                                 <path d="M2 6V2H6M14 6V2H10M2 10V14H6M14 10V14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                         </button>
-                        <button class="quick-chat-option-button delete" title="刪除">
+                        <button class="quick-chat-option-button delete" title="删除">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                                 <path d="M3 4H13" stroke="currentColor" stroke-width="1.5"/>
                                 <path d="M5 4V12H11V4" stroke="currentColor" stroke-width="1.5"/>

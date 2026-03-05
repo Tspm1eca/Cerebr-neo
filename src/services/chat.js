@@ -42,20 +42,20 @@ function calcStreamTimeout(isFirstChunk, lastContentTime) {
     if (isFirstChunk) {
         return {
             timeout: FIRST_CHUNK_TIMEOUT,
-            message: `等待 AI 響應超時（${FIRST_CHUNK_TIMEOUT / 1000}秒內未收到任何數據）`,
+            message: `等待 AI 响应超时（${FIRST_CHUNK_TIMEOUT / 1000}秒內未收到任何数据）`,
             type: 'first_chunk'
         };
     }
     const remaining = STREAM_TIMEOUT - (Date.now() - lastContentTime);
     if (remaining <= 0) {
         throw new TimeoutError(
-            `流式響應超時（${STREAM_TIMEOUT / 1000}秒內未收到新內容）`,
+            `流式响应超时（${STREAM_TIMEOUT / 1000}秒內未收到新內容）`,
             'stream'
         );
     }
     return {
         timeout: remaining,
-        message: `流式響應超時（${STREAM_TIMEOUT / 1000}秒內未收到新內容）`,
+        message: `流式响应超时（${STREAM_TIMEOUT / 1000}秒內未收到新內容）`,
         type: 'stream'
     };
 }
@@ -90,10 +90,10 @@ function withTimeout(promise, timeout, errorMessage, errorType = 'stream') {
  */
 async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessages = []) {
     if (!rawQuery || typeof rawQuery !== 'string' || !rawQuery.trim()) {
-        throw new Error('關鍵字提取輸入為空');
+        throw new Error('关键字提取输入为空');
     }
     if (!apiConfig?.baseUrl || !apiConfig?.apiKey) {
-        throw new Error('API 配置不完整，無法提取關鍵字');
+        throw new Error('API 配置不完整，无法提取关键字');
     }
 
     const normalizedRawQuery = rawQuery.trim();
@@ -512,7 +512,7 @@ export async function callAPI({
         }
 
         if (!rawQuery.trim()) {
-            throw new Error('網絡搜索已開啟，但未找到可用於提取關鍵字的文本查詢');
+            throw new Error('网络搜索已开启，但未找到可用的提取关键字的文本查询');
         }
 
         let extractedQuery;
@@ -673,7 +673,7 @@ export async function callAPI({
                     signal
                 }),
                 FETCH_TIMEOUT,
-                `API 連線超時（${FETCH_TIMEOUT / 1000}秒內未收到回應）`,
+                `API 连线超时（${FETCH_TIMEOUT / 1000}秒內未收到回应）`,
                 'fetch'
             );
 

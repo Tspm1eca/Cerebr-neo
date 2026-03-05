@@ -296,7 +296,7 @@ export function addImageLoadingToPreview({ onDelete } = {}) {
     item.className = 'preview-image-item loading';
 
     const img = document.createElement('img');
-    img.alt = '載入中';
+    img.alt = '载入中';
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'preview-delete-btn';

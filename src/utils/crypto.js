@@ -338,16 +338,16 @@ export async function encryptPasswordForStorage(password) {
  */
 export async function decryptPasswordFromStorage(encryptedPassword) {
     if (!encryptedPassword || !encryptedPassword.iv || !encryptedPassword.ciphertext) {
-        throw new Error('加密密碼格式無效：缺少必要的加密字段（iv 或 ciphertext）');
+        throw new Error('加密密码格式无效：缺少必要的加密字段（iv 或 ciphertext）');
     }
 
     // 檢查加密版本
     const version = encryptedPassword.version;
     if (version === undefined) {
-        throw new Error('加密密碼格式無效：缺少版本標識');
+        throw new Error('加密密码格式无效：缺少版本标签');
     }
     if (version !== 1) {
-        throw new Error(`不支持的加密密碼版本：${version}，當前僅支持版本 1`);
+        throw new Error(`不支持的加密密码版本：${version}，当前仅支持版本 1`);
     }
 
     const decoder = new TextDecoder();
@@ -381,9 +381,9 @@ export async function decryptPasswordFromStorage(encryptedPassword) {
     } catch (error) {
         // 解密失敗
         if (error.name === 'OperationError') {
-            throw new Error('解密失敗：數據已損壞或擴展環境已變更');
+            throw new Error('解密失败：数据已损坏或扩展环境已变更');
         }
-        throw new Error(`解密過程發生錯誤：${error.message}`);
+        throw new Error(`解密过程发生错误：${error.message}`);
     }
 }
 

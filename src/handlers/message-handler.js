@@ -95,11 +95,11 @@ export function processMessageLinks(container) {
             link.classList.add('citation-link');
             const textToFind = extractCitationText(href);
             if (textToFind) {
-                link.title = `跳轉到: "${textToFind}"`;
+                link.title = `跳转到: "${textToFind}"`;
             }
         } else if (isTimestampLink(href)) {
             link.classList.add('timestamp-link');
-            link.title = `跳轉到 ${link.textContent}`;
+            link.title = `跳转到 ${link.textContent}`;
         } else {
             link.target = '_blank';
             link.rel = 'noopener noreferrer';

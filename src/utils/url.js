@@ -45,7 +45,7 @@ export function blobToDataUrl(blob) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error || new Error('圖片轉碼失敗'));
+        reader.onerror = () => reject(reader.error || new Error('图片转码失败'));
         reader.readAsDataURL(blob);
     });
 }

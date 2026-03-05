@@ -317,7 +317,7 @@ function readFileAsDataURL(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('檔案讀取失敗'));
+        reader.onerror = () => reject(new Error('档案读取失败'));
         reader.readAsDataURL(file);
     });
 }
