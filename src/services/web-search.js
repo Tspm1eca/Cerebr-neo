@@ -342,24 +342,3 @@ export function shouldPerformSearch(message) {
 
     return false;
 }
-
-/**
- * 從用戶消息中提取搜索查詢
- * @param {string} message - 用戶消息
- * @returns {string} 提取的搜索查詢
- */
-export function extractSearchQuery(message) {
-    if (!message || typeof message !== 'string') {
-        return '';
-    }
-
-    // 移除常見的前綴詞
-    let query = message
-        .replace(/^(請|幫我|幫忙|麻煩)?/g, '')
-        .replace(/^(搜索|搜尋|查找|查詢|找一下|查一下)/g, '')
-        .replace(/^(search|find|look up|google)\s*/gi, '')
-        .trim();
-
-    // 如果處理後為空，返回原始消息
-    return query || message;
-}

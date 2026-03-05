@@ -14,7 +14,7 @@ import {
     WEB_SEARCH_TOOL_DESCRIPTION,
     WEB_SEARCH_TOOL_QUERY_DESCRIPTION
 } from '../constants/prompts.js';
-import { webSearch, tavilySearch, formatSearchResultsForPrompt, extractSearchQuery } from './web-search.js';
+import { webSearch, formatSearchResultsForPrompt } from './web-search.js';
 
 // 超時配置（毫秒）
 const STREAM_TIMEOUT = 45000; // 流式響應超時：上次收到有效內容後 45 秒內無新內容則超時
@@ -79,6 +79,187 @@ function withTimeout(promise, timeout, errorMessage, errorType = 'stream') {
     return Promise.race([promise, timeoutPromise]).finally(() => {
         clearTimeout(timeoutId);
     });
+}
+
+/**
+ * 使用 LLM 提取網絡搜索關鍵字
+ * @param {string} rawQuery - 原始查詢文本
+ * @param {APIConfig} apiConfig - API 配置
+ * @param {Array<Message>} [contextMessages=[]] - 用於提取關鍵字的上下文消息（僅取最近 7 條）
+ * @returns {Promise<string>} 提取後的英文關鍵字
+ */
+async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessages = []) {
+    if (!rawQuery || typeof rawQuery !== 'string' || !rawQuery.trim()) {
+        throw new Error('關鍵字提取輸入為空');
+    }
+    if (!apiConfig?.baseUrl || !apiConfig?.apiKey) {
+        throw new Error('API 配置不完整，無法提取關鍵字');
+    }
+
+    const normalizedRawQuery = rawQuery.trim();
+    const keywordContext = buildKeywordContextForQuery(contextMessages, normalizedRawQuery, 7);
+    const promptContent = keywordContext || normalizedRawQuery;
+
+    let response;
+    try {
+        response = await withTimeout(
+            fetch(apiConfig.baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiConfig.apiKey}`
+                },
+                body: JSON.stringify({
+                    model: apiConfig.modelName || "gpt-4o",
+                    messages: [
+                        {
+                            role: 'system',
+                            content: WEB_SEARCH_TOOL_QUERY_DESCRIPTION
+                        },
+                        {
+                            role: 'user',
+                            content: promptContent
+                        }
+                    ],
+                    stream: false
+                })
+            }),
+            FETCH_TIMEOUT,
+            `關鍵字提取連線超時（${FETCH_TIMEOUT / 1000}秒內未收到回應）`,
+            'fetch'
+        );
+    } catch (error) {
+        if (error instanceof TimeoutError) {
+            throw new Error(`關鍵字提取超時: ${error.message}`);
+        }
+        throw new Error(`關鍵字提取請求失敗: ${error.message}`);
+    }
+
+    if (!response.ok) {
+        let errorMessage = `關鍵字提取 API 錯誤: ${response.status}`;
+        try {
+            const errorText = await response.text();
+            if (errorText) {
+                errorMessage += ` - ${errorText.slice(0, 300)}`;
+            }
+        } catch {
+            // 忽略錯誤正文解析失敗
+        }
+        throw new Error(errorMessage);
+    }
+
+    let data;
+    try {
+        data = await response.json();
+    } catch {
+        throw new Error('關鍵字提取響應解析失敗：返回非 JSON');
+    }
+
+    const extractedQuery = (data?.choices?.[0]?.message?.content ?? '');
+
+    // 清理模型輸出，避免引號/多空白干擾搜索查詢
+    const normalizedQuery = extractedQuery
+        .trim()
+        .replace(/^[`”’””’’]+|[`”’””’’]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    if (!normalizedQuery) {
+        throw new Error('關鍵字提取為空');
+    }
+
+    return normalizedQuery;
+}
+
+/**
+ * 從消息內容提取純文本（忽略圖片等非文本內容）
+ * @param {string | Array<{type: string, text?: string}>} content - 消息內容
+ * @returns {string} 提取出的文本
+ */
+function extractMessageText(content) {
+    if (typeof content === 'string') {
+        return content;
+    }
+    if (Array.isArray(content)) {
+        return content
+            .filter(part => part?.type === 'text' && typeof part.text === 'string')
+            .map(part => part.text)
+            .join('\n');
+    }
+    return '';
+}
+
+/**
+ * 清理文本中的 URL，降低關鍵字提取上下文的 token 開銷
+ * @param {string} text - 原始文本
+ * @returns {string} 移除 URL 後的文本
+ */
+function stripUrlsForKeywordContext(text) {
+    if (!text || typeof text !== 'string') {
+        return '';
+    }
+
+    return text
+        // 先處理 Markdown 連結，保留錨文本，移除 URL
+        .replace(/\[([^\]]+)\]\((?:https?:\/\/|www\.)[^)]+\)/gi, '$1')
+        // 再處理裸露的 http(s) URL
+        .replace(/https?:\/\/\S+/gi, '')
+        // 再處理裸露的 www.* URL
+        .replace(/\bwww\.[^\s)]+/gi, '')
+        // 壓縮多餘空白與空行
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+}
+
+/**
+ * 構建關鍵字提取上下文，限制最近 N 條消息
+ * @param {Array<Message>} messages - 歷史消息
+ * @param {string} rawQuery - 當前查詢文本
+ * @param {number} maxMessages - 最大上下文消息數
+ * @returns {string} 格式化上下文文本
+ */
+function buildKeywordContextForQuery(messages, rawQuery, maxMessages = 7) {
+    if (!Array.isArray(messages) || maxMessages <= 0) {
+        return '';
+    }
+
+    const contextCandidates = messages
+        .filter(message => message?.role === 'user' || message?.role === 'assistant')
+        .map(message => ({
+            role: message.role,
+            text: stripUrlsForKeywordContext(extractMessageText(message.content)),
+            isCurrentUserRequest: false
+        }))
+        .filter(item => item.text);
+
+    const sanitizedRawQuery = stripUrlsForKeywordContext(rawQuery);
+
+    // 把本輪查詢固定為專屬段落，避免與歷史 User 條目混淆
+    if (sanitizedRawQuery) {
+        const last = contextCandidates[contextCandidates.length - 1];
+        if (last && last.role === 'user' && last.text === sanitizedRawQuery) {
+            contextCandidates.pop();
+        }
+        contextCandidates.push({ role: 'user', text: sanitizedRawQuery, isCurrentUserRequest: true });
+    }
+
+    const recentContext = contextCandidates.slice(-maxMessages);
+    const historyItems = recentContext.filter(item => !item.isCurrentUserRequest);
+    const currentItem = recentContext.find(item => item.isCurrentUserRequest);
+
+    const parts = [];
+    if (historyItems.length > 0) {
+        const historyXml = historyItems
+            .map(item => `<message role="${item.role}">\n${item.text}\n</message>`)
+            .join('\n');
+        parts.push(`<chat_history>\n${historyXml}\n</chat_history>`);
+    }
+    if (currentItem) {
+        parts.push(`<current_request>\n${currentItem.text}\n</current_request>`);
+    }
+    return parts.join('\n');
 }
 
 /**
@@ -312,8 +493,8 @@ export async function callAPI({
         : effectiveSearchConfig.tavilyApiKey;
 
     // 处理网络搜索 - 根据模式决定行为
-    // 'on' 模式：直接执行搜索
-    // 'auto' 模式：使用 Function Calling 让 AI 决定
+    // 'on' 模式：強制搜索，且每次先用 LLM 提取關鍵字再搜索
+    // 'auto' 模式：使用 Function Calling 让 AI 决定是否搜索
     // 'off' 模式：不搜索
     // 用於標記 'on' 模式下是否已執行搜索
     let searchUsedInOnMode = false;
@@ -321,56 +502,74 @@ export async function callAPI({
     let onModeSearchResults = null;
 
     if (webSearchMode === 'on' && currentApiKey) {
-        try {
-            // 获取搜索查询：使用自定义查询或最后一条用户消息
-            let query = searchQuery;
-            if (!query) {
-                const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-                if (lastUserMessage) {
-                    const rawQuery = typeof lastUserMessage.content === 'string'
-                        ? lastUserMessage.content
-                        : lastUserMessage.content.find(c => c.type === 'text')?.text || '';
-                    query = extractSearchQuery(rawQuery);
-                }
+        // 获取原始搜索查询：优先使用自定义查询，否则使用最后一条用户文本消息
+        let rawQuery = typeof searchQuery === 'string' ? searchQuery : '';
+        if (!rawQuery.trim()) {
+            const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+            if (lastUserMessage) {
+                rawQuery = extractMessageText(lastUserMessage.content);
             }
+        }
 
-            if (query) {
-                console.log(`执行 ${effectiveSearchConfig.provider} 网络搜索:`, query);
+        if (!rawQuery.trim()) {
+            throw new Error('網絡搜索已開啟，但未找到可用於提取關鍵字的文本查詢');
+        }
 
-                // 使用統一的搜索入口
-                const searchResults = await webSearch({
-                    provider: effectiveSearchConfig.provider,
-                    apiKey: currentApiKey,
-                    apiUrl: effectiveSearchConfig.provider === 'exa'
-                        ? effectiveSearchConfig.exaApiUrl
-                        : effectiveSearchConfig.tavilyApiUrl,
-                    query: query,
-                    searchDepth: 'basic',
-                    maxResults: 5,
-                    includeAnswer: true
-                });
+        let extractedQuery;
+        try {
+            extractedQuery = await generateSearchKeywordsWithLLM(rawQuery, apiConfig, messages);
+        } catch (error) {
+            console.error('on 模式關鍵字提取失敗，fallback 到原始查詢:', error);
+            extractedQuery = rawQuery.trim();
+        }
 
-                // 格式化搜索結果
-                const formattedResults = formatSearchResultsForPrompt(searchResults, userLanguage);
-                const mappedFormattedResults = extractAndReplaceUrls(formattedResults, urlToIdMap, idToUrlMap);
-                if (mappedFormattedResults) {
-                    // 暫存搜索結果，後續注入到 user message
-                    onModeSearchResults = mappedFormattedResults;
+        console.log(`on 模式關鍵字提取: "${rawQuery}" -> "${extractedQuery}"`);
 
-                    // 標記搜索已使用（用於後續流處理）
-                    searchUsedInOnMode = true;
+        // on 模式搜索前，先顯示與 auto 模式一致的「正在搜索」狀態氣泡
+        // 提前標記為 true：即使後續搜索失敗，UI 已顯示搜索光暈，保持視覺一致性
+        searchUsedInOnMode = true;
+        if (chatManager && chatId) {
+            const searchingStatusMessage = {
+                content: `🔍 正在搜索: "${extractedQuery}"...\n\n`,
+                reasoning_content: '',
+                isSearchUsed: true
+            };
+            chatManager.updateLastMessage(chatId, searchingStatusMessage, false);
+            onMessageUpdate(chatId, searchingStatusMessage);
+        }
 
-                    // 同時更新 chatManager 和 UI（讓等待訊息立即顯示搜索標記）
-                    if (chatManager && chatId) {
-                        chatManager.updateLastMessage(chatId, { isSearchUsed: true }, false);
-                        // 立即通知 UI 更新，讓等待訊息顯示淺綠色邊框
-                        onMessageUpdate(chatId, { content: '', reasoning_content: '', isSearchUsed: true });
-                    }
-                }
+        try {
+            console.log(`执行 ${effectiveSearchConfig.provider} 网络搜索:`, extractedQuery);
+
+            // 使用統一的搜索入口
+            const searchResults = await webSearch({
+                provider: effectiveSearchConfig.provider,
+                apiKey: currentApiKey,
+                apiUrl: effectiveSearchConfig.provider === 'exa'
+                    ? effectiveSearchConfig.exaApiUrl
+                    : effectiveSearchConfig.tavilyApiUrl,
+                query: extractedQuery,
+                searchDepth: 'basic',
+                maxResults: 5,
+                includeAnswer: true
+            });
+
+            // 格式化搜索結果
+            const formattedResults = formatSearchResultsForPrompt(searchResults, userLanguage);
+            const mappedFormattedResults = extractAndReplaceUrls(formattedResults, urlToIdMap, idToUrlMap);
+            if (mappedFormattedResults) {
+                // 暫存搜索結果，後續注入到 user message
+                onModeSearchResults = mappedFormattedResults;
             }
         } catch (error) {
             console.error(`${effectiveSearchConfig.provider} 搜索失败:`, error);
             // 搜索失败不应阻止 API 调用，继续执行
+        } finally {
+            // 搜索結束後切回等待動畫，保持與 auto 模式一致的過渡體驗
+            if (chatManager && chatId) {
+                chatManager.updateLastMessage(chatId, { isSearchUsed: true }, false);
+                onMessageUpdate(chatId, { content: '{{WAITING_ANIMATION}}', reasoning_content: '', isSearchUsed: true });
+            }
         }
     } else if (webSearchMode === 'on' && !currentApiKey) {
         console.warn(`网络搜索已启用，但未设置 ${effectiveSearchConfig.provider} API Key`);

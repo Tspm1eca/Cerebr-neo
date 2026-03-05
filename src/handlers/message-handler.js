@@ -75,6 +75,13 @@ function ensureBoxExtra(el) {
     return el._boxExtra;
 }
 
+/** 停止氣泡尺寸 rAF 動畫，避免與狀態切換過渡動畫互相覆蓋 */
+function stopBubbleSizeAnimation(el) {
+    if (!el || !el._sizeAnim) return;
+    if (el._sizeAnim.rafId) cancelAnimationFrame(el._sizeAnim.rafId);
+    delete el._sizeAnim;
+}
+
 /**
  * 處理消息中的連結：標記引用連結為 citation-link，設置外部連結屬性
  * 支援 Text Fragment 格式 (#:~:text=) 和舊版 cite: 格式
@@ -436,8 +443,12 @@ export function createYouTubeExtractionMessage(chatContainer) {
  * 遵循 updateAIMessage 中 text→dots 的動畫模式（lines 586-636）
  * @param {HTMLElement} extractionMsg - 提取狀態訊息元素
  * @param {HTMLElement} chatContainer - 聊天容器元素
+ * @param {Object} [options] - 可選配置
+ * @param {boolean} [options.isSearchUsed=false] - 是否使用了搜索功能
  */
-export function transitionExtractionToWaiting(extractionMsg, chatContainer) {
+export function transitionExtractionToWaiting(extractionMsg, chatContainer, options = {}) {
+    const { isSearchUsed = false } = options;
+
     // 1. 記錄當前 border-box 尺寸
     const rect = extractionMsg.getBoundingClientRect();
 
@@ -454,6 +465,9 @@ export function transitionExtractionToWaiting(extractionMsg, chatContainer) {
     // 4. 切換 class：updating → waiting（box-sizing 變為 border-box，鎖定尺寸現在正確）
     extractionMsg.classList.remove('updating');
     extractionMsg.classList.add('waiting');
+    if (isSearchUsed && !extractionMsg.classList.contains('search-used')) {
+        extractionMsg.classList.add('search-used');
+    }
 
     // 5. 清除文字內容，插入 thinking-dots
     const mainContent = extractionMsg.querySelector('.main-content');
@@ -584,6 +598,9 @@ export async function updateAIMessage({
                     targetMessage.classList.add('search-used');
                 }
             }
+
+            // 若上一階段仍在執行彈簧尺寸動畫，先停止，避免與 text→dots 過渡互相搶寫高度
+            stopBubbleSizeAnimation(targetMessage);
 
             // 动画处理：记录原始尺寸
             const rect = targetMessage.getBoundingClientRect();

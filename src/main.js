@@ -527,8 +527,10 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 }
             };
 
-            // 显示等待动画
-            createWaitingMessage(chatContainer);
+            // 显示等待动画；on 模式从第一帧就使用搜索光暈（綠色）
+            createWaitingMessage(chatContainer, {
+                isSearchUsed: effectiveWebSearchMode === 'on'
+            });
 
             // 调用带重试逻辑的 API
             await callAPIWithRetry(apiParams, chatManager, currentChat.id, (chatId, message) => {
@@ -687,12 +689,17 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             if (isCurrentTabYouTube && isFirstMessage) {
                 youtubeExtractionMsg = createYouTubeExtractionMessage(chatContainer);
             } else {
-                createWaitingMessage(chatContainer, { isYouTube: isCurrentTabYouTube });
+                createWaitingMessage(chatContainer, {
+                    isYouTube: isCurrentTabYouTube,
+                    isSearchUsed: webSearchMode === 'on'
+                });
             }
             const webpageInfo = isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null;
             // YouTube 提取完成後，過渡到三點等待動畫（帶拉伸動畫）
             if (youtubeExtractionMsg && youtubeExtractionMsg.parentNode) {
-                transitionExtractionToWaiting(youtubeExtractionMsg, chatContainer);
+                transitionExtractionToWaiting(youtubeExtractionMsg, chatContainer, {
+                    isSearchUsed: webSearchMode === 'on'
+                });
             }
             shouldRollbackUserMessage = true;
             await chatManager.addMessageToCurrentChat(userMessage, webpageInfo);
