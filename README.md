@@ -17,6 +17,7 @@
 
 ### **注意：**
 - 如果你是**默認提示詞**使用者，建議在每次更新後使用`還原提示詞`按鈕。因為我會不停改進默認提示詞。
+- 自己的Prompt裡可以加入`{{userLanguageName}}`變量，這代表你瀏覽器的語言。（案例可參考默認system prompt）
 
 <img width="300" height="900" alt="1" src="https://github.com/user-attachments/assets/681b8c94-c7ae-4d98-92d7-c5ac6119f36e" /> <img width="300" height="900" alt="12" src="https://github.com/user-attachments/assets/f8b77afd-8d71-4d4d-a152-e45d2871d26e" /> <img width="300" height="900" alt="11" src="https://github.com/user-attachments/assets/bc5ab03c-e9b1-49ba-8381-85563b33d497" />
 <img width="300" height="900" alt="4" src="https://github.com/user-attachments/assets/03636f83-12d9-4cbf-9734-1645ebf96fe0" /> <img width="300" height="900" alt="5" src="https://github.com/user-attachments/assets/aa7452e8-cb4a-4c5b-b458-db15582d176a" /> <img width="300" height="900" alt="6" src="https://github.com/user-attachments/assets/17212b9a-6693-47e2-a56e-f74e77409e14" />
