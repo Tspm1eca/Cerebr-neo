@@ -11,7 +11,7 @@ import {
 } from '../constants/prompts.js';
 
 const SESSION_KEY = 'cerebr_remote_prompts';
-const REMOTE_URL = 'https://raw.githubusercontent.com/Tspm1eca/Cerebr-neo/Dev/prompts.json';
+const REMOTE_URL = 'https://raw.githubusercontent.com/Tspm1eca/Cerebr-neo/Dev/src/constants/prompts.json';
 const FETCH_TIMEOUT_MS = 8000;
 
 // 記憶體緩存，避免重複異步讀取 session storage

@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 const rootDir = path.join(__dirname, '..');
-const inputPath = path.join(rootDir, 'prompts.json');
+const inputPath = path.join(rootDir, 'src', 'constants', 'prompts.json');
 const outputPath = path.join(rootDir, 'src', 'constants', 'prompts.js');
 
 const prompts = JSON.parse(fs.readFileSync(inputPath, 'utf-8'));
