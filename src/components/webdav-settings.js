@@ -149,8 +149,7 @@ class WebDAVSettingsController {
             encryptionPassword,
             toggleEncryptionPassword,
             testConnection,
-            syncUpload,
-            syncDownload
+            syncNow
         } = this.elements;
 
         // 启用开关事件
@@ -215,16 +214,10 @@ class WebDAVSettingsController {
             this.handleTestConnection();
         });
 
-        // 上传到云端按钮事件
-        syncUpload?.addEventListener('click', (e) => {
+        // 立即同步按钮事件
+        syncNow?.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.handleSyncUpload();
-        });
-
-        // 从云端下载按钮事件
-        syncDownload?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.handleSyncDownload();
+            this.handleSyncNow();
         });
     }
 
@@ -321,23 +314,11 @@ class WebDAVSettingsController {
      */
     updateFormState(enabled) {
         const { form } = this.elements;
-        if (form) {
-            if (enabled) {
-                form.classList.remove('disabled');
-            } else {
-                form.classList.add('disabled');
-            }
-        }
+        form?.classList.toggle('disabled', !enabled);
 
         // 展開/收合同步 API 配置區域
         const apiSection = document.querySelector('.webdav-sync-api-section');
-        if (apiSection) {
-            if (enabled) {
-                apiSection.classList.remove('collapsed');
-            } else {
-                apiSection.classList.add('collapsed');
-            }
-        }
+        apiSection?.classList.toggle('collapsed', !enabled);
     }
 
     /**
@@ -350,8 +331,7 @@ class WebDAVSettingsController {
             encryptApiSwitch,
             encryptionPassword,
             encryptionPasswordGroup,
-            syncUpload,
-            syncDownload
+            syncNow
         } = this.elements;
 
         const webdavEnabled = enabledSwitch?.checked || false;
@@ -362,24 +342,14 @@ class WebDAVSettingsController {
         if (encryptApiSwitch) {
             encryptApiSwitch.disabled = !syncApiEnabled;
             const encryptToggle = encryptApiSwitch.closest('.webdav-encrypt-toggle');
-            if (encryptToggle) {
-                if (syncApiEnabled) {
-                    encryptToggle.classList.remove('disabled');
-                } else {
-                    encryptToggle.classList.add('disabled');
-                }
-            }
+            encryptToggle?.classList.toggle('disabled', !syncApiEnabled);
         }
 
         // 加密密码输入框只有在加密启用时才可用
         if (encryptionPasswordGroup) {
-            if (syncApiEnabled && encryptEnabled) {
-                encryptionPasswordGroup.classList.remove('disabled');
-                if (encryptionPassword) encryptionPassword.disabled = false;
-            } else {
-                encryptionPasswordGroup.classList.add('disabled');
-                if (encryptionPassword) encryptionPassword.disabled = true;
-            }
+            const enabled = syncApiEnabled && encryptEnabled;
+            encryptionPasswordGroup.classList.toggle('disabled', !enabled);
+            if (encryptionPassword) encryptionPassword.disabled = !enabled;
         }
 
         // 更新警告提示（區域顯隱已由 webdav-sync-api-section 的收合動畫處理）
@@ -388,8 +358,7 @@ class WebDAVSettingsController {
 
         // 更新同步按钮状态：WebDAV 未启用或加密开启但未输入密码时禁用
         const shouldDisable = !webdavEnabled || (syncApiEnabled && encryptEnabled && !hasPassword);
-        if (syncUpload) syncUpload.disabled = shouldDisable;
-        if (syncDownload) syncDownload.disabled = shouldDisable;
+        if (syncNow) syncNow.disabled = shouldDisable;
     }
 
     /**
@@ -438,60 +407,36 @@ class WebDAVSettingsController {
         if (!lastSyncTime) return;
 
         const lastSync = await webdavSyncManager.getLastSyncTime();
-        if (lastSync) {
-            const date = new Date(lastSync);
-            // 格式化为 YYYY/MM/DD HH:mm
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            const hours = String(date.getHours()).padStart(2, '0');
-            const minutes = String(date.getMinutes()).padStart(2, '0');
-            lastSyncTime.textContent = `${year}/${month}/${day} ${hours}:${minutes}`;
-        } else {
-            lastSyncTime.textContent = t('webdav.neverSynced');
-        }
+        lastSyncTime.textContent = lastSync
+            ? formatTimestamp(lastSync)
+            : t('webdav.neverSynced');
+    }
+
+    /**
+     * 切换密码可见性（通用）
+     */
+    _toggleVisibility(inputEl, toggleBtn) {
+        if (!inputEl || !toggleBtn) return;
+        const eyeIcon = toggleBtn.querySelector('.eye-icon');
+        const eyeOffIcon = toggleBtn.querySelector('.eye-off-icon');
+        const show = inputEl.type === 'password';
+        inputEl.type = show ? 'text' : 'password';
+        if (eyeIcon) eyeIcon.style.display = show ? 'none' : 'block';
+        if (eyeOffIcon) eyeOffIcon.style.display = show ? 'block' : 'none';
     }
 
     /**
      * 切换密码可见性
      */
     togglePasswordVisibility() {
-        const { password, togglePassword } = this.elements;
-        if (!password || !togglePassword) return;
-
-        const eyeIcon = togglePassword.querySelector('.eye-icon');
-        const eyeOffIcon = togglePassword.querySelector('.eye-off-icon');
-
-        if (password.type === 'password') {
-            password.type = 'text';
-            if (eyeIcon) eyeIcon.style.display = 'none';
-            if (eyeOffIcon) eyeOffIcon.style.display = 'block';
-        } else {
-            password.type = 'password';
-            if (eyeIcon) eyeIcon.style.display = 'block';
-            if (eyeOffIcon) eyeOffIcon.style.display = 'none';
-        }
+        this._toggleVisibility(this.elements.password, this.elements.togglePassword);
     }
 
     /**
      * 切换加密密码可见性
      */
     toggleEncryptionPasswordVisibility() {
-        const { encryptionPassword, toggleEncryptionPassword } = this.elements;
-        if (!encryptionPassword || !toggleEncryptionPassword) return;
-
-        const eyeIcon = toggleEncryptionPassword.querySelector('.eye-icon');
-        const eyeOffIcon = toggleEncryptionPassword.querySelector('.eye-off-icon');
-
-        if (encryptionPassword.type === 'password') {
-            encryptionPassword.type = 'text';
-            if (eyeIcon) eyeIcon.style.display = 'none';
-            if (eyeOffIcon) eyeOffIcon.style.display = 'block';
-        } else {
-            encryptionPassword.type = 'password';
-            if (eyeIcon) eyeIcon.style.display = 'block';
-            if (eyeOffIcon) eyeOffIcon.style.display = 'none';
-        }
+        this._toggleVisibility(this.elements.encryptionPassword, this.elements.toggleEncryptionPassword);
     }
 
     /**
@@ -541,63 +486,51 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 处理上传到云端
+     * 处理立即同步
      */
-    async handleSyncUpload() {
-        const { enabledSwitch, syncUpload } = this.elements;
+    async handleSyncNow() {
+        const { enabledSwitch, syncNow } = this.elements;
 
         if (!enabledSwitch?.checked) {
             showToast(t('webdav.enableFirst'), 'error');
             return;
         }
 
-        if (!syncUpload) return;
+        if (!syncNow) return;
 
-        syncUpload.classList.add('syncing');
-        syncUpload.disabled = true;
-
-        try {
-            const result = await webdavSyncManager.syncToRemote();
-            showToast(result.message, 'success');
-            await this.updateLastSyncTimeDisplay();
-        } catch (error) {
-            showToast(t('webdav.uploadFailed') + error.message, 'error');
-        } finally {
-            syncUpload.classList.remove('syncing');
-            syncUpload.disabled = false;
-        }
-    }
-
-    /**
-     * 处理从云端下载
-     */
-    async handleSyncDownload() {
-        const { enabledSwitch, syncDownload } = this.elements;
-
-        if (!enabledSwitch?.checked) {
-            showToast(t('webdav.enableSyncFirst'), 'error');
-            return;
-        }
-
-        if (!syncDownload) return;
-
-        syncDownload.classList.add('syncing');
-        syncDownload.disabled = true;
+        syncNow.classList.add('syncing');
+        syncNow.disabled = true;
 
         try {
-            const result = await webdavSyncManager.syncFromRemote();
-            showToast(result.message, 'success');
-            await this.updateLastSyncTimeDisplay();
+            const status = await webdavSyncManager.checkSyncStatus();
 
-            // 触发回调以重新载入数据
-            if (result.needsReload && this.callbacks.onDataReload) {
-                await this.callbacks.onDataReload(result);
+            if (!status.needsSync) {
+                // 没有检测到差异，强制上传本地数据
+                const result = await webdavSyncManager.syncToRemote();
+                showToast(result.message, 'success');
+            } else if (status.direction === 'conflict') {
+                const result = await webdavSyncManager.bidirectionalSync();
+                showToast(result.message || t('webdav.syncSuccess'), 'success');
+                if (result.needsReload && this.callbacks.onDataReload) {
+                    await this.callbacks.onDataReload(result);
+                }
+            } else if (status.direction === 'upload') {
+                const result = await webdavSyncManager.syncToRemote();
+                showToast(result.message, 'success');
+            } else if (status.direction === 'download') {
+                const result = await webdavSyncManager.syncFromRemote();
+                showToast(result.message, 'success');
+                if (result.needsReload && this.callbacks.onDataReload) {
+                    await this.callbacks.onDataReload(result);
+                }
             }
+
+            await this.updateLastSyncTimeDisplay();
         } catch (error) {
             showToast(t('webdav.syncFailed') + '<br>' + error.message, 'error');
         } finally {
-            syncDownload.classList.remove('syncing');
-            syncDownload.disabled = false;
+            syncNow.classList.remove('syncing');
+            syncNow.disabled = false;
         }
     }
 
@@ -684,8 +617,7 @@ export function initWebDAVSettings(options) {
         toggleEncryptionPassword: document.getElementById('webdav-toggle-encryption-password'),
         encryptionPasswordGroup: document.getElementById('webdav-encryption-password-group'),
         testConnection: document.getElementById('webdav-test-connection'),
-        syncUpload: document.getElementById('webdav-sync-upload'),
-        syncDownload: document.getElementById('webdav-sync-download'),
+        syncNow: document.getElementById('webdav-sync-now'),
         lastSyncTime: document.getElementById('webdav-last-sync-time'),
         form: document.querySelector('.webdav-form'),
         ...options.elements

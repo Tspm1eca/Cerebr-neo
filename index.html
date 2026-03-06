@@ -474,7 +474,7 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label data-i18n="webdav.syncPath">同步路径</label> <span class="optional-label" data-i18n="webdav.syncPathOptional">(可选)</span>
+                                    <label data-i18n="webdav.syncPath">同步路径 (可选)</label>
                                     <input type="text" id="webdav-sync-path" class="webdav-input" placeholder="/Cerebr-neo">
                                 </div>
 
@@ -545,21 +545,14 @@
 
                                 <!-- 同步操作按鈕 -->
                                 <div class="webdav-sync-actions">
-                                    <button type="button" id="webdav-sync-upload" class="webdav-action-btn webdav-upload-btn">
+                                    <button type="button" id="webdav-sync-now" class="webdav-action-btn webdav-sync-now-btn">
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                            <polyline points="17 8 12 3 7 8"></polyline>
-                                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                                            <path d="M21.5 2v6h-6"></path>
+                                            <path d="M2.5 22v-6h6"></path>
+                                            <path d="M21.34 15.57a10 10 0 0 1-17.17 2.35"></path>
+                                            <path d="M2.66 8.43a10 10 0 0 1 17.17-2.35"></path>
                                         </svg>
-                                        <span data-i18n="webdav.uploadToCloud">上传到云端</span>
-                                    </button>
-                                    <button type="button" id="webdav-sync-download" class="webdav-action-btn webdav-download-btn">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                            <polyline points="7 10 12 15 17 10"></polyline>
-                                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                                        </svg>
-                                        <span data-i18n="webdav.downloadFromCloud">从云端下载</span>
+                                        <span data-i18n="webdav.syncNow">立即同步</span>
                                     </button>
                                 </div>
 

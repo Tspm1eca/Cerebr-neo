@@ -405,15 +405,17 @@
 }
 
 .quick-chat-settings-actions {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 30px;
-    justify-content: center;
-    margin-top: 8px;
+    width: fit-content;
+    margin: 8px auto 0;
     font-family: var(--cerebr-font-family);
 }
 
 .add-button, .reset-button {
-    width: 140px;
+    width: auto;
+    white-space: nowrap;
     height: 40px;
     display: flex;
     align-items: center;

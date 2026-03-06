@@ -42,7 +42,7 @@ export default {
         sendWebpage: '傳送網頁',
         webSearch: '網路搜尋',
         sidePanel: '側欄模式',
-        floatingMode: '懸浮模式',
+        floatingMode: '浮窗模式',
         webpageContent: '網頁內容',
         history: '歷史',
         settings: '設定',
@@ -117,8 +117,7 @@ export default {
         password: '密碼',
         passwordPlaceholder: '輸入密碼',
         togglePassword: '顯示/隱藏密碼',
-        syncPath: '同步路徑',
-        syncPathOptional: '(可選)',
+        syncPath: '同步路徑 (可選)',
         syncApiConfig: '同步API配置',
         encryptApiConfig: '加密API配置',
         encryptionPassword: '加密密碼',
@@ -127,8 +126,7 @@ export default {
         warningUnencrypted: 'API 配置以明文儲存',
         warningEncrypted: 'API 配置以加密儲存',
         warningNeedPassword: '輸入加密密碼以啟用同步',
-        uploadToCloud: '上傳到雲端',
-        downloadFromCloud: '從雲端下載',
+        syncNow: '立即同步',
         lastSync: '上次同步：',
         neverSynced: '從未同步',
         connectionFailed: 'WebDAV 連線失敗',
@@ -142,6 +140,7 @@ export default {
         useLocal: '使用本機資料',
         useRemote: '使用雲端資料',
         conflictDialogMissing: '衝突對話框元素不存在，使用自動解決',
+        syncSuccess: '同步成功',
     },
 
     // ===== 聊天列表 =====
@@ -213,11 +212,6 @@ export default {
         networkError: '網路連線失敗，請檢查網路狀態',
         tavilyConnectionFailed: 'Tavily 連線失敗',
         exaConnectionFailed: 'Exa 連線失敗',
-    },
-
-    // ===== 搜尋觸發關鍵詞 =====
-    searchTriggers: {
-        // 這些不翻譯，保持原樣作為搜尋偵測用
     },
 
     // ===== 提示詞切換按鈕 =====

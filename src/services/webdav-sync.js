@@ -34,6 +34,7 @@ const HTTP_STATUS = {
     MULTI_STATUS: 207,
     MOVED_PERMANENTLY: 301,
     UNAUTHORIZED: 401,
+    FORBIDDEN: 403,
     NOT_FOUND: 404,
     METHOD_NOT_ALLOWED: 405,
     CONFLICT: 409,
@@ -214,10 +215,20 @@ class WebDAVClient {
             if (filename) this._markAncestorDirectoriesKnown(filename);
             return result;
         } catch (error) {
-            if (error.status === HTTP_STATUS.FAILED_DEPENDENCY || error.status === HTTP_STATUS.CONFLICT) {
-                console.warn(`[WebDAV] ${operationName} 遇到目录问题，清除目錄快取並尝试创建后重试`);
+            if (error.status === HTTP_STATUS.FAILED_DEPENDENCY ||
+                error.status === HTTP_STATUS.CONFLICT ||
+                error.status === HTTP_STATUS.FORBIDDEN ||
+                error.status === HTTP_STATUS.NOT_FOUND) {
+                console.warn(`[WebDAV] ${operationName} 遇到目录问题 (HTTP ${error.status})，清除目錄快取並尝试创建后重试`);
                 this._knownDirectories.clear();
-                await this.createDirectory();
+                // 根據檔案路徑重建完整目錄結構（含子目錄如 chats/）
+                if (filename && filename.includes('/')) {
+                    const dirPart = filename.split('/').slice(0, -1).join('/');
+                    const fullDirPath = [this._normalizedSyncPath, dirPart].filter(Boolean).join('/');
+                    await this._ensureDirectoriesExist(fullDirPath);
+                } else {
+                    await this.createDirectory();
+                }
                 const result = await operation();
                 if (filename) this._markAncestorDirectoriesKnown(filename);
                 return result;
@@ -418,7 +429,9 @@ class WebDAVClient {
             }
 
             if (!response.ok && response.status !== HTTP_STATUS.CREATED && response.status !== HTTP_STATUS.NO_CONTENT) {
-                throw new Error(`上传失败: HTTP ${response.status}`);
+                const error = new Error(`上传失败: HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
             }
 
             const etag = response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
@@ -451,7 +464,9 @@ class WebDAVClient {
             }
 
             if (!response.ok) {
-                throw new Error(`下载失败: HTTP ${response.status}`);
+                const error = new Error(`下载失败: HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
             }
 
             const etag = response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
@@ -514,7 +529,9 @@ class WebDAVClient {
             }
 
             if (!response.ok) {
-                throw new Error(`获取 ETag 失败: HTTP ${response.status}`);
+                const error = new Error(`获取 ETag 失败: HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
             }
 
             return response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
@@ -1764,6 +1781,9 @@ class WebDAVSyncManager {
             }
 
             if (remoteETag === null) {
+                // 遠端 manifest 不存在（目錄被刪除或首次使用），清除本地快取的 manifest
+                // 確保 syncToRemote 將所有聊天視為新增，重新上傳全部聊天檔案
+                await storageAdapter.remove([WEBDAV_CACHED_MANIFEST_KEY]);
                 return this._cacheCheckResult({ needsSync: true, direction: 'upload', reason: '远端文件不存在，需要上传' });
             }
 

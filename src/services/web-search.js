@@ -252,7 +252,7 @@ function normalizeExaResponse(exaResponse, query) {
 
     return {
         query: query,
-        responseTime: exaResponse.requestId ? 0 : 0, // Exa 不提供響應時間
+        responseTime: 0,
         results: results,
         answer: null // Exa 不提供 AI 答案
     };

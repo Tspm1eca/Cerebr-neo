@@ -13,6 +13,7 @@
 
 import { DEFAULT_SYSTEM_PROMPT } from '../constants/prompts.js';
 import { t } from '../utils/i18n.js';
+import { showToast } from './webdav-settings.js';
 
 export { DEFAULT_SYSTEM_PROMPT };
 
@@ -656,22 +657,6 @@ export function initAPICard({
                 button.innerHTML = originalBtnContent;
             }, 3000);
         }
-    }
-
-    // 显示 Toast 提示
-    function showToast(message, type = 'success') {
-        const toast = document.createElement('div');
-        toast.className = type === 'success' ? 'success-toast' : 'error-toast';
-        toast.innerHTML = message;
-        document.body.appendChild(toast);
-
-        setTimeout(() => {
-            toast.classList.add('fade-out');
-        }, 2700);
-
-        setTimeout(() => {
-            toast.remove();
-        }, 3000);
     }
 
     // 点击外部关闭下拉列表

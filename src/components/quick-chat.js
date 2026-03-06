@@ -308,14 +308,6 @@ export async function initQuickChat({
             const expandButton = itemElement.querySelector('.quick-chat-option-button.expand');
             const deleteButton = itemElement.querySelector('.quick-chat-option-button.delete');
 
-            // 獲取模態框元素
-            const quickChatPromptModal = document.getElementById('quick-chat-prompt-modal');
-            const modalTextarea = quickChatPromptModal?.querySelector('.prompt-modal-textarea');
-            const modalCloseBtn = quickChatPromptModal?.querySelector('.prompt-modal-close');
-            const modalCancelBtn = quickChatPromptModal?.querySelector('.prompt-modal-cancel');
-            const modalSaveBtn = quickChatPromptModal?.querySelector('.prompt-modal-save');
-            const modalContent = quickChatPromptModal?.querySelector('.prompt-modal-content');
-
             // 阻止输入框点击事件冒泡，防止触发外部的点击处理（如关闭菜单等）导致焦点丢失
             const stopPropagation = (e) => {
                 e.stopPropagation();
@@ -359,22 +351,6 @@ export async function initQuickChat({
                     quickChatPromptModal.dataset.editIndex = index;
                     quickChatPromptModal._currentPromptInput = promptInput;
                     quickChatPromptModal.style.display = 'flex';
-                });
-
-                // 阻止模態框內容區域的點擊事件冒泡
-                modalContent?.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                });
-
-                // 阻止 textarea 的點擊和焦點事件冒泡
-                modalTextarea?.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                });
-                modalTextarea?.addEventListener('focus', (e) => {
-                    e.stopPropagation();
-                });
-                modalTextarea?.addEventListener('mousedown', (e) => {
-                    e.stopPropagation();
                 });
             }
 
@@ -470,16 +446,10 @@ export async function initQuickChat({
         updateAddButtonState(); // 初始加载时更新按钮状态
     }
 
-    // 設置按鈕事件處理
-    function setupSettingsButton() {
-       // This is now handled by the unified settings manager in main.js
-    }
-
     // 初始化
     async function initialize() {
         await loadQuickChatOptions();
         initSettingsPage();
-        setupSettingsButton();
     }
 
     // 立即執行初始化

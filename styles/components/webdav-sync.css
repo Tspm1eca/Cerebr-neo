@@ -344,12 +344,12 @@
 /* 同步操作按鈕 */
 .webdav-sync-actions {
     display: flex;
+    justify-content: center;
     gap: 8px;
     margin-top: 8px;
 }
 
 .webdav-action-btn {
-    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -378,23 +378,13 @@
     cursor: not-allowed;
 }
 
-.webdav-upload-btn {
+.webdav-sync-now-btn {
     background-color: var(--cerebr-message-ai-bg);
     color: var(--cerebr-text-color);
     border: 1px solid var(--cerebr-card-border-color);
 }
 
-.webdav-upload-btn:hover:not(:disabled) {
-    background-color: var(--cerebr-button-hover-bg);
-}
-
-.webdav-download-btn {
-    background-color: var(--cerebr-message-ai-bg);
-    color: var(--cerebr-text-color);
-    border: 1px solid var(--cerebr-card-border-color);
-}
-
-.webdav-download-btn:hover:not(:disabled) {
+.webdav-sync-now-btn:hover:not(:disabled) {
     background-color: var(--cerebr-button-hover-bg);
 }
 

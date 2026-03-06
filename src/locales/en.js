@@ -43,7 +43,7 @@ export default {
         webSearch: 'Web Search',
         sidePanel: 'Side Panel',
         floatingMode: 'Floating Mode',
-        webpageContent: 'Page Content',
+        webpageContent: 'Tabs',
         history: 'History',
         settings: 'Settings',
     },
@@ -58,8 +58,8 @@ export default {
 
     // ===== Quick Chat =====
     quickChat: {
-        addOption: 'Add Option',
-        resetAll: 'Reset All to Default',
+        addOption: 'Add',
+        resetAll: 'Reset All',
         emptyTitle: 'No quick options yet',
         emptyHint: 'Click the button below to add your first option',
         titlePlaceholder: 'Option title',
@@ -115,8 +115,7 @@ export default {
         password: 'Password',
         passwordPlaceholder: 'Enter password',
         togglePassword: 'Show/hide password',
-        syncPath: 'Sync Path',
-        syncPathOptional: '(optional)',
+        syncPath: 'Sync Path (optional)',
         syncApiConfig: 'Sync API Config',
         encryptApiConfig: 'Encrypt API Config',
         encryptionPassword: 'Encryption Password',
@@ -125,8 +124,7 @@ export default {
         warningUnencrypted: 'API config stored in plain text',
         warningEncrypted: 'API config stored encrypted',
         warningNeedPassword: 'Enter encryption password to enable sync',
-        uploadToCloud: 'Upload to Cloud',
-        downloadFromCloud: 'Download from Cloud',
+        syncNow: 'Sync Now',
         lastSync: 'Last sync: ',
         neverSynced: 'Never synced',
         connectionFailed: 'WebDAV connection failed',
@@ -140,6 +138,7 @@ export default {
         useLocal: 'Use Local Data',
         useRemote: 'Use Cloud Data',
         conflictDialogMissing: 'Conflict dialog elements missing, using auto-resolve',
+        syncSuccess: 'Sync successful',
     },
 
     // ===== Chat List =====
@@ -148,7 +147,7 @@ export default {
         searchPlaceholder: 'Search chats',
         clearAll: 'Clear all chats',
         newChat: 'New Chat',
-        clearAllConfirm: 'Are you sure you want to clear all chat history?',
+        clearAllConfirm: 'Are you sure want to clear all chat history?',
         clearAllWarning: 'This action cannot be undone.',
         allCleared: 'All chats cleared',
         clearFailed: 'Failed to clear chats: ',
@@ -212,8 +211,6 @@ export default {
         tavilyConnectionFailed: 'Tavily connection failed',
         exaConnectionFailed: 'Exa connection failed',
     },
-
-    searchTriggers: {},
 
     searchProvider: {
         switchTitle: 'Click to switch search provider: Tavily ↔ Exa',

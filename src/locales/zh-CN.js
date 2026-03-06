@@ -42,7 +42,7 @@ export default {
         sendWebpage: '传送网页',
         webSearch: '网络搜索',
         sidePanel: '侧栏模式',
-        floatingMode: '悬浮模式',
+        floatingMode: '浮窗模式',
         webpageContent: '网页内容',
         history: '历史',
         settings: '设置',
@@ -115,8 +115,7 @@ export default {
         password: '密码',
         passwordPlaceholder: '输入密码',
         togglePassword: '显示/隐藏密码',
-        syncPath: '同步路径',
-        syncPathOptional: '(可选)',
+        syncPath: '同步路径 (可选)',
         syncApiConfig: '同步API配置',
         encryptApiConfig: '加密API配置',
         encryptionPassword: '加密密码',
@@ -125,8 +124,7 @@ export default {
         warningUnencrypted: 'API 配置以明文储存',
         warningEncrypted: 'API 配置以加密储存',
         warningNeedPassword: '输入加密密码以启用同步',
-        uploadToCloud: '上传到云端',
-        downloadFromCloud: '从云端下载',
+        syncNow: '立即同步',
         lastSync: '上次同步：',
         neverSynced: '从未同步',
         connectionFailed: 'WebDAV 连接失败',
@@ -140,6 +138,7 @@ export default {
         useLocal: '使用本地数据',
         useRemote: '使用云端数据',
         conflictDialogMissing: '冲突对话框元素不存在，使用自动解决',
+        syncSuccess: '同步成功',
     },
 
     // ===== 聊天列表 =====
@@ -212,8 +211,6 @@ export default {
         tavilyConnectionFailed: 'Tavily 连接失败',
         exaConnectionFailed: 'Exa 连接失败',
     },
-
-    searchTriggers: {},
 
     searchProvider: {
         switchTitle: '点击切换搜索提供者：Tavily ↔ Exa',
