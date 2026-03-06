@@ -12,6 +12,7 @@
  */
 
 import { DEFAULT_SYSTEM_PROMPT } from '../constants/prompts.js';
+import { getDefaultSystemPrompt } from '../services/remote-prompts.js';
 import { t } from '../utils/i18n.js';
 import { showToast } from './webdav-settings.js';
 
@@ -400,10 +401,15 @@ export function initAPICard({
 
     // 还原系统提示模态框事件处理
     if (resetPromptModal) {
-        const handleResetConfirm = () => {
-            systemPromptInput.value = DEFAULT_SYSTEM_PROMPT;
-            saveCurrentForm();
-            resetPromptModal.style.display = 'none';
+        const handleResetConfirm = async () => {
+            try {
+                systemPromptInput.value = await getDefaultSystemPrompt();
+                saveCurrentForm();
+            } catch (e) {
+                console.warn('重置系統提示詞失敗:', e);
+            } finally {
+                resetPromptModal.style.display = 'none';
+            }
         };
 
         const handleResetCancel = () => {

@@ -8,12 +8,12 @@
  */
 
 import {
-    DEFAULT_SYSTEM_PROMPT,
-    WEB_SEARCH_SYSTEM_PROMPT,
-    VIDEO_TRANSCRIPT_SYSTEM_PROMPT,
-    WEB_SEARCH_TOOL_DESCRIPTION,
-    WEB_SEARCH_TOOL_QUERY_DESCRIPTION
-} from '../constants/prompts.js';
+    getDefaultSystemPrompt,
+    getWebSearchSystemPrompt,
+    getVideoTranscriptSystemPrompt,
+    getWebSearchToolDescription,
+    getWebSearchToolQueryDescription
+} from './remote-prompts.js';
 import { webSearch, formatSearchResultsForPrompt } from './web-search.js';
 import { t } from '../utils/i18n.js';
 
@@ -325,7 +325,7 @@ async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessage
                     messages: [
                         {
                             role: 'system',
-                            content: WEB_SEARCH_TOOL_QUERY_DESCRIPTION
+                            content: await getWebSearchToolQueryDescription()
                         },
                         {
                             role: 'user',
@@ -476,23 +476,25 @@ function buildKeywordContextForQuery(messages, rawQuery, maxMessages = 7) {
 /**
  * 网络搜索工具定义（用于 Function Calling）
  */
-const WEB_SEARCH_TOOL = {
-    type: "function",
-    function: {
-        name: "web_search",
-        description: WEB_SEARCH_TOOL_DESCRIPTION,
-        parameters: {
-            type: "object",
-            properties: {
-                query: {
-                    type: "string",
-                    description: WEB_SEARCH_TOOL_QUERY_DESCRIPTION
-                }
-            },
-            required: ["query"]
+async function createWebSearchTool() {
+    return {
+        type: "function",
+        function: {
+            name: "web_search",
+            description: await getWebSearchToolDescription(),
+            parameters: {
+                type: "object",
+                properties: {
+                    query: {
+                        type: "string",
+                        description: await getWebSearchToolQueryDescription()
+                    }
+                },
+                required: ["query"]
+            }
         }
-    }
-};
+    };
+}
 
 /**
  * 网页信息接口
@@ -663,11 +665,11 @@ export async function callAPI({
     );
     let userSystemPrompt;
     if (isWebSearchActive) {
-        userSystemPrompt = WEB_SEARCH_SYSTEM_PROMPT;
+        userSystemPrompt = await getWebSearchSystemPrompt();
     } else if (hasVideoTranscript) {
-        userSystemPrompt = VIDEO_TRANSCRIPT_SYSTEM_PROMPT;
+        userSystemPrompt = await getVideoTranscriptSystemPrompt();
     } else if (hasWebpageInfo) {
-        userSystemPrompt = apiConfig.advancedSettings?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+        userSystemPrompt = apiConfig.advancedSettings?.systemPrompt ?? await getDefaultSystemPrompt();
     } else {
         userSystemPrompt = '';
     }
@@ -859,8 +861,10 @@ export async function callAPI({
     };
 
     // 如果是自动模式，添加工具定义
+    let webSearchTool;
     if (useToolCalling) {
-        requestBody.tools = [WEB_SEARCH_TOOL];
+        webSearchTool = await createWebSearchTool();
+        requestBody.tools = [webSearchTool];
         requestBody.tool_choice = "auto";
     }
 
@@ -1184,7 +1188,7 @@ export async function callAPI({
                             body: JSON.stringify({
                                 model: apiConfig.modelName || "gpt-4o",
                                 messages: messagesWithToolResult,
-                                tools: [WEB_SEARCH_TOOL],
+                                tools: [webSearchTool],
                                 stream: true,
                             }),
                             signal

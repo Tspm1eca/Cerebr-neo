@@ -8,7 +8,7 @@
  * @typedef {import('./chat.js').Message} Message
  */
 
-import { TITLE_GENERATION_PROMPT } from '../constants/prompts.js';
+import { getTitleGenerationPrompt } from './remote-prompts.js';
 
 /**
  * 根據對話內容生成標題
@@ -37,7 +37,7 @@ export async function generateTitle(messages, apiConfig) {
         return '';
     }).join('\n');
 
-    const prompt = TITLE_GENERATION_PROMPT + relevantMessages;
+    const prompt = await getTitleGenerationPrompt() + relevantMessages;
 
     const messagesForAPI = [{
         role: "user",

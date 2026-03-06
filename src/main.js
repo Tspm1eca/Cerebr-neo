@@ -22,6 +22,7 @@ import { initQuickChat, toggleQuickChatOptions } from './components/quick-chat.j
 import { initWebDAVSettings, showToast as showWebDAVToast } from './components/webdav-settings.js';
 import { webdavSyncManager } from './services/webdav-sync.js';
 import { initI18n, t } from './utils/i18n.js';
+import { fetchAndCacheRemotePrompts } from './services/remote-prompts.js';
 
 // 存储用户的问题历史
 let userQuestions = [];
@@ -130,6 +131,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
      // 初始化 i18n（必須在 initSyncMode 之後，DOM 元素存取之前）
      await initI18n();
+
+     // 後台下載遠端提示詞（非阻塞，不影響 UI 初始化）
+     fetchAndCacheRemotePrompts();
 
      const chatContainer = document.getElementById('chat-container');
     const messageInput = document.getElementById('message-input');

@@ -8,6 +8,7 @@ import { clearMessageInput } from './message-input.js';
 import {
     createDefaultQuickChatOptions
 } from '../constants/prompts.js';
+import { getDefaultQuickChatOptions } from '../services/remote-prompts.js';
 import { t } from '../utils/i18n.js';
 
 // 存儲鍵名
@@ -235,14 +236,18 @@ export async function initQuickChat({
             modal1.style.display = 'none';
         });
 
-        confirmReset1.addEventListener('click', () => {
-            modal1.style.display = 'none';
-            // 使用深拷貝確保完全重置，避免引用問題
-            quickChatOptions = createDefaultQuickChatOptions();
-            saveQuickChatOptions();
-            renderQuickChatOptions();
-            renderSettingsOptions();
-            updateAddButtonState(); // 更新添加按钮状态
+        confirmReset1.addEventListener('click', async () => {
+            try {
+                quickChatOptions = await getDefaultQuickChatOptions();
+                saveQuickChatOptions();
+                renderQuickChatOptions();
+                renderSettingsOptions();
+                updateAddButtonState();
+            } catch (e) {
+                console.warn('重置快捷聊天選項失敗:', e);
+            } finally {
+                modal1.style.display = 'none';
+            }
         });
 
         // 渲染設置選項
