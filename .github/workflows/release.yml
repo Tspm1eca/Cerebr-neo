@@ -6,14 +6,23 @@ on:
     tags:
       - 'v*' # 當推送新的版本標籤時觸發
 
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: 'recursive'
 
       - name: Set up Node.js
@@ -24,16 +33,29 @@ jobs:
       - name: Extract version from manifest
         id: version
         run: |
-          VERSION=$(grep -Po '"version":\s*"\K[^"]+' manifest.json)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          VERSION=$(node -p "require('./manifest.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Extension version: $VERSION"
+
+      - name: Validate tag matches manifest version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          EXPECTED_TAG="v${{ steps.version.outputs.version }}"
+          if [ "${GITHUB_REF_NAME}" != "${EXPECTED_TAG}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match manifest version ${EXPECTED_TAG}"
+            exit 1
+          fi
 
       - name: Create Chrome build directory
         run: |
+          set -euo pipefail
           mkdir -p build/chrome
 
           # 複製需要的文件和目錄
           cp -r icons build/chrome/
+          cp -r _locales build/chrome/
           cp -r htmd build/chrome/
           cp -r lib build/chrome/
           cp -r src build/chrome/
@@ -44,11 +66,14 @@ jobs:
           cp manifest.json build/chrome/
 
           # 創建 ZIP 文件
-          cd build/chrome
-          zip -r ../../Cerebr-neo_v${{ steps.version.outputs.version }}.zip . -x "*.DS_Store"
+          (
+            cd build/chrome
+            zip -r ../../Cerebr-neo_v${{ steps.version.outputs.version }}.zip . -x "*.DS_Store"
+          )
 
       - name: Generate checksums
         run: |
+          set -euo pipefail
           sha256sum Cerebr-neo_v${{ steps.version.outputs.version }}.zip > checksums.txt
           cat checksums.txt
 
@@ -80,4 +105,5 @@ jobs:
           path: |
             Cerebr-neo_v${{ steps.version.outputs.version }}.zip
             checksums.txt
+          if-no-files-found: error
           retention-days: 90

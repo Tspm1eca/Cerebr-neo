@@ -97,8 +97,7 @@
         "htmd/fonts/woff-v2/MathJax_Typewriter-Regular.woff",
         "htmd/fonts/woff-v2/MathJax_Vector-Bold.woff",
         "htmd/fonts/woff-v2/MathJax_Vector-Regular.woff",
-        "htmd/fonts/woff-v2/MathJax_Zero.woff",
-        "statics/image.png"
+        "htmd/fonts/woff-v2/MathJax_Zero.woff"
       ],
       "matches": ["<all_urls>"]
     }

@@ -156,8 +156,8 @@ export async function initQuickChat({
 
         // 初始化快速選項提示詞模態框
         const quickChatPromptModal = document.getElementById('quick-chat-prompt-modal');
+        const modalTextarea = quickChatPromptModal?.querySelector('.prompt-modal-textarea');
         if (quickChatPromptModal) {
-            const modalTextarea = quickChatPromptModal.querySelector('.prompt-modal-textarea');
             const modalCloseBtn = quickChatPromptModal.querySelector('.prompt-modal-close');
             const modalCancelBtn = quickChatPromptModal.querySelector('.prompt-modal-cancel');
             const modalSaveBtn = quickChatPromptModal.querySelector('.prompt-modal-save');

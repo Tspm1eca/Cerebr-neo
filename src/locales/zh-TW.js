@@ -88,7 +88,7 @@ export default {
         modelPlaceholder: '輸入模型名稱',
         titleModel: '標題生成模型',
         titleModelPlaceholder: '輸入模型名稱（可選）',
-        systemPrompt: '系統提示',
+        systemPrompt: '系統提示词',
         systemPromptPlaceholder: '輸入系統提示詞',
         expandEdit: '展開編輯',
         resetPrompt: '還原預設提示詞',
