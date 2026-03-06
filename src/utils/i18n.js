@@ -8,7 +8,7 @@ import { syncStorageAdapter } from './storage-adapter.js';
 const LOCALE_KEY = 'cerebrLocale';
 
 // 支援的語言列表
-const SUPPORTED_LOCALES = ['zh-TW', 'zh-CN', 'en'];
+const SUPPORTED_LOCALES = ['zh-TW', 'zh-CN', 'en', 'ja'];
 const DEFAULT_LOCALE = 'zh-TW';
 
 let currentLocale = DEFAULT_LOCALE;
@@ -31,6 +31,7 @@ function detectLocale() {
         // zh-CN, zh-Hans, zh → 簡體
         return 'zh-CN';
     }
+    if (lower.startsWith('ja')) return 'ja';
     if (lower.startsWith('en')) return 'en';
     // 其他語言預設英文
     return 'en';
@@ -209,6 +210,7 @@ export function getUserLanguageName() {
         case 'zh-TW': return 'Traditional Chinese';
         case 'zh-CN': return 'Simplified Chinese';
         case 'en': return 'English';
+        case 'ja': return 'Japanese';
         default: return 'English';
     }
 }
