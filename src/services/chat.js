@@ -82,6 +82,216 @@ function withTimeout(promise, timeout, errorMessage, errorType = 'stream') {
     });
 }
 
+const REDIRECT_HTTP_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+function createAPIResponseError(message, { code = 'API_RESPONSE_ERROR', status = null } = {}) {
+    const error = new Error(message);
+    error.code = code;
+    if (typeof status === 'number' && Number.isFinite(status)) {
+        error.status = status;
+    }
+    return error;
+}
+
+function normalizeErrorDetails(rawText, maxLength = 220) {
+    if (!rawText) {
+        return '';
+    }
+    const normalized = String(rawText)
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!normalized) {
+        return '';
+    }
+    if (normalized.length <= maxLength) {
+        return normalized;
+    }
+    return `${normalized.slice(0, maxLength)}...`;
+}
+
+async function extractResponseErrorDetails(response) {
+    try {
+        const errorText = await response.text();
+        return normalizeErrorDetails(errorText);
+    } catch {
+        return '';
+    }
+}
+
+function withOptionalErrorDetails(baseMessage, details) {
+    if (!details) {
+        return baseMessage;
+    }
+    return `${baseMessage} - ${details}`;
+}
+
+function getHttpStatusMessage(status) {
+    if (REDIRECT_HTTP_STATUSES.has(status)) {
+        return t('service.httpRedirect', { status });
+    }
+    if (status === 401) {
+        return t('service.httpUnauthorized', { status });
+    }
+    if (status === 403) {
+        return t('service.httpForbidden', { status });
+    }
+    if (status === 404) {
+        return t('service.httpNotFound', { status });
+    }
+    if (status === 429) {
+        return t('service.httpRateLimit', { status });
+    }
+    if (status >= 500 && status <= 599) {
+        return t('service.httpServerError', { status });
+    }
+    if (status >= 400 && status <= 499) {
+        return t('service.httpClientError', { status });
+    }
+    return t('service.httpGenericError', { status });
+}
+
+function getResponseContentType(response) {
+    return (response.headers.get('content-type') || '').toLowerCase();
+}
+
+async function validateStreamingResponse(response) {
+    const status = Number(response?.status || 0);
+    const isRedirected = response?.redirected === true || (status >= 300 && status <= 399);
+    if (isRedirected) {
+        const redirectStatus = status >= 300 && status <= 399 ? status : 302;
+        throw createAPIResponseError(
+            t('service.httpRedirect', { status: redirectStatus }),
+            { code: 'HTTP_REDIRECT', status: redirectStatus }
+        );
+    }
+
+    if (!response.ok) {
+        const details = await extractResponseErrorDetails(response);
+        const statusMessage = getHttpStatusMessage(status);
+        throw createAPIResponseError(
+            withOptionalErrorDetails(statusMessage, details),
+            { code: 'HTTP_STATUS_ERROR', status }
+        );
+    }
+
+    const contentType = getResponseContentType(response);
+    const isSSE = contentType.includes('text/event-stream');
+    const isClearlyNotStream = contentType.includes('text/html') || contentType.includes('application/json');
+    if (!isSSE && isClearlyNotStream) {
+        const details = await extractResponseErrorDetails(response);
+        throw createAPIResponseError(
+            withOptionalErrorDetails(
+                t('service.httpInvalidContentType', { contentType: contentType || 'unknown' }),
+                details
+            ),
+            { code: 'HTTP_INVALID_CONTENT_TYPE', status }
+        );
+    }
+
+    if (!response.body) {
+        throw createAPIResponseError(
+            t('service.httpNoResponseBody'),
+            { code: 'HTTP_EMPTY_RESPONSE_BODY', status }
+        );
+    }
+}
+
+function normalizeAPIError(error) {
+    if (error instanceof TimeoutError || error?.name === 'AbortError') {
+        return error;
+    }
+
+    if (error?.name === 'TypeError' && String(error?.message || '').toLowerCase().includes('fetch')) {
+        return createAPIResponseError(
+            t('service.networkError'),
+            { code: 'NETWORK_ERROR' }
+        );
+    }
+
+    if (error instanceof Error) {
+        return error;
+    }
+
+    return createAPIResponseError(t('common.error'), { code: 'UNKNOWN_ERROR' });
+}
+
+function extractHttpStatus(error) {
+    const numericStatus = Number(error?.status);
+    if (Number.isInteger(numericStatus) && numericStatus >= 100 && numericStatus <= 599) {
+        return numericStatus;
+    }
+
+    const message = String(error?.message || '');
+    const matchedStatus = message.match(/\bHTTP\s*(\d{3})\b/i);
+    if (matchedStatus) {
+        const parsed = Number(matchedStatus[1]);
+        if (Number.isInteger(parsed) && parsed >= 100 && parsed <= 599) {
+            return parsed;
+        }
+    }
+
+    return null;
+}
+
+function getDisplayErrorCode(error) {
+    const httpStatus = extractHttpStatus(error);
+    if (httpStatus) {
+        return `HTTP ${httpStatus}`;
+    }
+
+    if (error instanceof TimeoutError || error?.name === 'TimeoutError') {
+        return 'TIMEOUT';
+    }
+
+    const code = typeof error?.code === 'string' ? error.code.trim() : '';
+    if (code) {
+        return code;
+    }
+
+    return 'UNKNOWN_ERROR';
+}
+
+function sanitizeErrorReason(reason, code, fallbackReason) {
+    let text = typeof reason === 'string' ? reason.trim() : '';
+    if (!text) return fallbackReason;
+
+    if (text.length > 180) {
+        text = `${text.slice(0, 180)}...`;
+    }
+
+    // 避免產生「HTTP 302：HTTP 302 ...」這種重複資訊
+    if (/^HTTP\s*\d{3}$/i.test(code)) {
+        text = text.replace(/^HTTP\s*\d{3}\s*/i, '').trim();
+    }
+
+    return text || fallbackReason;
+}
+
+function getDefaultErrorReason(code, status) {
+    if (/^HTTP\s*\d{3}$/i.test(code) && status) {
+        return getHttpStatusMessage(status).replace(/[（(]\s*HTTP\s*\d{3}\s*[)）]/gi, '').trim();
+    }
+    if (code === 'NETWORK_ERROR') {
+        return t('service.networkError');
+    }
+    if (code === 'YOUTUBE_TRANSCRIPT_UNAVAILABLE') {
+        return t('service.youtubeExtractFailed');
+    }
+    if (code === 'TIMEOUT') {
+        return t('service.streamTimeout', { seconds: STREAM_TIMEOUT / 1000 });
+    }
+    return t('common.error');
+}
+
+export function formatAIErrorMessage(error, fallbackMessage = '') {
+    const code = getDisplayErrorCode(error);
+    const status = extractHttpStatus(error);
+    const defaultReason = fallbackMessage || getDefaultErrorReason(code, status);
+    const reason = sanitizeErrorReason(error?.message, code, defaultReason);
+    return `${code} — ${reason}`;
+}
+
 /**
  * 使用 LLM 提取網絡搜索關鍵字
  * @param {string} rawQuery - 原始查詢文本
@@ -678,10 +888,7 @@ export async function callAPI({
                 'fetch'
             );
 
-            if (!response.ok) {
-                const error = await response.text();
-                throw new Error(error);
-            }
+            await validateStreamingResponse(response);
 
             // 处理流式响应
             const reader = response.body.getReader();
@@ -698,6 +905,8 @@ export async function callAPI({
             // 超時控制
             let isFirstChunk = true; // 是否等待第一個數據塊
             let lastStreamContentTime = 0; // 上次收到有效流式內容的時間（首次數據到達後才有意義）
+            let sawAnyDataLine = false;
+            let sawAnyAssistantPayload = false;
 
             const decoder = new TextDecoder();
 
@@ -781,6 +990,7 @@ export async function callAPI({
                     buffer = buffer.slice(newlineIndex + 1);
 
                     if (line.startsWith('data: ')) {
+                        sawAnyDataLine = true;
                         const data = line.slice(6);
                         if (data === '[DONE]') {
                             continue;
@@ -795,6 +1005,7 @@ export async function callAPI({
                             // 处理 tool_calls
                             if (delta?.tool_calls) {
                                 hasNewStreamContentInChunk = true;
+                                sawAnyAssistantPayload = true;
                                 for (const toolCallDelta of delta.tool_calls) {
                                     const index = toolCallDelta.index;
 
@@ -820,6 +1031,7 @@ export async function callAPI({
                                 currentMessage.reasoning_content += delta.reasoning_content;
                                 hasUpdate = true;
                                 hasNewStreamContentInChunk = true;
+                                sawAnyAssistantPayload = true;
                             }
 
                             if (delta?.content) {
@@ -859,6 +1071,7 @@ export async function callAPI({
                                 }
                                 hasUpdate = true;
                                 hasNewStreamContentInChunk = true;
+                                sawAnyAssistantPayload = true;
                             }
 
 
@@ -882,6 +1095,15 @@ export async function callAPI({
                 if (hasNewStreamContentInChunk) {
                     lastStreamContentTime = Date.now();
                 }
+            }
+
+            if (!sawAnyAssistantPayload) {
+                throw createAPIResponseError(
+                    t('service.httpEmptyAssistantPayload'),
+                    {
+                        code: sawAnyDataLine ? 'EMPTY_ASSISTANT_PAYLOAD' : 'EMPTY_STREAM_PAYLOAD'
+                    }
+                );
             }
 
             // 检查是否有 tool calls 需要处理
@@ -972,10 +1194,7 @@ export async function callAPI({
                         'fetch'
                     );
 
-                    if (!secondResponse.ok) {
-                        const error = await secondResponse.text();
-                        throw new Error(error);
-                    }
+                    await validateStreamingResponse(secondResponse);
 
                     // 处理第二次响应的流
                     const secondReader = secondResponse.body.getReader();
@@ -985,6 +1204,8 @@ export async function callAPI({
                     // 第二次流的超時控制
                     let isSecondFirstChunk = true;
                     let lastSecondStreamContentTime = 0;
+                    let secondSawAnyDataLine = false;
+                    let secondSawAnyAssistantPayload = false;
 
                     // 重置 think 標籤狀態
                     isThinking = false;
@@ -1024,6 +1245,7 @@ export async function callAPI({
                             secondBuffer = secondBuffer.slice(secondNewlineIndex + 1);
 
                             if (secondLine.startsWith('data: ')) {
+                                secondSawAnyDataLine = true;
                                 const secondData = secondLine.slice(6);
                                 if (secondData === '[DONE]') continue;
 
@@ -1035,6 +1257,7 @@ export async function callAPI({
                                         currentMessage.reasoning_content += secondDelta.reasoning_content;
                                         hasUpdate = true;
                                         hasSecondNewStreamContentInChunk = true;
+                                        secondSawAnyAssistantPayload = true;
                                     }
 
                                     if (secondDelta?.content) {
@@ -1068,6 +1291,12 @@ export async function callAPI({
                                         }
                                         hasUpdate = true;
                                         hasSecondNewStreamContentInChunk = true;
+                                        secondSawAnyAssistantPayload = true;
+                                    }
+
+                                    if (secondDelta?.tool_calls) {
+                                        hasSecondNewStreamContentInChunk = true;
+                                        secondSawAnyAssistantPayload = true;
                                     }
 
                                     if (hasUpdate) {
@@ -1089,10 +1318,20 @@ export async function callAPI({
                             lastSecondStreamContentTime = Date.now();
                         }
                     }
+
+                    if (!secondSawAnyAssistantPayload) {
+                        throw createAPIResponseError(
+                            t('service.httpEmptyAssistantPayload'),
+                            {
+                                code: secondSawAnyDataLine ? 'EMPTY_ASSISTANT_PAYLOAD_SECOND' : 'EMPTY_STREAM_PAYLOAD_SECOND'
+                            }
+                        );
+                    }
                 } catch (error) {
                     console.error('处理 web_search tool call 失败:', error);
+                    const normalizedToolError = normalizeAPIError(error);
                     currentMessage.isError = true;
-                    currentMessage.content += `\n\n${t('service.webSearchFailed', { message: error.message })}`;
+                    currentMessage.content += `\n\n${formatAIErrorMessage(normalizedToolError)}`;
                     dispatchUpdate();
                 }
             }
@@ -1116,7 +1355,7 @@ export async function callAPI({
                     console.error('保存部分串流內容失敗:', saveError);
                 }
             }
-            throw error;
+            throw normalizeAPIError(error);
         }
     };
 

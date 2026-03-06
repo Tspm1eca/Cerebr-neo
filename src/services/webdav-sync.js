@@ -7,7 +7,13 @@
  * - chats/{id}.json 存完整聊天（含 messages + base64 圖片）
  */
 
-import { storageAdapter, syncStorageAdapter, setSyncMode } from '../utils/storage-adapter.js';
+import {
+    storageAdapter,
+    syncStorageAdapter,
+    setSyncMode,
+    isExtensionEnvironment,
+    SYNC_MODE_FLAG_KEY
+} from '../utils/storage-adapter.js';
 import { encrypt, decrypt, isEncrypted, encryptPasswordForStorage, decryptPasswordFromStorage, isEncryptedPassword } from '../utils/crypto.js';
 import { chatManager } from '../utils/chat-manager.js';
 import { computeChatHash } from '../utils/chat-hash.js';
@@ -753,9 +759,31 @@ class WebDAVSyncManager {
      */
     async loadConfig() {
         try {
-            const result = await syncStorageAdapter.get(WEBDAV_CONFIG_KEY);
-            if (result[WEBDAV_CONFIG_KEY]) {
-                this.config = { ...DEFAULT_CONFIG, ...result[WEBDAV_CONFIG_KEY] };
+            if (isExtensionEnvironment) {
+                // 同時讀取 local/sync 的配置，避免舊版本遺留造成模式與配置不一致
+                const [flagResult, localResult, syncResult] = await Promise.all([
+                    chrome.storage.local.get(SYNC_MODE_FLAG_KEY),
+                    chrome.storage.local.get(WEBDAV_CONFIG_KEY),
+                    chrome.storage.sync.get(WEBDAV_CONFIG_KEY)
+                ]);
+                const storedUseLocal = flagResult[SYNC_MODE_FLAG_KEY] === true;
+                const localConfig = localResult[WEBDAV_CONFIG_KEY];
+                const syncConfig = syncResult[WEBDAV_CONFIG_KEY];
+                const preferredConfig = storedUseLocal ? (localConfig || syncConfig) : (syncConfig || localConfig);
+                if (preferredConfig) {
+                    this.config = { ...DEFAULT_CONFIG, ...preferredConfig };
+                }
+
+                const desiredUseLocal = this.config.enabled === true;
+                if (storedUseLocal !== desiredUseLocal) {
+                    console.warn(`[WebDAV] 检测到同步模式不一致：enabled=${this.config.enabled}, flag=${storedUseLocal}; 正在自动修复`);
+                    await setSyncMode(desiredUseLocal, { cleanupSource: false, verifyAfterCopy: true });
+                }
+            } else {
+                const result = await syncStorageAdapter.get(WEBDAV_CONFIG_KEY);
+                if (result[WEBDAV_CONFIG_KEY]) {
+                    this.config = { ...DEFAULT_CONFIG, ...result[WEBDAV_CONFIG_KEY] };
+                }
             }
 
             // 从本地存储加载加密密码（不同步）
@@ -796,7 +824,7 @@ class WebDAVSyncManager {
         // WebDAV 啟用狀態變更時切換 sync 模式
         const newEnabled = this.config.enabled;
         if (newEnabled !== prevEnabled) {
-            await setSyncMode(newEnabled);
+            await setSyncMode(newEnabled, { cleanupSource: false, verifyAfterCopy: true });
             console.log(`[WebDAV] Sync storage ${newEnabled ? '已切換至 local（Chrome Sync 已禁用）' : '已恢復 Chrome Sync'}`);
         }
 

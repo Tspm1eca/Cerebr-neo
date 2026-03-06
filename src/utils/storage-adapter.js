@@ -162,46 +162,114 @@ export const storageAdapter = {
 
 // ===== Sync 模式切換：WebDAV 啟用時改用 local storage =====
 export const SYNC_MODE_FLAG_KEY = 'cerebr_use_local_sync';
+const SYNC_MIGRATION_STATE_KEY = 'cerebr_sync_migration_state';
 
 let _useLocalForSync = false;
 
-// 所有透過 syncStorageAdapter 管理的 keys（遷移用）
-const SYNC_MANAGED_KEYS = [
+// 所有透過 syncStorageAdapter 管理的 keys（遷移與健檢共用）
+export const SYNC_KEYS_REGISTRY = Object.freeze([
     'apiConfigs', 'selectedConfigIndex',
     'searchProvider', 'tavilyApiKey', 'tavilyApiUrl', 'exaApiKey', 'exaApiUrl',
     'quickChatOptions',
-    'sendWebpageContent', 'webSearchMode',
+    'sendWebpageContent', 'webSearchMode', 'enableWebSearch', // 舊版兼容：僅遷移
+    'cerebrLocale',
     'webdav_config',
     'webdav_remote_etag', 'webdav_local_hash',
     'webdav_last_sync', 'webdav_last_sync_timestamp'
-];
+]);
+const SYNC_KEYS_REGISTRY_SET = new Set(SYNC_KEYS_REGISTRY);
+const DEFAULT_SYNC_MODE_OPTIONS = Object.freeze({
+    cleanupSource: false,
+    verifyAfterCopy: true
+});
+
+function areSyncValuesEqual(left, right) {
+    return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function warnUnregisteredSyncKeys(data) {
+    if (!data || typeof data !== 'object') {
+        return;
+    }
+    const unknownKeys = Object.keys(data).filter((key) => !SYNC_KEYS_REGISTRY_SET.has(key));
+    if (unknownKeys.length > 0) {
+        console.warn('[SyncMode] 检测到未注册的 sync key，请补充至 SYNC_KEYS_REGISTRY:', unknownKeys);
+    }
+}
 
 // 啟動時讀取 flag（必須在任何 syncStorageAdapter 操作之前呼叫）
 export async function initSyncMode() {
     if (!isExtensionEnvironment) return;
     const result = await chrome.storage.local.get(SYNC_MODE_FLAG_KEY);
     _useLocalForSync = result[SYNC_MODE_FLAG_KEY] === true;
+    console.log(`[SyncMode] 初始化完成：当前使用 ${_useLocalForSync ? 'local' : 'sync'}，registry keys=${SYNC_KEYS_REGISTRY.length}`);
 }
 
 // 切換模式並遷移數據
-export async function setSyncMode(useLocal) {
-    if (!isExtensionEnvironment) return;
-    if (_useLocalForSync === useLocal) return;
+export async function setSyncMode(useLocal, options = {}) {
+    if (!isExtensionEnvironment) return { switched: false, reason: 'not-extension' };
+
+    const { cleanupSource, verifyAfterCopy } = {
+        ...DEFAULT_SYNC_MODE_OPTIONS,
+        ...options
+    };
+    const currentFlagResult = await chrome.storage.local.get(SYNC_MODE_FLAG_KEY);
+    const currentUseLocal = currentFlagResult[SYNC_MODE_FLAG_KEY] === true;
+    _useLocalForSync = currentUseLocal;
+
+    if (currentUseLocal === useLocal) {
+        return { switched: false, reason: 'already-target-mode' };
+    }
 
     const source = useLocal ? chrome.storage.sync : chrome.storage.local;
     const target = useLocal ? chrome.storage.local : chrome.storage.sync;
 
-    // 從來源讀取並遷移至目標
-    const data = await source.get(SYNC_MANAGED_KEYS);
-    const keys = Object.keys(data);
-    if (keys.length > 0) {
-        await target.set(data);
-        await source.remove(keys);
-    }
+    let movedKeys = [];
+    try {
+        // 從來源讀取並複製到目標（預設不刪來源，降低多裝置風險）
+        const data = await source.get(SYNC_KEYS_REGISTRY);
+        movedKeys = Object.keys(data);
+        if (movedKeys.length > 0) {
+            await target.set(data);
+            if (verifyAfterCopy) {
+                const verifyData = await target.get(movedKeys);
+                const mismatchKeys = movedKeys.filter((key) => !areSyncValuesEqual(data[key], verifyData[key]));
+                if (mismatchKeys.length > 0) {
+                    throw new Error(`同步数据校验失败: ${mismatchKeys.join(', ')}`);
+                }
+            }
+            if (cleanupSource) {
+                await source.remove(movedKeys);
+            }
+        }
 
-    // 持久化 flag 並更新記憶體
-    _useLocalForSync = useLocal;
-    await chrome.storage.local.set({ [SYNC_MODE_FLAG_KEY]: useLocal });
+        // 持久化 flag 並更新記憶體
+        _useLocalForSync = useLocal;
+        await chrome.storage.local.set({
+            [SYNC_MODE_FLAG_KEY]: useLocal,
+            [SYNC_MIGRATION_STATE_KEY]: {
+                from: currentUseLocal ? 'local' : 'sync',
+                to: useLocal ? 'local' : 'sync',
+                finishedAt: new Date().toISOString(),
+                success: true,
+                movedKeys
+            }
+        });
+        return { switched: true, movedKeys };
+    } catch (error) {
+        _useLocalForSync = currentUseLocal;
+        await chrome.storage.local.set({
+            [SYNC_MIGRATION_STATE_KEY]: {
+                from: currentUseLocal ? 'local' : 'sync',
+                to: useLocal ? 'local' : 'sync',
+                finishedAt: new Date().toISOString(),
+                success: false,
+                movedKeys,
+                error: error.message
+            }
+        });
+        throw error;
+    }
 }
 
 // 同步存储适配器
@@ -246,6 +314,7 @@ export const syncStorageAdapter = {
     // 设置存储的数据
     async set(data) {
         if (isExtensionEnvironment) {
+            warnUnregisteredSyncKeys(data);
             const storage = _useLocalForSync ? chrome.storage.local : chrome.storage.sync;
             await storage.set(data);
         } else {

@@ -106,6 +106,7 @@ class WebDAVSettingsController {
         this.elements = options.elements;
         this.callbacks = options.callbacks || {};
         this.initialized = false;
+        this._isTogglingEnabled = false;
     }
 
     /**
@@ -152,22 +153,32 @@ class WebDAVSettingsController {
             syncNow
         } = this.elements;
 
-        // 启用开关事件
+        const saveWithoutBlocking = (overrides = {}) => {
+            const safeOverrides = this._isTogglingEnabled
+                ? { ...overrides, enabled: false }
+                : overrides;
+            this.saveSettings(safeOverrides).catch((error) => {
+                console.error('[WebDAV] 保存设置失败:', error);
+            });
+        };
+
+        // 启用开关事件：开启前先测试连接，成功后才真正启用并切模式
         enabledSwitch?.addEventListener('change', () => {
-            this.saveSettings();
-            this.updateEncryptionFieldsState();
+            this.handleEnabledToggle().catch((error) => {
+                console.error('[WebDAV] 处理启用开关失败:', error);
+            });
         });
 
         // 服务器地址输入事件
-        serverUrl?.addEventListener('change', () => this.saveSettings());
+        serverUrl?.addEventListener('change', () => saveWithoutBlocking());
         serverUrl?.addEventListener('click', (e) => e.stopPropagation());
 
         // 用户名输入事件
-        username?.addEventListener('change', () => this.saveSettings());
+        username?.addEventListener('change', () => saveWithoutBlocking());
         username?.addEventListener('click', (e) => e.stopPropagation());
 
         // 密码输入事件
-        password?.addEventListener('change', () => this.saveSettings());
+        password?.addEventListener('change', () => saveWithoutBlocking());
         password?.addEventListener('click', (e) => e.stopPropagation());
 
         // 密码显示/隐藏切换
@@ -177,24 +188,24 @@ class WebDAVSettingsController {
         });
 
         // 同步路径输入事件
-        syncPath?.addEventListener('change', () => this.saveSettings());
+        syncPath?.addEventListener('change', () => saveWithoutBlocking());
         syncPath?.addEventListener('click', (e) => e.stopPropagation());
 
         // 同步 API 配置开关事件
         syncApiSwitch?.addEventListener('change', () => {
-            this.saveSettings();
+            saveWithoutBlocking();
             this.updateEncryptionFieldsState();
         });
 
         // 加密 API Keys 开关事件
         encryptApiSwitch?.addEventListener('change', () => {
-            this.saveSettings();
+            saveWithoutBlocking();
             this.updateEncryptionFieldsState();
         });
 
         // 加密密码输入事件
         encryptionPassword?.addEventListener('change', () => {
-            this.saveSettings();
+            saveWithoutBlocking();
             this.updateEncryptionFieldsState();
         });
         encryptionPassword?.addEventListener('input', () => {
@@ -211,13 +222,17 @@ class WebDAVSettingsController {
         // 测试连接按钮事件
         testConnection?.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.handleTestConnection();
+            this.handleTestConnection().catch((error) => {
+                console.error('[WebDAV] 测试连接失败:', error);
+            });
         });
 
         // 立即同步按钮事件
         syncNow?.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.handleSyncNow();
+            this.handleSyncNow().catch((error) => {
+                console.error('[WebDAV] 立即同步失败:', error);
+            });
         });
     }
 
@@ -268,9 +283,9 @@ class WebDAVSettingsController {
     }
 
     /**
-     * 保存 WebDAV 设置
+     * 从表单构建 WebDAV 配置对象
      */
-    async saveSettings() {
+    buildConfig(overrides = {}) {
         const {
             enabledSwitch,
             serverUrl,
@@ -282,30 +297,77 @@ class WebDAVSettingsController {
             encryptionPassword
         } = this.elements;
 
-        const encryptEnabled = encryptApiSwitch?.checked || false;
-        const encryptPwd = encryptionPassword?.value || '';
-
-        // 如果启用加密但密码无效，显示警告
-        if (encryptEnabled && encryptPwd) {
-            const validation = validatePassword(encryptPwd);
-            if (!validation.valid) {
-                showToast(validation.message, 'error');
-            }
-        }
-
-        const config = {
+        return {
             enabled: enabledSwitch?.checked || false,
             serverUrl: serverUrl?.value.trim() || '',
             username: username?.value.trim() || '',
             password: password?.value || '',
             syncPath: syncPath?.value.trim() || '/Cerebr-neo',
             syncApiConfig: syncApiSwitch?.checked || false,
-            encryptApiKeys: encryptEnabled,
-            encryptionPassword: encryptPwd
+            encryptApiKeys: encryptApiSwitch?.checked || false,
+            encryptionPassword: encryptionPassword?.value || '',
+            ...overrides
         };
+    }
+
+    /**
+     * 保存 WebDAV 设置
+     */
+    async saveSettings(overrides = {}) {
+        const config = this.buildConfig(overrides);
+
+        // 如果启用加密但密码无效，显示警告
+        if (config.encryptApiKeys && config.encryptionPassword) {
+            const validation = validatePassword(config.encryptionPassword);
+            if (!validation.valid) {
+                showToast(validation.message, 'error');
+            }
+        }
 
         await webdavSyncManager.saveConfig(config);
         this.updateFormState(config.enabled);
+        return config;
+    }
+
+    /**
+     * 处理启用开关
+     * 开启时会先测试连接，成功后才真正启用 WebDAV（并切换到 local sync）
+     */
+    async handleEnabledToggle() {
+        const { enabledSwitch } = this.elements;
+        if (!enabledSwitch || this._isTogglingEnabled) return;
+
+        const targetEnabled = enabledSwitch.checked;
+        if (!targetEnabled) {
+            try {
+                await this.saveSettings({ enabled: false });
+            } catch (error) {
+                enabledSwitch.checked = true;
+                showToast(`${t('webdav.syncFailed')}<br>${error.message}`, 'error');
+            } finally {
+                this.updateEncryptionFieldsState();
+            }
+            return;
+        }
+
+        this._isTogglingEnabled = true;
+        const baseConfig = this.buildConfig({ enabled: false });
+        try {
+            // 先保存连接信息但保持 disabled，避免测试前触发模式切换
+            await webdavSyncManager.saveConfig(baseConfig);
+            await webdavSyncManager.testConnection();
+
+            // 连接通过后再真正启用（此时才会切换 sync 模式）
+            await webdavSyncManager.saveConfig({ ...baseConfig, enabled: true });
+            this.updateFormState(true);
+        } catch (error) {
+            enabledSwitch.checked = false;
+            this.updateFormState(false);
+            showToast(`${t('webdav.connectionFailed')}<br>${error.message}`, 'error');
+        } finally {
+            this._isTogglingEnabled = false;
+            this.updateEncryptionFieldsState();
+        }
     }
 
     /**
@@ -446,8 +508,9 @@ class WebDAVSettingsController {
         const { testConnection } = this.elements;
         if (!testConnection) return;
 
-        // 先保存当前设置
-        await this.saveSettings();
+        // 先保存当前设置，但不改变 enabled 状态（避免测试连接时误触发模式切换）
+        const persistedEnabled = webdavSyncManager.getConfig().enabled;
+        await this.saveSettings({ enabled: persistedEnabled });
 
         const originalBtnContent = testConnection.innerHTML;
         testConnection.disabled = true;

@@ -1,5 +1,5 @@
 import { initDarkTheme } from './utils/theme.js';
-import { callAPI, TimeoutError } from './services/chat.js';
+import { callAPI, formatAIErrorMessage } from './services/chat.js';
 import { chatManager } from './utils/chat-manager.js';
 import { appendMessage, createWaitingMessage, createYouTubeExtractionMessage, transitionExtractionToWaiting, loadThumbnailCache } from './handlers/message-handler.js';
 import { hideContextMenu } from './components/context-menu.js';
@@ -582,15 +582,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     }
                 }
 
-                // 根據錯誤類型顯示不同的錯誤訊息
-                let errorMessage = t('service.regenerateFailed', { message: error.message });
-                if (error?.code === 'YOUTUBE_TRANSCRIPT_UNAVAILABLE') {
-                    errorMessage = error.message || t('service.youtubeExtractFailed');
-                }
-                if (error instanceof TimeoutError) {
-                    errorMessage = '⏱️ ' + error.message;
-                    console.warn('API 請求超時:', error.type, error.message);
-                }
+                const errorMessage = formatAIErrorMessage(error);
 
                 appendMessage({
                     text: {
@@ -777,15 +769,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     }
                 }
 
-                // 根據錯誤類型顯示不同的錯誤訊息
-                let errorMessage = t('service.sendFailed', { message: error.message });
-                if (error?.code === 'YOUTUBE_TRANSCRIPT_UNAVAILABLE') {
-                    errorMessage = error.message || t('service.youtubeExtractFailed');
-                }
-                if (error instanceof TimeoutError) {
-                    errorMessage = '⏱️ ' + error.message;
-                    console.warn('API 請求超時:', error.type, error.message);
-                }
+                const errorMessage = formatAIErrorMessage(error);
 
                 appendMessage({
                     text: {
