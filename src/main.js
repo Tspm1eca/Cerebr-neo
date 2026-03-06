@@ -1718,6 +1718,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
    });
 
    // Show current extension version by default, and pin a "New" badge when update is available.
+   // Only check remote version once per browser session (cached in chrome.storage.session).
    const versionBadge = document.getElementById('version-badge');
    if (versionBadge) {
        const currentVersion = chrome.runtime.getManifest().version;
@@ -1725,21 +1726,38 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
        versionBadge.title = `Current version: v${currentVersion}`;
        versionBadge.setAttribute('aria-label', `Current version: v${currentVersion}`);
 
+       const applyUpdate = (tagName, latestVersion) => {
+           versionBadge.textContent = `New: v${latestVersion}`;
+           versionBadge.href = `https://github.com/Tspm1eca/Cerebr-neo/releases/tag/${encodeURIComponent(tagName)}`;
+           versionBadge.title = `New version available: v${latestVersion} (current: v${currentVersion})`;
+           versionBadge.setAttribute('aria-label', `New version available: v${latestVersion}`);
+           versionBadge.classList.add('has-update');
+       };
+
        (async () => {
            try {
+               // Check session cache first
+               const cached = await chrome.storage.session.get('versionCheck');
+               if (cached.versionCheck) {
+                   const { tagName, latestVersion } = cached.versionCheck;
+                   if (latestVersion && latestVersion !== currentVersion) {
+                       applyUpdate(tagName, latestVersion);
+                   }
+                   return;
+               }
+
                const resp = await fetch('https://api.github.com/repos/Tspm1eca/Cerebr-neo/releases/latest');
                if (!resp.ok) return;
 
                const release = await resp.json();
                const tagName = typeof release?.tag_name === 'string' ? release.tag_name : '';
                const latestVersion = tagName.replace(/^v/, '');
-               if (!latestVersion || latestVersion === currentVersion) return;
 
-               versionBadge.textContent = `New: v${latestVersion}`;
-               versionBadge.href = `https://github.com/Tspm1eca/Cerebr-neo/releases/tag/${encodeURIComponent(tagName)}`;
-               versionBadge.title = `New version available: v${latestVersion} (current: v${currentVersion})`;
-               versionBadge.setAttribute('aria-label', `New version available: v${latestVersion}`);
-               versionBadge.classList.add('has-update');
+               // Cache result for the rest of this browser session
+               await chrome.storage.session.set({ versionCheck: { tagName, latestVersion } });
+
+               if (!latestVersion || latestVersion === currentVersion) return;
+               applyUpdate(tagName, latestVersion);
            } catch (e) {
                // silently ignore version check failures
            }
