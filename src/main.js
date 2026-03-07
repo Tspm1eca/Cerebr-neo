@@ -320,6 +320,16 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
     });
 
+    // 監聽來自 background script 的訊息（Side Panel 模式下接收快捷鍵指令）
+    if (isExtensionEnvironment && chrome.runtime?.onMessage) {
+        chrome.runtime.onMessage.addListener((message) => {
+            if (message.type === 'NEW_CHAT') {
+                newChatButton.click();
+                messageInput.focus();
+            }
+        });
+    }
+
     // 新增：带重试逻辑的API调用函数
     async function callAPIWithRetry(apiParams, chatManager, chatId, onMessageUpdate, maxRetries = 10) {
         let attempt = 0;

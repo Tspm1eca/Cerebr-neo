@@ -107,7 +107,9 @@ chrome.commands.onCommand.addListener(async (command) => {
   console.log('onCommand:', command);
 
   if (command === 'new_chat') {
+    // 同時發送給 content script（浮窗模式）和 side panel（側欄模式）
     await handleTabCommand('NEW_CHAT');
+    chrome.runtime.sendMessage({ type: 'NEW_CHAT' }).catch(() => {});
   }
 });
 
