@@ -13,9 +13,6 @@
     transform: translateY(8px) scaleX(0.92) scaleY(0.98);
     animation: messageAppear 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
     will-change: transform, opacity;
-    box-shadow: 0 2px 6px var(--cerebr-message-shadow);
-    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
@@ -90,17 +87,21 @@
     background-color: var(--cerebr-message-user-bg);
     margin-left: auto;
     margin-right: 0;
-    border-bottom-right-radius: 4px;
-    border: 1px solid transparent;
+    border-radius: 24px;
+    border-bottom-right-radius: 8px;
+    border: 1px solid var(--cerebr-border-color);
+    padding: 10px 16px;
 }
 
 .ai-message {
     background-color: var(--cerebr-message-ai-bg);
     margin-right: auto;
     margin-left: 0;
-    border-bottom-left-radius: 4px;
+    border-radius: 24px;
+    border-bottom-left-radius: 8px;
+    border: 1px solid var(--cerebr-border-color);
+    padding: 10px 16px;
     -webkit-touch-callout: none; /* iOS Safari */
-    border: 1px solid transparent; /* 預留邊框空間，避免切換時跳動 */
 }
 
 .ai-message.youtube-chat {
@@ -250,11 +251,6 @@
     color: var(--cerebr-blockquote-text-color);
 }
 
-.message:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px var(--cerebr-message-hover-shadow);
-}
-
 /* 批量加载时的消息样式 */
 .message.batch-load {
     animation: none;
@@ -357,11 +353,6 @@
     animation: none;
     opacity: 1;
     transform: none;
-}
-
-.message.editing:hover {
-    transform: none;
-    box-shadow: 0 2px 6px var(--cerebr-message-shadow);
 }
 
 .message-edit-container {

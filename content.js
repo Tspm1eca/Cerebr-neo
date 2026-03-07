@@ -125,7 +125,8 @@ class CerebrSidebar {
           color: var(--cerebr-text-color, #000000);
           box-shadow: none;
           z-index: 2147483647;
-          border-radius: 18px;
+          border-radius: 24px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
           margin-right: var(--sidebar-margin);
           overflow: hidden;
           visibility: hidden;
@@ -154,7 +155,7 @@ class CerebrSidebar {
         .cerebr-sidebar__content {
           height: 100%;
           overflow: hidden;
-          border-radius: 18px;
+          border-radius: 24px;
           contain: style layout size;
         }
         .cerebr-sidebar__iframe {
