@@ -865,27 +865,50 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     initWebpageMenu({ webpageQAContainer, webpageContentMenu });
    }
 
+    // 选单延迟隐藏共用邏輯
+    const HOVER_DELAY = 200;
+    const HOVER_RECHECK_DELAY = 150;
+
+    const isSettingsAreaHovered = () =>
+        settingsButton.matches(':hover') ||
+        settingsMenu.matches(':hover') ||
+        webpageContentMenu.matches(':hover');
+
+    const isModelSelectorHovered = () =>
+        newChatButton.matches(':hover') ||
+        modelSelectorMenu.matches(':hover');
+
+    /**
+     * 雙重檢查延遲隱藏：首次延遲後檢查 hover，
+     * 若仍未 hover 則再給一次短延遲（容忍滑鼠穿越死區）。
+     * 透過 setTimer 回寫 timer ID，確保外部隨時能 clearTimeout。
+     */
+    function scheduleHide(currentTimer, setTimer, checkHover, doHide) {
+        clearTimeout(currentTimer);
+        setTimer(setTimeout(() => {
+            if (checkHover()) return;
+            setTimer(setTimeout(() => {
+                if (!checkHover()) doHide();
+            }, HOVER_RECHECK_DELAY));
+        }, HOVER_DELAY));
+    }
+
     // 设置菜单的显示和隐藏逻辑
     let menuTimeout;
 
     const showMenu = () => {
         clearTimeout(menuTimeout);
+        // 互斥：立即關閉 model-selector-menu
+        clearTimeout(modelSelectorTimeout);
+        modelSelectorMenu.classList.remove('visible');
         settingsMenu.classList.add('visible');
     };
 
     const hideMenu = () => {
-        // 先清掉舊 timer，避免殘留 timer 在點擊選單項目時把選單提前收起
-        clearTimeout(menuTimeout);
-        menuTimeout = setTimeout(() => {
-            const stillHoveringSettingsArea =
-                settingsButton.matches(':hover') ||
-                settingsMenu.matches(':hover') ||
-                webpageContentMenu.matches(':hover');
-            if (!stillHoveringSettingsArea) {
-                settingsMenu.classList.remove('visible');
-                webpageContentMenu.classList.remove('visible'); // 同时隐藏二级菜单
-            }
-        }, 200); // 200ms 延迟
+        scheduleHide(menuTimeout, t => menuTimeout = t, isSettingsAreaHovered, () => {
+            settingsMenu.classList.remove('visible');
+            webpageContentMenu.classList.remove('visible');
+        });
     };
 
     // 鼠标悬停在按钮上时显示菜单
@@ -1068,6 +1091,10 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     // 顯示模型選擇子菜單
     async function showModelSelectorMenu() {
         clearTimeout(modelSelectorTimeout);
+        // 互斥：立即關閉 settings-menu
+        clearTimeout(menuTimeout);
+        settingsMenu.classList.remove('visible');
+        webpageContentMenu.classList.remove('visible');
         modelSelectorMenu.classList.add('visible');
 
         const searchInput = modelSelectorMenu.querySelector('.model-search-input');
@@ -1103,9 +1130,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     function hideModelSelectorMenu() {
         // 如果搜索框有焦點，不隱藏菜單
         if (isModelSearchFocused) return;
-        modelSelectorTimeout = setTimeout(() => {
+        scheduleHide(modelSelectorTimeout, t => modelSelectorTimeout = t, isModelSelectorHovered, () => {
             modelSelectorMenu.classList.remove('visible');
-        }, 150);
+        });
     }
 
     // 新對話按鈕的 hover 事件
@@ -1119,6 +1146,11 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
     // 子菜單的 hover 事件（保持顯示）
     modelSelectorMenu.addEventListener('mouseenter', () => {
+        clearTimeout(modelSelectorTimeout);
+    });
+
+    // pointerdown 時清除隱藏計時器，防止點擊瞬間菜單被收起
+    modelSelectorMenu.addEventListener('pointerdown', () => {
         clearTimeout(modelSelectorTimeout);
     });
 
