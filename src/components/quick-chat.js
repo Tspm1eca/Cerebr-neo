@@ -5,9 +5,6 @@
 
 import { syncStorageAdapter } from '../utils/storage-adapter.js';
 import { clearMessageInput } from './message-input.js';
-import {
-    createDefaultQuickChatOptions
-} from '../constants/prompts.js';
 import { getDefaultQuickChatOptions } from '../services/remote-prompts.js';
 import { t } from '../utils/i18n.js';
 
@@ -45,10 +42,10 @@ export async function initQuickChat({
     async function loadQuickChatOptions() {
         try {
             const result = await syncStorageAdapter.get(QUICK_CHAT_OPTIONS_KEY);
-            quickChatOptions = result.quickChatOptions || createDefaultQuickChatOptions();
+            quickChatOptions = result.quickChatOptions || await getDefaultQuickChatOptions();
         } catch (error) {
             console.error('加载常用聊天选项失败:', error);
-            quickChatOptions = createDefaultQuickChatOptions();
+            quickChatOptions = await getDefaultQuickChatOptions();
         }
         renderQuickChatOptions();
         // 同時更新設置頁面中的選項列表（如果已初始化）
@@ -512,10 +509,10 @@ export function toggleQuickChatOptions(show) {
 export async function getQuickChatOptions() {
     try {
         const result = await syncStorageAdapter.get(QUICK_CHAT_OPTIONS_KEY);
-        return result.quickChatOptions || createDefaultQuickChatOptions();
+        return result.quickChatOptions || await getDefaultQuickChatOptions();
     } catch (error) {
         console.error('获取常用聊天选项失败:', error);
-        return createDefaultQuickChatOptions();
+        return getDefaultQuickChatOptions();
     }
 }
 

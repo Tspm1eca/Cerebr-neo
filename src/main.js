@@ -6,7 +6,6 @@ import { hideContextMenu } from './components/context-menu.js';
 import { initChatContainer } from './components/chat-container.js';
 import { showImagePreview, hideImagePreview } from './utils/ui.js';
 import { initAPICard } from './components/api-card.js';
-import { DEFAULT_SYSTEM_PROMPT } from './constants/prompts.js';
 import { storageAdapter, syncStorageAdapter, browserAdapter, isExtensionEnvironment, initSyncMode } from './utils/storage-adapter.js';
 import { initMessageInput, getFormattedMessageContent, buildMessageContent, clearMessageInput, handleWindowMessage, updatePermanentPlaceholder } from './components/message-input.js';
 import './utils/viewport.js';
@@ -22,7 +21,7 @@ import { initQuickChat, toggleQuickChatOptions } from './components/quick-chat.j
 import { initWebDAVSettings, showToast as showWebDAVToast } from './components/webdav-settings.js';
 import { webdavSyncManager } from './services/webdav-sync.js';
 import { initI18n, t } from './utils/i18n.js';
-import { fetchAndCacheRemotePrompts } from './services/remote-prompts.js';
+import { fetchAndCacheRemotePrompts, getDefaultSystemPrompt } from './services/remote-prompts.js';
 
 // 存储用户的问题历史
 let userQuestions = [];
@@ -1062,7 +1061,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     }
 
     // 選擇模型
-    function selectModel(modelName) {
+    async function selectModel(modelName) {
         const config = apiConfigs[selectedConfigIndex];
         if (config) {
             config.modelName = modelName;
@@ -1081,7 +1080,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             });
 
             // 重新渲染 API 卡片以更新設置頁面中的模型名稱顯示
-            renderAPICardsWithCallbacks();
+            await renderAPICardsWithCallbacks();
 
             // 隱藏子菜單
             hideModelSelectorMenu();
@@ -1821,8 +1820,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     let apiCardController = null;
 
     // 初始化 API 卡片的辅助函数
-    const initAPICardWithCallbacks = () => {
-        apiCardController = initAPICard({
+    const initAPICardWithCallbacks = async () => {
+        apiCardController = await initAPICard({
             apiConfigs,
             selectedIndex: selectedConfigIndex,
             onProfileChange: (newIndex) => {
@@ -1856,9 +1855,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     };
 
     // 为了兼容性保留的函数别名
-    const renderAPICardsWithCallbacks = () => {
+    const renderAPICardsWithCallbacks = async () => {
         if (apiCardController) {
-            apiCardController.setSelectedIndex(selectedConfigIndex);
+            await apiCardController.setSelectedIndex(selectedConfigIndex);
         }
     };
 
@@ -1878,7 +1877,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     modelName: '',
                     profileName: '配置 1',
                     advancedSettings: {
-                        systemPrompt: DEFAULT_SYSTEM_PROMPT,
+                        systemPrompt: await getDefaultSystemPrompt(),
                         isExpanded: false
                     }
                 }];
@@ -1891,10 +1890,10 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
             // 初始化 API 卡片（只在首次加载时初始化，避免重复绑定事件）
             if (!skipInit) {
-                initAPICardWithCallbacks();
+                await initAPICardWithCallbacks();
             } else if (apiCardController) {
                 // 标签页切换或 WebDAV 同步后更新配置和 UI，不重新绑定事件
-                apiCardController.updateConfigs(apiConfigs, selectedConfigIndex);
+                await apiCardController.updateConfigs(apiConfigs, selectedConfigIndex);
             }
             updatePlaceholderWithCurrentModel();
             chatManager.setApiConfig(apiConfigs[selectedConfigIndex]); // 初始化时设置API配置
@@ -1907,15 +1906,15 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 modelName: '',
                 profileName: '配置 1',
                 advancedSettings: {
-                    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+                    systemPrompt: await getDefaultSystemPrompt(),
                     isExpanded: false
                 }
             }];
             selectedConfigIndex = 0;
             if (!skipInit) {
-                initAPICardWithCallbacks();
+                await initAPICardWithCallbacks();
             } else if (apiCardController) {
-                apiCardController.updateConfigs(apiConfigs, selectedConfigIndex);
+                await apiCardController.updateConfigs(apiConfigs, selectedConfigIndex);
             }
             updatePlaceholderWithCurrentModel();
             chatManager.setApiConfig(apiConfigs[selectedConfigIndex]); // 初始化时设置API配置

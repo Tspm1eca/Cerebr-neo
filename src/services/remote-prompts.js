@@ -1,127 +1,138 @@
-// 遠端提示詞服務：從 GitHub 下載最新提示詞，緩存於 chrome.storage.session
+// 提示詞服務：優先使用遠端 (GitHub) 提示詞，fallback 到本地打包的 prompts.json
 import { isExtensionEnvironment } from '../utils/storage-adapter.js';
-import {
-    DEFAULT_SYSTEM_PROMPT,
-    WEB_SEARCH_SYSTEM_PROMPT,
-    VIDEO_TRANSCRIPT_SYSTEM_PROMPT,
-    WEB_SEARCH_TOOL_DESCRIPTION,
-    WEB_SEARCH_TOOL_QUERY_DESCRIPTION,
-    TITLE_GENERATION_PROMPT,
-    createDefaultQuickChatOptions
-} from '../constants/prompts.js';
 
 const SESSION_KEY = 'cerebr_remote_prompts';
 const REMOTE_URL = 'https://raw.githubusercontent.com/Tspm1eca/Cerebr-neo/Dev/src/constants/prompts.json';
+const LOCAL_JSON_PATH = 'src/constants/prompts.json';
 const FETCH_TIMEOUT_MS = 8000;
 
 // 記憶體緩存，避免重複異步讀取 session storage
 let _memoryCache = null;
+// 去重：確保同時多次呼叫只觸發一次 fetch
+let _fetchPromise = null;
+
+function isValidPromptData(data) {
+    return data?.version === 1 && typeof data.DEFAULT_SYSTEM_PROMPT === 'string';
+}
 
 /**
- * 從 GitHub 下載提示詞並存入 chrome.storage.session。
- * 若本次 session 已有緩存則跳過。非阻塞式調用，所有錯誤靜默處理。
+ * 從遠端 URL fetch 提示詞 JSON。
+ * @returns {Promise<Object|null>}
  */
-export async function fetchAndCacheRemotePrompts() {
-    if (!isExtensionEnvironment) return;
-
+async function fetchRemote() {
     try {
-        const existing = await chrome.storage.session.get(SESSION_KEY);
-        if (existing[SESSION_KEY]) {
-            _memoryCache = existing[SESSION_KEY];
-            return;
-        }
-
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
         const resp = await fetch(REMOTE_URL, { signal: controller.signal });
         clearTimeout(timeoutId);
 
-        if (!resp.ok) return;
+        if (!resp.ok) return null;
 
         const data = await resp.json();
+        if (isValidPromptData(data)) return data;
+    } catch { /* 靜默處理 */ }
+    return null;
+}
 
-        if (!data || data.version !== 1 || typeof data.DEFAULT_SYSTEM_PROMPT !== 'string') return;
+/**
+ * 從本地打包的 prompts.json fetch 提示詞。
+ * @returns {Promise<Object|null>}
+ */
+async function fetchLocal() {
+    try {
+        const url = chrome.runtime.getURL(LOCAL_JSON_PATH);
+        const resp = await fetch(url);
+        const data = await resp.json();
+        if (isValidPromptData(data)) return data;
+    } catch { /* 靜默處理 */ }
+    return null;
+}
 
-        await chrome.storage.session.set({ [SESSION_KEY]: data });
-        _memoryCache = data;
-        console.log('[RemotePrompts] 已下載並緩存遠端提示詞');
+/**
+ * 載入提示詞並存入 chrome.storage.session。
+ * 流程：session cache → 遠端 URL → 本地 JSON。
+ * 非阻塞式調用，所有錯誤靜默處理。
+ */
+export function fetchAndCacheRemotePrompts() {
+    if (!isExtensionEnvironment) return Promise.resolve();
+    if (!_fetchPromise) {
+        _fetchPromise = _doFetch();
+    }
+    return _fetchPromise;
+}
+
+async function _doFetch() {
+    try {
+        // 1. 檢查 session storage 緩存
+        const existing = await chrome.storage.session.get(SESSION_KEY);
+        if (existing[SESSION_KEY]) {
+            _memoryCache = existing[SESSION_KEY];
+            return;
+        }
+
+        // 2. 嘗試遠端 URL
+        let data = await fetchRemote();
+
+        // 3. 失敗則回退到本地打包的 JSON
+        if (!data) {
+            data = await fetchLocal();
+        }
+
+        if (data) {
+            await chrome.storage.session.set({ [SESSION_KEY]: data });
+            _memoryCache = data;
+        }
     } catch (e) {
-        console.warn('[RemotePrompts] 下載失敗，將使用內置預設值:', e.message);
+        console.warn('[RemotePrompts] 初始化失敗:', e.message);
     }
 }
 
 /**
- * 讀取緩存的遠端提示詞，返回 null 表示無可用緩存。
+ * 取得緩存的提示詞，若尚未載入則觸發 lazy fetch。
+ * @returns {Promise<Object|null>}
  */
-async function getRemotePrompts() {
+async function getCachedPrompts() {
     if (_memoryCache) return _memoryCache;
     if (!isExtensionEnvironment) return null;
 
     try {
         const result = await chrome.storage.session.get(SESSION_KEY);
-        _memoryCache = result[SESSION_KEY] || null;
-        return _memoryCache;
-    } catch {
-        return null;
-    }
+        if (result[SESSION_KEY]) {
+            _memoryCache = result[SESSION_KEY];
+            return _memoryCache;
+        }
+    } catch { /* 靜默處理 */ }
+
+    // session storage 也沒有，觸發 fetch
+    await fetchAndCacheRemotePrompts();
+    return _memoryCache;
 }
 
-/**
- * 返回預設系統提示詞：優先使用遠端版本，否則使用內置預設值。
- */
-export async function getDefaultSystemPrompt() {
-    const remote = await getRemotePrompts();
-    return remote?.DEFAULT_SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
+// ── Getter 函數 ──────────────────────────────────────────────
+
+function createGetter(key, fallback = '') {
+    return async () => {
+        const cached = await getCachedPrompts();
+        return cached?.[key] || fallback;
+    };
 }
 
-/**
- * 返回網頁搜索系統提示詞。
- */
-export async function getWebSearchSystemPrompt() {
-    const remote = await getRemotePrompts();
-    return remote?.WEB_SEARCH_SYSTEM_PROMPT || WEB_SEARCH_SYSTEM_PROMPT;
-}
+export const getDefaultSystemPrompt = createGetter('DEFAULT_SYSTEM_PROMPT');
+export const getWebSearchSystemPrompt = createGetter('WEB_SEARCH_SYSTEM_PROMPT');
+export const getVideoTranscriptSystemPrompt = createGetter('VIDEO_TRANSCRIPT_SYSTEM_PROMPT');
+export const getWebSearchToolDescription = createGetter('WEB_SEARCH_TOOL_DESCRIPTION');
+export const getWebSearchToolQueryDescription = createGetter('WEB_SEARCH_TOOL_QUERY_DESCRIPTION');
+export const getTitleGenerationPrompt = createGetter('TITLE_GENERATION_PROMPT');
 
 /**
- * 返回影片字幕系統提示詞。
- */
-export async function getVideoTranscriptSystemPrompt() {
-    const remote = await getRemotePrompts();
-    return remote?.VIDEO_TRANSCRIPT_SYSTEM_PROMPT || VIDEO_TRANSCRIPT_SYSTEM_PROMPT;
-}
-
-/**
- * 返回網頁搜索工具描述。
- */
-export async function getWebSearchToolDescription() {
-    const remote = await getRemotePrompts();
-    return remote?.WEB_SEARCH_TOOL_DESCRIPTION || WEB_SEARCH_TOOL_DESCRIPTION;
-}
-
-/**
- * 返回網頁搜索查詢描述。
- */
-export async function getWebSearchToolQueryDescription() {
-    const remote = await getRemotePrompts();
-    return remote?.WEB_SEARCH_TOOL_QUERY_DESCRIPTION || WEB_SEARCH_TOOL_QUERY_DESCRIPTION;
-}
-
-/**
- * 返回標題生成提示詞。
- */
-export async function getTitleGenerationPrompt() {
-    const remote = await getRemotePrompts();
-    return remote?.TITLE_GENERATION_PROMPT || TITLE_GENERATION_PROMPT;
-}
-
-/**
- * 返回預設快捷聊天選項（深拷貝）：優先使用遠端版本，否則使用內置預設值。
+ * 返回預設快捷聊天選項（深拷貝）。
  */
 export async function getDefaultQuickChatOptions() {
-    const remote = await getRemotePrompts();
-    if (remote?.DEFAULT_QUICK_CHAT_OPTIONS && Array.isArray(remote.DEFAULT_QUICK_CHAT_OPTIONS)) {
-        return remote.DEFAULT_QUICK_CHAT_OPTIONS.map(opt => ({ ...opt }));
+    const cached = await getCachedPrompts();
+    const opts = cached?.DEFAULT_QUICK_CHAT_OPTIONS;
+    if (Array.isArray(opts)) {
+        return opts.map(opt => ({ ...opt }));
     }
-    return createDefaultQuickChatOptions();
+    return [];
 }
