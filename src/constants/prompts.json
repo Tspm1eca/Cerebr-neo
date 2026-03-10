@@ -25,6 +25,5 @@
             "icon": "📰"
         }
     ],
-    "DEFAULT_NEW_QUICK_CHAT_PROMPT": "请输入您的提示词",
     "TITLE_GENERATION_PROMPT": "Generate a concise and accurate title based on the conversation below, using no more than 15 characters. Return only the title text, without quotes or any extra explanation.\nThe title must be written in {{userLanguageName}}.\nConversation:\n"
 }

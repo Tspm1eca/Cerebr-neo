@@ -11,12 +11,9 @@
  * @property {boolean} advancedSettings.isExpanded - 高级设置是否展开
  */
 
-import { DEFAULT_SYSTEM_PROMPT } from '../constants/prompts.js';
 import { getDefaultSystemPrompt } from '../services/remote-prompts.js';
 import { t } from '../utils/i18n.js';
 import { showToast } from './webdav-settings.js';
-
-export { DEFAULT_SYSTEM_PROMPT };
 
 /**
  * 初始化 API 卡片
@@ -29,7 +26,7 @@ export { DEFAULT_SYSTEM_PROMPT };
  * @param {function} params.onConfigChange - 配置内容变更回调函数
  * @param {function} params.onSave - 保存配置回调函数
  */
-export function initAPICard({
+export async function initAPICard({
     apiConfigs,
     selectedIndex,
     onProfileChange,
@@ -120,39 +117,41 @@ export function initAPICard({
         }
     }
 
-    function selectProfile(index) {
+    async function withErrorLog(label, fn) {
+        try { await fn(); }
+        catch (err) { console.error(`${label}:`, err); }
+    }
+
+    async function selectProfile(index) {
         if (index === selectedIndex) {
             toggleProfileDropdown(false);
             return;
         }
-        saveCurrentForm();
-        selectedIndex = index;
-        updateProfileSelectorText();
-        updateFormContent(getCurrentConfig());
-        onProfileChange(selectedIndex);
+        await withErrorLog('切換配置失敗', async () => {
+            saveCurrentForm();
+            selectedIndex = index;
+            updateProfileSelector();
+            await updateFormContent(getCurrentConfig());
+            onProfileChange(selectedIndex);
+        });
         toggleProfileDropdown(false);
     }
 
-    // 更新顯示文字
-    function updateProfileSelectorText() {
+    // 更新 profile 下拉选单顯示文字
+    function updateProfileSelector() {
         const config = getCurrentConfig();
         profileSelectorText.textContent = config?.profileName || t('api.profileDefault', { index: selectedIndex + 1 });
     }
 
-    // 更新 profile 下拉选单
-    function updateProfileSelector() {
-        updateProfileSelectorText();
-    }
-
     // 更新表单内容
-    function updateFormContent(config) {
+    async function updateFormContent(config) {
         if (!config) return;
 
         apiKeyInput.value = config.apiKey || '';
         baseUrlInput.value = config.baseUrl || '';
         modelNameInput.value = config.modelName || '';
         titleModelNameInput.value = config.titleModelName || '';
-        systemPromptInput.value = config.advancedSettings?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+        systemPromptInput.value = config.advancedSettings?.systemPrompt ?? await getDefaultSystemPrompt();
     }
 
     // 获取当前配置
@@ -179,7 +178,7 @@ export function initAPICard({
 
     // 初始化
     updateProfileSelector();
-    updateFormContent(getCurrentConfig());
+    await updateFormContent(getCurrentConfig());
 
     // Profile 選擇器點擊事件
     profileSelector.addEventListener('click', (e) => {
@@ -219,29 +218,30 @@ export function initAPICard({
     });
 
     // 新增配置按钮
-    addProfileBtn.addEventListener('click', (e) => {
+    addProfileBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        // 先保存当前配置
-        saveCurrentForm();
+        await withErrorLog('新增配置失敗', async () => {
+            saveCurrentForm();
 
-        const newConfig = {
-            apiKey: '',
-            baseUrl: 'https://api.CloseAi.com/v1/chat/completions',
-            modelName: '',
-            titleModelName: '',
-            profileName: t('api.profileDefault', { index: apiConfigs.length + 1 }),
-            advancedSettings: {
-                systemPrompt: DEFAULT_SYSTEM_PROMPT,
-                isExpanded: false
-            }
-        };
+            const newConfig = {
+                apiKey: '',
+                baseUrl: 'https://api.CloseAi.com/v1/chat/completions',
+                modelName: '',
+                titleModelName: '',
+                profileName: t('api.profileDefault', { index: apiConfigs.length + 1 }),
+                advancedSettings: {
+                    systemPrompt: await getDefaultSystemPrompt(),
+                    isExpanded: false
+                }
+            };
 
-        apiConfigs.push(newConfig);
-        selectedIndex = apiConfigs.length - 1;
+            apiConfigs.push(newConfig);
+            selectedIndex = apiConfigs.length - 1;
 
-        updateProfileSelector();
-        updateFormContent(newConfig);
-        onProfileAdd(newConfig, selectedIndex);
+            updateProfileSelector();
+            await updateFormContent(newConfig);
+            onProfileAdd(newConfig, selectedIndex);
+        });
     });
 
     // 重命名配置模态框元素
@@ -342,18 +342,20 @@ export function initAPICard({
 
     // 删除配置模态框事件处理
     if (deleteProfileModal) {
-        const handleDeleteConfirm = () => {
-            const deletedIndex = selectedIndex;
-            apiConfigs.splice(deletedIndex, 1);
+        const handleDeleteConfirm = async () => {
+            await withErrorLog('刪除配置失敗', async () => {
+                const deletedIndex = selectedIndex;
+                apiConfigs.splice(deletedIndex, 1);
 
-            // 调整选中索引
-            if (selectedIndex >= apiConfigs.length) {
-                selectedIndex = apiConfigs.length - 1;
-            }
+                // 调整选中索引
+                if (selectedIndex >= apiConfigs.length) {
+                    selectedIndex = apiConfigs.length - 1;
+                }
 
-            updateProfileSelector();
-            updateFormContent(getCurrentConfig());
-            onProfileDelete(deletedIndex, selectedIndex);
+                updateProfileSelector();
+                await updateFormContent(getCurrentConfig());
+                onProfileDelete(deletedIndex, selectedIndex);
+            });
             deleteProfileModal.style.display = 'none';
         };
 
@@ -402,14 +404,11 @@ export function initAPICard({
     // 还原系统提示模态框事件处理
     if (resetPromptModal) {
         const handleResetConfirm = async () => {
-            try {
+            await withErrorLog('重置系統提示詞失敗', async () => {
                 systemPromptInput.value = await getDefaultSystemPrompt();
                 saveCurrentForm();
-            } catch (e) {
-                console.warn('重置系統提示詞失敗:', e);
-            } finally {
-                resetPromptModal.style.display = 'none';
-            }
+            });
+            resetPromptModal.style.display = 'none';
         };
 
         const handleResetCancel = () => {
@@ -747,19 +746,19 @@ export function initAPICard({
     return {
         updateProfileSelector,
         updateFormContent,
-        setSelectedIndex: (index) => {
+        setSelectedIndex: async (index) => {
             selectedIndex = index;
             updateProfileSelector();
-            updateFormContent(getCurrentConfig());
+            await updateFormContent(getCurrentConfig());
         },
         // 更新配置列表（用於 WebDAV 同步後刷新）
-        updateConfigs: (newConfigs, newSelectedIndex) => {
+        updateConfigs: async (newConfigs, newSelectedIndex) => {
             // 清空並重新填充 apiConfigs 陣列，保持引用不變
             apiConfigs.length = 0;
             newConfigs.forEach(config => apiConfigs.push(config));
             selectedIndex = newSelectedIndex;
             updateProfileSelector();
-            updateFormContent(getCurrentConfig());
+            await updateFormContent(getCurrentConfig());
         }
     };
 }
