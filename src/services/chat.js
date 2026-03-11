@@ -586,6 +586,40 @@ function extractAndReplaceUrls(text, urlToIdMap, idToUrlMap) {
 }
 
 /**
+ * 將搜索結果附加到最後一條 user message（若不存在則新增一條）
+ * @param {Array<Message>} messages
+ * @param {string} searchResultsText
+ */
+function appendSearchResultsToLastUserMessage(messages, searchResultsText) {
+    if (!searchResultsText || !Array.isArray(messages)) {
+        return;
+    }
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'user') {
+            const msg = messages[i];
+            if (typeof msg.content === 'string') {
+                msg.content = msg.content
+                    ? `${msg.content}\n\n${searchResultsText}`
+                    : searchResultsText;
+            } else if (Array.isArray(msg.content)) {
+                const lastTextIdx = msg.content.findLastIndex(c => c.type === 'text');
+                if (lastTextIdx !== -1) {
+                    msg.content[lastTextIdx].text += `\n\n${searchResultsText}`;
+                } else {
+                    msg.content.push({ type: 'text', text: searchResultsText });
+                }
+            } else {
+                msg.content = searchResultsText;
+            }
+            return;
+        }
+    }
+
+    messages.push({ role: 'user', content: searchResultsText });
+}
+
+/**
  * 還原文本中的URL
  * @param {string} text - 包含ID的文本
  * @param {Map<string, string>} idToUrlMap - ID到URL的映射
@@ -831,23 +865,7 @@ export async function callAPI({
 
     // 'on' 模式：將搜索結果注入到最後一條 user message（而非 system prompt）
     if (onModeSearchResults) {
-        for (let i = processedMessages.length - 1; i >= 0; i--) {
-            if (processedMessages[i].role === 'user') {
-                const msg = processedMessages[i];
-                if (typeof msg.content === 'string') {
-                    msg.content = msg.content + '\n\n' + onModeSearchResults;
-                } else if (Array.isArray(msg.content)) {
-                    // multimodal content：在最後一個 text part 後追加
-                    const lastTextIdx = msg.content.findLastIndex(c => c.type === 'text');
-                    if (lastTextIdx !== -1) {
-                        msg.content[lastTextIdx].text += '\n\n' + onModeSearchResults;
-                    } else {
-                        msg.content.push({ type: 'text', text: onModeSearchResults });
-                    }
-                }
-                break;
-            }
-        }
+        appendSearchResultsToLastUserMessage(processedMessages, onModeSearchResults);
     }
 
     const controller = new AbortController();
@@ -1116,7 +1134,7 @@ export async function callAPI({
 
                 try {
                     // 先收集所有 tool call 的搜索結果
-                    const toolResultMessages = [];
+                    const searchResultSegments = [];
 
                     for (const toolCall of toolCalls) {
                         if (toolCall.function.name === 'web_search') {
@@ -1147,11 +1165,7 @@ export async function callAPI({
                             const formattedResults = formatSearchResultsForPrompt(searchResults, userLanguage);
                             const mappedFormattedResults = extractAndReplaceUrls(formattedResults, urlToIdMap, idToUrlMap);
 
-                            toolResultMessages.push({
-                                role: 'tool',
-                                tool_call_id: toolCall.id,
-                                content: mappedFormattedResults || t('service.searchNoResults')
-                            });
+                            searchResultSegments.push(mappedFormattedResults || t('service.searchNoResults'));
                         }
                     }
 
@@ -1159,25 +1173,19 @@ export async function callAPI({
                     currentMessage.content = '{{WAITING_ANIMATION}}';
                     dispatchUpdate();
 
-                    // 构建包含所有工具结果的新消息列表
-                    const messagesWithToolResult = [
-                        ...processedMessages,
-                        {
-                            role: 'assistant',
-                            content: '',
-                            tool_calls: toolCalls.map(tc => ({
-                                id: tc.id,
-                                type: tc.type,
-                                function: {
-                                    name: tc.function.name,
-                                    arguments: tc.function.arguments
-                                }
-                            }))
-                        },
-                        ...toolResultMessages
-                    ];
+                    // 构建包含搜索结果的新消息列表（普通请求格式，不包含 tool prompt）
+                    const messagesWithSearchResults = [...processedMessages];
+                    const combinedSearchResults = searchResultSegments.filter(Boolean).join('\n\n');
+                    if (combinedSearchResults) {
+                        appendSearchResultsToLastUserMessage(messagesWithSearchResults, combinedSearchResults);
+                    }
 
                     // 发起第二次 API 调用获取最终回答
+                    const secondRequestBody = {
+                        model: apiConfig.modelName || "gpt-4o",
+                        messages: messagesWithSearchResults,
+                        stream: true,
+                    };
                     const secondResponse = await withTimeout(
                         fetch(apiConfig.baseUrl, {
                             method: 'POST',
@@ -1185,12 +1193,7 @@ export async function callAPI({
                                 'Content-Type': 'application/json',
                                 'Authorization': `Bearer ${apiConfig.apiKey}`
                             },
-                            body: JSON.stringify({
-                                model: apiConfig.modelName || "gpt-4o",
-                                messages: messagesWithToolResult,
-                                tools: [webSearchTool],
-                                stream: true,
-                            }),
+                            body: JSON.stringify(secondRequestBody),
                             signal
                         }),
                         FETCH_TIMEOUT,
