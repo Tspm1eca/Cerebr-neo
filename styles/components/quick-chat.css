@@ -274,6 +274,13 @@
     padding: 15px;
     margin-bottom: 12px;
     position: relative;
+    cursor: grab;
+    transition: transform 0.22s ease, opacity 0.2s ease;
+}
+
+.quick-chat-option-item.dragging {
+    opacity: 0.55;
+    cursor: grabbing;
 }
 
 .quick-chat-option-header {

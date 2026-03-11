@@ -151,6 +151,92 @@ export async function initQuickChat({
         const addButton = document.getElementById('add-quick-chat-option');
         const resetButton = document.getElementById('reset-quick-chat-options');
         const optionsList = settingsPage.querySelector('.quick-chat-options-list');
+        let draggedItem = null;
+        const nonDraggableInteractiveSelector = 'input, textarea, button';
+
+        function clearDragVisualState() {
+            if (!optionsList) return;
+            optionsList.querySelectorAll('.quick-chat-option-item.dragging').forEach(item => {
+                item.classList.remove('dragging');
+            });
+        }
+
+        function captureItemRects() {
+            const rects = new Map();
+            if (!optionsList) return rects;
+
+            optionsList.querySelectorAll('.quick-chat-option-item:not(.dragging)').forEach((item) => {
+                rects.set(item, item.getBoundingClientRect());
+            });
+
+            return rects;
+        }
+
+        function animateReorder(previousRects) {
+            if (!optionsList || previousRects.size === 0) return;
+
+            optionsList.querySelectorAll('.quick-chat-option-item:not(.dragging)').forEach((item) => {
+                const previousRect = previousRects.get(item);
+                if (!previousRect) return;
+
+                const currentRect = item.getBoundingClientRect();
+                const deltaY = previousRect.top - currentRect.top;
+                if (Math.abs(deltaY) < 1) return;
+
+                item.style.transition = 'none';
+                item.style.transform = `translateY(${deltaY}px)`;
+                item.getBoundingClientRect();
+                item.style.transition = '';
+                item.style.transform = '';
+            });
+        }
+
+        function getDragAfterElement(clientY) {
+            if (!optionsList) return null;
+
+            const sortableItems = Array.from(
+                optionsList.querySelectorAll('.quick-chat-option-item:not(.dragging)')
+            );
+
+            let closestOffset = Number.NEGATIVE_INFINITY;
+            let closestElement = null;
+
+            sortableItems.forEach((item) => {
+                const rect = item.getBoundingClientRect();
+                const offset = clientY - (rect.top + rect.height / 2);
+
+                if (offset < 0 && offset > closestOffset) {
+                    closestOffset = offset;
+                    closestElement = item;
+                }
+            });
+
+            return closestElement;
+        }
+
+        function syncQuickChatOptionsOrderFromDom() {
+            if (!optionsList) return;
+
+            const orderedIndexes = Array.from(optionsList.querySelectorAll('.quick-chat-option-item'))
+                .map((item) => parseInt(item.dataset.index, 10))
+                .filter((idx) => !Number.isNaN(idx));
+
+            if (orderedIndexes.length !== quickChatOptions.length) return;
+
+            const reorderedOptions = orderedIndexes
+                .map((originalIndex) => quickChatOptions[originalIndex])
+                .filter(Boolean);
+
+            if (reorderedOptions.length !== quickChatOptions.length) return;
+
+            const hasChanged = reorderedOptions.some((option, index) => option !== quickChatOptions[index]);
+            if (!hasChanged) return;
+
+            quickChatOptions = reorderedOptions;
+            saveQuickChatOptions();
+            renderQuickChatOptions();
+            renderSettingsOptions();
+        }
 
         // 初始化快速選項提示詞模態框
         const quickChatPromptModal = document.getElementById('quick-chat-prompt-modal');
@@ -210,6 +296,40 @@ export async function initQuickChat({
             });
             modalTextarea?.addEventListener('mousedown', (e) => {
                 e.stopPropagation();
+            });
+        }
+
+        if (optionsList) {
+            optionsList.addEventListener('dragover', (e) => {
+                if (!draggedItem) return;
+                e.preventDefault();
+
+                const afterElement = getDragAfterElement(e.clientY);
+
+                if (!afterElement) {
+                    if (optionsList.lastElementChild !== draggedItem) {
+                        const previousRects = captureItemRects();
+                        optionsList.appendChild(draggedItem);
+                        animateReorder(previousRects);
+                    }
+                    return;
+                }
+
+                if (afterElement === draggedItem || afterElement.previousElementSibling === draggedItem) {
+                    return;
+                }
+
+                const previousRects = captureItemRects();
+                optionsList.insertBefore(draggedItem, afterElement);
+                animateReorder(previousRects);
+            });
+
+            optionsList.addEventListener('drop', (e) => {
+                if (!draggedItem) return;
+
+                e.preventDefault();
+                syncQuickChatOptionsOrderFromDom();
+                draggedItem = null;
             });
         }
 
@@ -310,6 +430,8 @@ export async function initQuickChat({
             const expandButton = itemElement.querySelector('.quick-chat-option-button.expand');
             const deleteButton = itemElement.querySelector('.quick-chat-option-button.delete');
 
+            itemElement.draggable = true;
+
             // 阻止输入框点击事件冒泡，防止触发外部的点击处理（如关闭菜单等）导致焦点丢失
             const stopPropagation = (e) => {
                 e.stopPropagation();
@@ -322,6 +444,35 @@ export async function initQuickChat({
                 // 为了保险起见，可以保留，或者只处理 click。
                 // 参考 api-card.js 的实现，这里也加上。
                 input.addEventListener('focus', stopPropagation);
+            });
+
+            itemElement.addEventListener('dragstart', (e) => {
+                const eventPath = typeof e.composedPath === 'function' ? e.composedPath() : [];
+                const hasInteractiveOrigin = eventPath.some((node) =>
+                    node instanceof Element && node.matches(nonDraggableInteractiveSelector)
+                );
+                if (hasInteractiveOrigin) {
+                    e.preventDefault();
+                    return;
+                }
+
+                draggedItem = itemElement;
+                itemElement.classList.add('dragging');
+
+                if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = 'move';
+                    // Keep a payload for browsers that require data to start DnD.
+                    e.dataTransfer.setData('text/plain', String(index));
+                }
+            });
+
+            itemElement.addEventListener('dragend', () => {
+                if (!draggedItem) return;
+
+                // Drag ended without a valid drop target; restore DOM from source data.
+                renderSettingsOptions();
+                clearDragVisualState();
+                draggedItem = null;
             });
 
             // 圖標輸入事件
