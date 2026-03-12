@@ -16,7 +16,7 @@
             "id": "option-2",
             "title": "文章總結",
             "prompt": "以Markdown格式總結文章",
-            "icon": "✨"
+            "icon": "⚡"
         },
         {
             "id": "option-3",
