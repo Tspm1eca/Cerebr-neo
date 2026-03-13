@@ -1379,16 +1379,23 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         }
     }
 
+    const WEB_SEARCH_MODE_TITLE_KEYS = {
+        'off': 'searchProvider.triStateOff',
+        'auto': 'searchProvider.triStateAuto',
+        'on': 'searchProvider.triStateOn'
+    };
+
     // 更新三态按钮 UI
+    function updateSettingsButtonWebSearchIndicator() {
+        settingsButton.dataset.webSearchMode = webSearchSwitch.disabled ? 'disabled' : webSearchMode;
+    }
+
     function updateWebSearchSwitchUI() {
         webSearchSwitch.dataset.value = webSearchMode;
         // 更新 title 提示
-        const titles = {
-            'off': t('searchProvider.triStateOff'),
-            'auto': t('searchProvider.triStateAuto'),
-            'on': t('searchProvider.triStateOn')
-        };
-        webSearchSwitch.title = titles[webSearchMode] || t('searchProvider.triStateTitle');
+        const titleKey = WEB_SEARCH_MODE_TITLE_KEYS[webSearchMode] || 'searchProvider.triStateTitle';
+        webSearchSwitch.title = t(titleKey);
+        updateSettingsButtonWebSearchIndicator();
     }
 
     // 循环切换模式：off -> auto -> on -> off

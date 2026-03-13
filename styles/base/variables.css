@@ -37,6 +37,9 @@
     --cerebr-reasoning-pulse-color: rgba(255, 193, 37, 0.5);
     --cerebr-toggle-bg-off: rgba(255, 255, 255, 0.15);
     --cerebr-toggle-bg-on: #6aa1dc;
+    --cerebr-web-search-mode-off: var(--cerebr-toggle-bg-off);
+    --cerebr-web-search-mode-auto: #f59e0b;
+    --cerebr-web-search-mode-on: #22c55e;
     --cerebr-input-border-color: rgba(255, 255, 255, 0.15);
     --cerebr-sidebar-box-shadow: -2px 0 15px rgba(0, 0, 0, 0.2);
     --cerebr-search-used-border: rgba(50, 215, 75, 0.4);
