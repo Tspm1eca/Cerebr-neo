@@ -2,6 +2,17 @@ import { appendMessage } from '../handlers/message-handler.js';
 import { storageAdapter, browserAdapter, isExtensionEnvironment } from '../utils/storage-adapter.js';
 import { toggleQuickChatOptions } from './quick-chat.js';
 import { t } from '../utils/i18n.js';
+import { HISTORY_LIMIT_THRESHOLD } from '../constants/history.js';
+
+function updateHistoryCountDisplay(totalCount) {
+    const historyCountElement = document.getElementById('chat-history-count');
+    if (!historyCountElement) return;
+    const nextText = `${totalCount}/${HISTORY_LIMIT_THRESHOLD}`;
+    // Avoid redundant aria-live announcements when value does not change.
+    if (historyCountElement.textContent !== nextText) {
+        historyCountElement.textContent = nextText;
+    }
+}
 
 export async function renderChatList(chatManager, chatCards, searchTerm = '') {
     const template = chatCards.querySelector('.chat-card.template');
@@ -30,6 +41,7 @@ export async function renderChatList(chatManager, chatCards, searchTerm = '') {
 
     // 获取所有对话
     const allChats = chatManager.getAllChats();
+    updateHistoryCountDisplay(allChats.length);
 
     // 筛选对话
     const filteredChats = allChats.filter(chat => {

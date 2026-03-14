@@ -190,7 +190,10 @@
                     <path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                 </svg>
             </button>
-            <span class="settings-title" data-i18n="chatList.title">历史</span>
+            <div class="chat-list-title-wrap">
+                <span class="settings-title" data-i18n="chatList.title">历史</span>
+                <span id="chat-history-count" class="chat-history-count" aria-live="polite">0/-</span>
+            </div>
             <button class="clear-all-btn" data-i18n-title="chatList.clearAll" title="清除所有对话">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                     <path d="M2 4h12M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1m2 0v9a1 1 0 01-1 1H4a1 1 0 01-1-1V4h10z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>

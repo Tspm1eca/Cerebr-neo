@@ -9,6 +9,7 @@ import { initAPICard } from './components/api-card.js';
 import { storageAdapter, syncStorageAdapter, browserAdapter, isExtensionEnvironment, initSyncMode } from './utils/storage-adapter.js';
 import { initMessageInput, getFormattedMessageContent, buildMessageContent, clearMessageInput, handleWindowMessage, updatePermanentPlaceholder } from './components/message-input.js';
 import './utils/viewport.js';
+import { HISTORY_LIMIT_THRESHOLD } from './constants/history.js';
 import {
     hideChatList,
     initChatListEvents,
@@ -2111,8 +2112,6 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     // ==================== WebDAV 同步設置結束 ====================
 
     // ==================== 歷史紀錄自動清理功能 ====================
-    const HISTORY_LIMIT_THRESHOLD = 100;
-
     /**
      * 檢查並自動清理超過限制的歷史紀錄
      */

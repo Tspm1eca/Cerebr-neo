@@ -1,5 +1,6 @@
 import { storageAdapter } from './storage-adapter.js';
 import { generateTitle } from '../services/title-generator.js';
+import { HISTORY_LIMIT_THRESHOLD } from '../constants/history.js';
 
 const CHAT_KEY_PREFIX = 'cerebr_chat_'; // Per-chat key 前綴
 const CHAT_INDEX_KEY = 'cerebr_chat_index'; // 輕量索引
@@ -435,7 +436,7 @@ export class ChatManager {
      * @param {number} limit - 歷史記錄上限
      * @returns {Promise<number>} 刪除的數量
      */
-    async autoCleanupHistory(limit = 100) {
+    async autoCleanupHistory(limit = HISTORY_LIMIT_THRESHOLD) {
         const allChats = this.getAllChats();
         const chatCount = allChats.length;
 
@@ -517,7 +518,7 @@ export class ChatManager {
             // 當創建新對話時，自動清理超過限制的歷史紀錄
             // 使用 setTimeout 確保不阻塞當前操作，並在下一個事件循環中執行
             setTimeout(() => {
-                this.autoCleanupHistory(100).then(deletedCount => {
+                this.autoCleanupHistory(HISTORY_LIMIT_THRESHOLD).then(deletedCount => {
                     if (deletedCount > 0) {
                         console.log(`已自動刪除 ${deletedCount} 條舊的歷史紀錄`);
                         // 觸發事件通知 UI 更新歷史紀錄列表

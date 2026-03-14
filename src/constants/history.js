@@ -1,0 +1,1 @@
+export const HISTORY_LIMIT_THRESHOLD = 100;
