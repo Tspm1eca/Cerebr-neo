@@ -271,7 +271,7 @@
     background-color: var(--cerebr-input-bg);
     backdrop-filter: blur(var(--cerebr-menu-blur-radius));
     border: 1px solid var(--cerebr-border-color);
-    border-radius: 18px;
+    border-radius: 12px;
     outline: none;
     box-sizing: border-box;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -309,12 +309,14 @@
 }
 
 .model-selector-item {
-    padding: 4px 4px;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: 18px;
     font-size: 13px;
-    line-height: 1.4;
-    min-height: 20px;
+    line-height: 1.3;
+    min-height: 28px;
     color: var(--cerebr-text-color);
     transition: background-color 0.15s ease;
     overflow: hidden;
