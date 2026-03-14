@@ -1385,17 +1385,12 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         'on': 'searchProvider.triStateOn'
     };
 
-    // 更新三态按钮 UI
-    function updateSettingsButtonWebSearchIndicator() {
-        settingsButton.dataset.webSearchMode = webSearchSwitch.disabled ? 'disabled' : webSearchMode;
-    }
-
     function updateWebSearchSwitchUI() {
         webSearchSwitch.dataset.value = webSearchMode;
         // 更新 title 提示
         const titleKey = WEB_SEARCH_MODE_TITLE_KEYS[webSearchMode] || 'searchProvider.triStateTitle';
         webSearchSwitch.title = t(titleKey);
-        updateSettingsButtonWebSearchIndicator();
+        settingsButton.dataset.webSearchMode = webSearchSwitch.disabled ? 'disabled' : webSearchMode;
     }
 
     // 循环切换模式：off -> auto -> on -> off
