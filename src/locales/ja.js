@@ -35,6 +35,7 @@ export default {
         searchModel: 'モデルを検索',
         configureApiFirst: '先に API を設定してください',
         noMatchingModels: '一致するモデルがありません',
+        questionHistory: '質問履歴',
     },
 
     // ===== Settings Menu =====

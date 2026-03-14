@@ -23,9 +23,24 @@ import { initWebDAVSettings, showToast as showWebDAVToast } from './components/w
 import { webdavSyncManager } from './services/webdav-sync.js';
 import { initI18n, t } from './utils/i18n.js';
 import { fetchAndCacheRemotePrompts, getDefaultSystemPrompt } from './services/remote-prompts.js';
+import {
+    USER_QUESTION_HISTORY_STORAGE_KEY,
+    sanitizeUserQuestions
+} from './utils/question-history.js';
 
 // 存储用户的问题历史
 let userQuestions = [];
+
+async function loadLocalUserQuestionHistory() {
+    try {
+        const result = await storageAdapter.get(USER_QUESTION_HISTORY_STORAGE_KEY);
+        const storedQuestions = sanitizeUserQuestions(result?.[USER_QUESTION_HISTORY_STORAGE_KEY]);
+        userQuestions.length = 0;
+        userQuestions.push(...storedQuestions);
+    } catch (error) {
+        console.warn('加载本地提问记录失败:', error);
+    }
+}
 
 // 将 API 配置提升到模块作用域，以确保在异步事件中状态的稳定性
 // 加载保存的 API 配置
@@ -133,7 +148,10 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
      await initI18n();
 
      // 後台下載遠端提示詞（非阻塞，不影響 UI 初始化）
-     fetchAndCacheRemotePrompts();
+      fetchAndCacheRemotePrompts();
+
+      // 先加载本地提问记录，供 message-history-picker 直接使用
+      await loadLocalUserQuestionHistory();
 
      const chatContainer = document.getElementById('chat-container');
     const messageInput = document.getElementById('message-input');
@@ -200,7 +218,6 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         userQuestions,
         chatManager
     });
-
     // 设置按钮事件处理
     chatContainerManager.setupButtonHandlers({
         editMessageButton,
@@ -253,15 +270,12 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     // 載入持久化的縮圖快取（非阻塞，不影響啟動速度）
     loadThumbnailCache();
 
-    // 初始化用户问题历史
-    chatContainerManager.initializeUserQuestions();
-
     // 初始化历史组件
     initChatListEvents({
         chatListPage,
         chatCards: chatListPage.querySelector('.chat-cards'),
         chatManager,
-        loadChatContent: (chat) => loadChatContent(chat, chatContainer),
+        loadChatContent,
         onHide: hideChatList.bind(null, chatListPage)
     });
 
@@ -273,7 +287,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         chatListButton,
         settingsMenu,
         unifiedSettingsPage,
-        loadChatContent: (chat) => loadChatContent(chat, chatContainer)
+        loadChatContent
     });
 
 

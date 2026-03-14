@@ -135,11 +135,11 @@ export async function loadChatContent(chat, chatContainer) {
 }
 
 // Switch to target chat
-export async function switchToChat(chatId, chatManager) {
+export async function switchToChat(chatId, chatManager, loadChatContentFn = loadChatContent) {
     // console.log('switchToChat', chatId);
     const chat = await chatManager.switchChat(chatId);
     if (chat) {
-        await loadChatContent(chat, document.getElementById('chat-container'));
+        await loadChatContentFn(chat, document.getElementById('chat-container'));
 
         // 根据对话是否有消息来显示或隐藏选项按钮区域
         const hasMessages = chat.messages && chat.messages.length > 0;
@@ -175,6 +175,7 @@ export function initChatListEvents({
     chatListPage,
     chatCards,
     chatManager,
+    loadChatContent: loadChatContentFn = loadChatContent,
     onHide
 }) {
     let switchingChatId = null;
@@ -199,7 +200,7 @@ export function initChatListEvents({
             }
 
             try {
-                await switchToChat(targetChatId, chatManager);
+                await switchToChat(targetChatId, chatManager, loadChatContentFn);
                 if (onHide) onHide();
             } finally {
                 card.classList.remove('loading');
@@ -223,7 +224,7 @@ export function initChatListEvents({
         // 如果删除的是当前对话，重新加载聊天内容
         const currentChat = chatManager.getCurrentChat();
         if (currentChat) {
-            await loadChatContent(currentChat, document.getElementById('chat-container'));
+            await loadChatContentFn(currentChat, document.getElementById('chat-container'));
         }
     });
 
@@ -243,7 +244,8 @@ export function initializeChatList({
     newChatButton,
     chatListButton,
     settingsMenu,
-    unifiedSettingsPage
+    unifiedSettingsPage,
+    loadChatContent: loadChatContentFn = loadChatContent
 }) {
     const messageInput = document.getElementById('message-input');
     // 新建对话按钮点击事件
@@ -266,7 +268,7 @@ export function initializeChatList({
         }
 
         const newChat = chatManager.createNewChat();
-        await switchToChat(newChat.id, chatManager);
+        await switchToChat(newChat.id, chatManager, loadChatContentFn);
         // 新建对话后，立即渲染一次列表，以显示这个“新对话”
         const chatCards = chatListPage.querySelector('.chat-cards');
         renderChatList(chatManager, chatCards);
@@ -352,7 +354,7 @@ export function initializeChatList({
                 renderChatList(chatManager, chatCards);
 
                 // 加載新對話內容
-                await loadChatContent(newChat, document.getElementById('chat-container'));
+                await loadChatContentFn(newChat, document.getElementById('chat-container'));
 
                 // 隱藏對話列表頁面
                 hideChatList(chatListPage);

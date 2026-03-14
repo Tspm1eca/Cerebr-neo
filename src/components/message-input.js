@@ -6,6 +6,7 @@
 import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePreview, addImageToPreview, clearImagePreview, getPreviewImages } from '../utils/ui.js';
 import { handleImageDrop, compressImage, createThumbnailImage, processImageWithPreview } from '../utils/image.js';
 import { t } from '../utils/i18n.js';
+import { normalizeUserQuestion, trimUserQuestionHistory } from '../utils/question-history.js';
 
 // 跟踪输入法状态
 let isComposing = false;
@@ -427,11 +428,185 @@ export function initMessageInput(config) {
     // 获取 persistent-placeholder 元素
     const shell = messageInput.closest('.message-input-shell');
     const persistentPlaceholder = shell?.querySelector('.persistent-placeholder');
+    trimUserQuestionHistory(userQuestions);
+
+    if (typeof messageInput.__historyPickerCleanup === 'function') {
+        messageInput.__historyPickerCleanup();
+    }
+
+    let historyPickerItems = [];
+    let activeHistoryPickerIndex = 0;
+
+    const historyPicker = document.createElement('div');
+    historyPicker.className = 'message-history-picker';
+    historyPicker.setAttribute('role', 'listbox');
+    historyPicker.setAttribute('aria-label', t('input.questionHistory'));
+    historyPicker.innerHTML = `
+        <div class="message-history-picker-header">${t('input.questionHistory')}</div>
+        <div class="message-history-picker-list"></div>
+    `;
+    const historyPickerHeader = historyPicker.querySelector('.message-history-picker-header');
+    const historyPickerList = historyPicker.querySelector('.message-history-picker-list');
+    document.body.appendChild(historyPicker);
+
+    const isHistoryPickerVisible = () => historyPicker.classList.contains('visible');
+
+    const closeHistoryPicker = () => {
+        historyPicker.classList.remove('visible');
+    };
+
+    const updateHistoryPickerActiveItem = () => {
+        const options = historyPickerList.querySelectorAll('.message-history-picker-item');
+        options.forEach((option, index) => {
+            const isActive = index === activeHistoryPickerIndex;
+            option.classList.toggle('active', isActive);
+            option.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+
+        const activeOption = options[activeHistoryPickerIndex];
+        activeOption?.scrollIntoView({ block: 'nearest' });
+    };
+
+    const fillMessageInputFromHistory = (question) => {
+        messageInput.innerHTML = '';
+        messageInput.textContent = question;
+        messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+        moveCaretToEnd(messageInput);
+    };
+
+    const refreshHistoryPickerI18n = () => {
+        const title = t('input.questionHistory');
+        historyPicker.setAttribute('aria-label', title);
+        if (historyPickerHeader) {
+            historyPickerHeader.textContent = title;
+        }
+    };
+
+    const positionHistoryPicker = () => {
+        const targetRect = shell?.getBoundingClientRect?.() || messageInput.getBoundingClientRect();
+        const inputContainer = document.getElementById('input-container');
+        const horizontalPadding = 8;
+        const fallbackVerticalOffset = 4;
+        let left = horizontalPadding;
+        let right = window.innerWidth - horizontalPadding;
+        let anchorTop = targetRect.top;
+        let verticalOffset = fallbackVerticalOffset;
+
+        if (inputContainer?.getBoundingClientRect) {
+            const containerRect = inputContainer.getBoundingClientRect();
+            const containerStyle = window.getComputedStyle(inputContainer);
+            const containerPaddingLeft = parseFloat(containerStyle.paddingLeft) || 0;
+            const containerPaddingRight = parseFloat(containerStyle.paddingRight) || 0;
+            const containerBorderTop = parseFloat(containerStyle.borderTopWidth) || 0;
+
+            left = Math.max(horizontalPadding, containerRect.left + containerPaddingLeft);
+            right = Math.min(
+                window.innerWidth - horizontalPadding,
+                containerRect.right - containerPaddingRight
+            );
+            // 與 settings-menu / model-selector-menu 的 bottom:100% 對齊，使用 input-container 上緣作為錨點。
+            anchorTop = containerRect.top + containerBorderTop;
+            verticalOffset = 0;
+        }
+
+        if (right <= left) {
+            left = horizontalPadding;
+            right = window.innerWidth - horizontalPadding;
+        }
+        const pickerWidth = Math.max(0, right - left);
+
+        historyPicker.style.width = `${pickerWidth}px`;
+        historyPicker.style.left = `${left}px`;
+
+        const pickerHeight = historyPicker.offsetHeight;
+        let top = anchorTop - pickerHeight - verticalOffset;
+        if (top < horizontalPadding) {
+            top = targetRect.bottom + fallbackVerticalOffset;
+        }
+
+        historyPicker.style.top = `${Math.max(horizontalPadding, top)}px`;
+    };
+
+    const openHistoryPicker = () => {
+        refreshHistoryPickerI18n();
+        trimUserQuestionHistory(userQuestions);
+        historyPickerItems = [...userQuestions];
+        if (historyPickerItems.length === 0) {
+            return;
+        }
+
+        historyPickerList.innerHTML = '';
+        historyPickerItems.forEach((question, index) => {
+            const option = document.createElement('button');
+            const optionText = document.createElement('span');
+            option.type = 'button';
+            option.className = 'message-history-picker-item';
+            optionText.className = 'message-history-picker-item-text';
+            optionText.textContent = question;
+            option.title = question;
+            option.dataset.index = String(index);
+            option.setAttribute('role', 'option');
+            option.setAttribute('aria-selected', 'false');
+            option.appendChild(optionText);
+            historyPickerList.appendChild(option);
+        });
+
+        activeHistoryPickerIndex = historyPickerItems.length - 1;
+        historyPicker.classList.add('visible');
+        positionHistoryPicker();
+        updateHistoryPickerActiveItem();
+    };
+
+    const handleHistoryPickerMouseDown = (e) => {
+        // 阻止點擊歷史項目時輸入框先失焦，避免體驗抖動
+        e.preventDefault();
+        e.stopPropagation();
+    };
+    historyPicker.addEventListener('mousedown', handleHistoryPickerMouseDown);
+
+    const handleHistoryPickerClick = (e) => {
+        const target = e.target.closest('.message-history-picker-item');
+        if (!target) return;
+
+        const selectedIndex = Number(target.dataset.index);
+        if (!Number.isInteger(selectedIndex)) return;
+
+        const selectedQuestion = historyPickerItems[selectedIndex];
+        if (!selectedQuestion) return;
+
+        fillMessageInputFromHistory(selectedQuestion);
+        closeHistoryPicker();
+        messageInput.focus();
+    };
+    historyPicker.addEventListener('click', handleHistoryPickerClick);
+
+    const handleDocumentMouseDown = (e) => {
+        if (!isHistoryPickerVisible()) return;
+        if (historyPicker.contains(e.target) || messageInput.contains(e.target)) return;
+        closeHistoryPicker();
+    };
+    document.addEventListener('mousedown', handleDocumentMouseDown);
+
+    const handleWindowResizeForHistoryPicker = () => {
+        if (isHistoryPickerVisible()) {
+            positionHistoryPicker();
+        }
+    };
+    window.addEventListener('resize', handleWindowResizeForHistoryPicker);
+
+    const cleanupHistoryPicker = () => {
+        closeHistoryPicker();
+        historyPicker.removeEventListener('mousedown', handleHistoryPickerMouseDown);
+        historyPicker.removeEventListener('click', handleHistoryPickerClick);
+        document.removeEventListener('mousedown', handleDocumentMouseDown);
+        window.removeEventListener('resize', handleWindowResizeForHistoryPicker);
+        historyPicker.remove();
+    };
+    messageInput.__historyPickerCleanup = cleanupHistoryPicker;
 
     // 更新 has-content 状态的函数
     const updateHasContentState = () => {
-        // 过滤掉零宽空格等不可见字符
-        const text = messageInput.textContent.replace(/[\u200b\u200c\u200d\uFEFF]/g, '').trim();
+        const text = normalizeUserQuestion(messageInput.textContent);
         // 检查输入框内的图片标签和预览区域的图片
         const previewImages = getPreviewImages();
         const hasContent = text !== '' || messageInput.querySelector('.image-tag') || previewImages.length > 0;
@@ -446,13 +621,17 @@ export function initMessageInput(config) {
 
     // 监听输入框变化
     messageInput.addEventListener('input', function() {
+        if (isHistoryPickerVisible()) {
+            closeHistoryPicker();
+        }
+
         adjustTextareaHeight({
             textarea: this,
             config: uiConfig.textarea
         });
 
         // 过滤掉零宽空格等不可见字符
-        const text = this.textContent.replace(/[\u200b\u200c\u200d\uFEFF]/g, '').trim();
+        const text = normalizeUserQuestion(this.textContent);
         const hasContent = text !== '' || this.querySelector('.image-tag');
         const inputContainer = document.getElementById('input-container');
 
@@ -526,6 +705,47 @@ export function initMessageInput(config) {
     });
 
     messageInput.addEventListener('keydown', function(e) {
+        if (isHistoryPickerVisible()) {
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                if (historyPickerItems.length === 0) {
+                    closeHistoryPicker();
+                    return;
+                }
+                e.preventDefault();
+                const direction = e.key === 'ArrowDown' ? 1 : -1;
+                activeHistoryPickerIndex =
+                    (activeHistoryPickerIndex + direction + historyPickerItems.length) % historyPickerItems.length;
+                updateHistoryPickerActiveItem();
+                return;
+            }
+
+            if (e.key === 'Enter') {
+                if (historyPickerItems.length === 0) {
+                    closeHistoryPicker();
+                    return;
+                }
+                e.preventDefault();
+                const selectedQuestion = historyPickerItems[activeHistoryPickerIndex];
+                if (selectedQuestion) {
+                    fillMessageInputFromHistory(selectedQuestion);
+                }
+                closeHistoryPicker();
+                return;
+            }
+
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeHistoryPicker();
+                return;
+            }
+        }
+
+        if (!isComposing && e.shiftKey && e.altKey && e.key === 'ArrowUp') {
+            e.preventDefault();
+            openHistoryPicker();
+            return;
+        }
+
         if (e.key === 'Enter' && !e.shiftKey) {
             if (isComposing) {
                 // 如果正在使用输入法，不发送消息
@@ -533,7 +753,7 @@ export function initMessageInput(config) {
             }
             e.preventDefault();
             // 过滤掉零宽空格等不可见字符
-            const text = this.textContent.replace(/[\u200b\u200c\u200d\uFEFF]/g, '').trim();
+            const text = normalizeUserQuestion(this.textContent);
             const previewImages = getPreviewImages();
             if (text || this.querySelector('.image-tag') || previewImages.length > 0) {  // 检查是否有文本或图片（包括预览区域）
                 sendMessage();
@@ -541,19 +761,21 @@ export function initMessageInput(config) {
         } else if (e.key === 'Escape') {
             // 按 ESC 键时让输入框失去焦点
             messageInput.blur();
-        } else if (e.key === 'ArrowUp' && e.target.textContent.replace(/[\u200b\u200c\u200d\uFEFF]/g, '').trim() === '') {
+        } else if (
+            e.key === 'ArrowUp' &&
+            !e.shiftKey &&
+            !e.altKey &&
+            !e.ctrlKey &&
+            !e.metaKey &&
+            normalizeUserQuestion(e.target.textContent) === ''
+        ) {
             // 处理输入框特定的键盘事件
             // 当按下向上键且输入框为空时
             e.preventDefault(); // 阻止默认行为
 
-            // 如果有历史记录
-            if (userQuestions.length > 0) {
-                // 获取最后一个问题
-                e.target.textContent = userQuestions[userQuestions.length - 1];
-                // 触发入事件以调整高度
-                e.target.dispatchEvent(new Event('input', { bubbles: true }));
-                // 移动光标到末尾
-                moveCaretToEnd(e.target);
+            const latestQuestion = userQuestions[userQuestions.length - 1];
+            if (latestQuestion) {
+                fillMessageInputFromHistory(latestQuestion);
             }
         } else if ((e.key === 'Backspace' || e.key === 'Delete')) {
             // 处理图片标签的删除

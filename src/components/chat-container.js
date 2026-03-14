@@ -6,6 +6,15 @@ import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from 
 import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
 import { isTimestampLink, extractSeekSeconds } from '../../htmd/timestamp.js';
 import { t } from '../utils/i18n.js';
+import { storageAdapter } from '../utils/storage-adapter.js';
+import {
+    USER_QUESTION_HISTORY_STORAGE_KEY,
+    normalizeUserQuestion,
+    sanitizeUserQuestions,
+    trimUserQuestionHistory
+} from '../utils/question-history.js';
+
+const USER_QUESTION_HISTORY_PERSIST_DEBOUNCE_MS = 300;
 
 /**
  * 初始化聊天容器的所有功能
@@ -30,11 +39,40 @@ export function initChatContainer({
     // 定义本地变量
     let currentMessageElement = null;
     let currentCodeElement = null;
+    let persistUserQuestionsTimerId = null;
+    let lastPersistedUserQuestionsSnapshot = JSON.stringify(sanitizeUserQuestions(userQuestions));
 
     const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     function isYouTubeChat() {
         const chat = chatManager.getCurrentChat();
         return chat?.webpageUrls?.some(url => YT_WATCH_RE.test(url)) ?? false;
+    }
+
+    function schedulePersistUserQuestions() {
+        if (!Array.isArray(userQuestions)) return;
+
+        const sanitizedQuestions = sanitizeUserQuestions(userQuestions);
+        const nextSnapshot = JSON.stringify(sanitizedQuestions);
+        if (nextSnapshot === lastPersistedUserQuestionsSnapshot) return;
+
+        const persist = async () => {
+            try {
+                await storageAdapter.set({
+                    [USER_QUESTION_HISTORY_STORAGE_KEY]: sanitizedQuestions
+                });
+                lastPersistedUserQuestionsSnapshot = nextSnapshot;
+            } catch (error) {
+                console.warn('保存本地提问记录失败:', error);
+            }
+        };
+
+        if (persistUserQuestionsTimerId) {
+            clearTimeout(persistUserQuestionsTimerId);
+        }
+        persistUserQuestionsTimerId = setTimeout(() => {
+            persistUserQuestionsTimerId = null;
+            void persist();
+        }, USER_QUESTION_HISTORY_PERSIST_DEBOUNCE_MS);
     }
 
     /**
@@ -108,10 +146,14 @@ export function initChatContainer({
             mutation.addedNodes.forEach((node) => {
                 if (node.nodeType === Node.ELEMENT_NODE) { // 确保是元素节点
                     if (node.classList && node.classList.contains('user-message')) {
-                        const question = node.textContent.trim();
-                        // 只有当问题不在历史记录中时才添加
-                        if (question && !userQuestions.includes(question)) {
-                            userQuestions.push(question);
+                        const isBatchLoadMessage = node.classList.contains('batch-load');
+                        if (!isBatchLoadMessage) {
+                            const question = normalizeUserQuestion(node.textContent);
+                            if (question) {
+                                userQuestions.push(question);
+                                trimUserQuestionHistory(userQuestions);
+                                schedulePersistUserQuestions();
+                            }
                         }
                     }
                     // 为新消息中的代码块添加复制按钮
@@ -840,16 +882,6 @@ export function initChatContainer({
         });
     }
 
-    // 初始化用户问题历史
-    function initializeUserQuestions() {
-        const userMessages = document.querySelectorAll('.user-message');
-        const questions = Array.from(userMessages).map(msg => msg.textContent.trim());
-
-        // 清空并添加新问题
-        userQuestions.length = 0;
-        userQuestions.push(...questions);
-    }
-
     // 设置全局点击和触摸事件，用于隐藏上下文菜单
     function setupGlobalEvents() {
         // 点击其他地方隐藏菜单
@@ -1024,7 +1056,6 @@ export function initChatContainer({
      function initialize() {
          setupMathContextMenu();
          setupGlobalEvents();
-         initializeUserQuestions();
          addCopyButtonToCodeBlocks(chatContainer); // 为已存在的代码块添加按钮
      }
 
@@ -1071,7 +1102,6 @@ export function initChatContainer({
     return {
         syncMessage,
         setupButtonHandlers,
-        initializeUserQuestions,
         addCopyButtonToCodeBlocks
     };
 }

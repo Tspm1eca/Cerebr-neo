@@ -35,6 +35,7 @@ export default {
         searchModel: 'Search models',
         configureApiFirst: 'Configure API first',
         noMatchingModels: 'No matching models',
+        questionHistory: 'Question History',
     },
 
     // ===== Settings Menu =====

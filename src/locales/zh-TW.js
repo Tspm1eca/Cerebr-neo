@@ -35,6 +35,7 @@ export default {
         searchModel: '搜尋模型',
         configureApiFirst: '請先配置 API',
         noMatchingModels: '沒有匹配的模型',
+        questionHistory: '提問紀錄',
     },
 
     // ===== 設定選單 =====

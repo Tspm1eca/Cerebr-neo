@@ -178,6 +178,96 @@
     box-shadow: none;
 }
 
+.message-history-picker {
+    position: fixed;
+    left: 0;
+    top: 0;
+    box-sizing: border-box;
+    max-height: 260px;
+    overflow: hidden;
+    border-radius: 18px;
+    /* 右側不留內距，讓列表捲軸貼齊最右邊 */
+    padding: 6px 0 6px 6px;
+    z-index: 2147483647;
+    background-color: var(--cerebr-input-bg);
+    backdrop-filter: blur(var(--cerebr-menu-blur-radius));
+    border: 1px solid var(--cerebr-card-border-color);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(10px);
+    transition:
+        opacity 0.2s ease,
+        transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+        visibility 0s linear 0.2s;
+    will-change: opacity, transform;
+}
+
+.message-history-picker.visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0);
+    transition:
+        opacity 0.2s ease,
+        transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+        visibility 0s linear 0s;
+}
+
+.message-history-picker-header {
+    color: var(--cerebr-text-color);
+    font-size: 12px;
+    opacity: 0.65;
+    padding: 0px 8px 6px;
+    user-select: none;
+}
+
+.message-history-picker-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 2px 0;
+    max-height: 214px;
+    overflow-y: auto;
+    /* 预留稳定滚动槽位，避免无滚动条时列表项右侧贴边 */
+    scrollbar-gutter: stable;
+}
+
+.message-history-picker-item {
+    appearance: none;
+    -webkit-appearance: none;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--cerebr-text-color);
+    text-align: left;
+    min-height: 30px;
+    padding: 0 10px;
+    border-radius: 18px;
+    font-size: 13px;
+    line-height: 1.4;
+    cursor: pointer;
+    font-family: var(--cerebr-font-family);
+}
+
+.message-history-picker-item-text {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.message-history-picker-item:hover,
+.message-history-picker-item.active {
+    background-color: var(--cerebr-message-user-bg);
+}
+
 @media (prefers-color-scheme: light) {
     .message-input-shell:focus-within {
         background-color: #fff;
