@@ -322,7 +322,6 @@
     border-radius: 12px;
     max-height: 150px;
     overflow-y: auto;
-    scrollbar-gutter: stable;
     z-index: 10;
 }
 
@@ -527,7 +526,6 @@
     border-radius: 12px;
     max-height: 150px;
     overflow-y: auto;
-    scrollbar-gutter: stable;
     z-index: 10;
 }
 
