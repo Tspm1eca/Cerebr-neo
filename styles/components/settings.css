@@ -100,12 +100,7 @@
 }
 
 #settings-button:not([data-web-search-mode="disabled"]):hover .settings-icon-compass {
-    transform: translate(-50%, -50%) scale(1) rotate(0deg);
     opacity: 1;
-}
-
-#settings-button:active {
-    transform: none;
 }
 
 /* 按鈕切換容器 - 用於 new-chat-button 和 stop-response-button 的動畫轉換 */

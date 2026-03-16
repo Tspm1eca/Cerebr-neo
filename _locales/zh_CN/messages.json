@@ -1,6 +1,6 @@
 {
   "extensionDescription": {
-    "message": "Cerebr-neo 网页 AI 助手",
+    "message": "网页 AI 助手",
     "description": "Extension description shown in Chrome Web Store and extensions page"
   },
   "commandNewChat": {

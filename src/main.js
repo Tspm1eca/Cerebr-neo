@@ -174,6 +174,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     const regenerateMessageButton = document.getElementById('regenerate-message');
     const webpageQAContainer = document.getElementById('webpage-qa');
     const webpageContentMenu = document.getElementById('webpage-content-menu');
+    const sendWebpageSwitch = document.getElementById('send-webpage-switch');
 
     // 常用聊天選項相關元素
     const quickChatContainer = document.getElementById('quick-chat-options');
@@ -944,10 +945,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         settingsMenu.classList.remove('visible');
         webpageContentMenu.classList.remove('visible');
 
-        const sendWebpageSwitchEl = document.getElementById('send-webpage-switch');
-        if (sendWebpageSwitchEl) {
-            sendWebpageSwitchEl.checked = !sendWebpageSwitchEl.checked;
-            sendWebpageSwitchEl.dispatchEvent(new Event('change', { bubbles: true }));
+        if (sendWebpageSwitch) {
+            sendWebpageSwitch.checked = !sendWebpageSwitch.checked;
+            sendWebpageSwitch.dispatchEvent(new Event('change', { bubbles: true }));
         }
     });
 
@@ -1264,8 +1264,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         });
     }
 
-    // 传送网页开关
-    const sendWebpageSwitch = document.getElementById('send-webpage-switch');
+    // 网络搜索相关开关
     const webSearchSwitch = document.getElementById('web-search-switch');
     const searchProviderSwitch = document.getElementById('search-provider-switch');
 

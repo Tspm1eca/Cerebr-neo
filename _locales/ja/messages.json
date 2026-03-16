@@ -1,6 +1,6 @@
 {
   "extensionDescription": {
-    "message": "Cerebr-neo ウェブAIアシスタント",
+    "message": "ウェブAIアシスタント",
     "description": "Extension description shown in Chrome Web Store and extensions page"
   },
   "commandNewChat": {
