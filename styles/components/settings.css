@@ -20,6 +20,8 @@
     align-items: center;
     justify-content: center;
     transition: background-color 0.2s ease, color 0.2s ease;
+    position: relative;
+    overflow: hidden;
 }
 
 #settings-button[data-web-search-mode="off"] {
@@ -37,67 +39,51 @@
 #settings-button .settings-icon {
     width: 18px;
     height: 18px;
-    opacity: 0.8;
-    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -50%) scale(0.5) rotate(28deg);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 #settings-button .settings-icon-default {
     fill: currentColor;
+    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55),
+                opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 #settings-button .settings-icon-compass {
     width: 25px;
     height: 25px;
-    display: none;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.5;
     stroke-linecap: round;
     stroke-linejoin: round;
-}
-
-@keyframes settings-icon-switch-in {
-    0% {
-        opacity: 0;
-        transform: scale(0.72) rotate(-200deg);
-    }
-    70% {
-        opacity: 1;
-        transform: scale(1.1) rotate(12deg);
-    }
-    100% {
-        opacity: 0.8;
-        transform: scale(1) rotate(0deg);
-    }
-}
-
-@keyframes settings-icon-switch-back {
-    0% {
-        opacity: 0;
-        transform: scale(1.08) rotate(28deg);
-    }
-    70% {
-        opacity: 1;
-        transform: scale(0.96) rotate(-6deg);
-    }
-    100% {
-        opacity: 0.8;
-        transform: scale(1) rotate(0deg);
-    }
+    transform: translate(-50%, -50%) scale(0.5) rotate(-120deg);
 }
 
 #settings-button[data-web-search-mode="disabled"] .settings-icon-default {
-    display: block;
-    animation: settings-icon-switch-back 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity: 0.8;
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
 }
 
 #settings-button:not([data-web-search-mode="disabled"]) .settings-icon-default {
-    display: none;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5) rotate(28deg);
 }
 
 #settings-button:not([data-web-search-mode="disabled"]) .settings-icon-compass {
-    display: block;
-    animation: settings-icon-switch-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity: 0.8;
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+}
+
+#settings-button[data-web-search-mode="disabled"] .settings-icon-compass {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5) rotate(-120deg);
 }
 
 #settings-button:hover {
@@ -108,13 +94,18 @@
     color: var(--cerebr-text-color);
 }
 
-#settings-button:hover svg {
-    transform: rotate(90deg);
+#settings-button[data-web-search-mode="disabled"]:hover .settings-icon-default {
+    transform: translate(-50%, -50%) scale(1) rotate(90deg);
+    opacity: 1;
+}
+
+#settings-button:not([data-web-search-mode="disabled"]):hover .settings-icon-compass {
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
     opacity: 1;
 }
 
 #settings-button:active {
-    transform: scale(0.95);
+    transform: none;
 }
 
 /* 按鈕切換容器 - 用於 new-chat-button 和 stop-response-button 的動畫轉換 */

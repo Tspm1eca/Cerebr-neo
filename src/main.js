@@ -938,12 +938,16 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     // 鼠标离开菜单时隐藏菜单
     settingsMenu.addEventListener('mouseleave', hideMenu);
 
-    // 点击按钮仍然可以切换菜单的显示/隐藏状态
+    // 点击按钮：不再切换 settings-menu，改为快速切换“传送网页”
     settingsButton.addEventListener('click', (e) => {
         e.stopPropagation();
-        const isVisible = settingsMenu.classList.toggle('visible');
-        if (!isVisible) {
-            webpageContentMenu.classList.remove('visible');
+        settingsMenu.classList.remove('visible');
+        webpageContentMenu.classList.remove('visible');
+
+        const sendWebpageSwitchEl = document.getElementById('send-webpage-switch');
+        if (sendWebpageSwitchEl) {
+            sendWebpageSwitchEl.checked = !sendWebpageSwitchEl.checked;
+            sendWebpageSwitchEl.dispatchEvent(new Event('change', { bubbles: true }));
         }
     });
 
