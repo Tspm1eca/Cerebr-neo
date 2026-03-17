@@ -9,7 +9,8 @@ const COMPRESSION_CONFIG = {
     quality: 0.8,        // 圖片質量 (0-1)
     maxSizeKB: 200,      // 目標最大大小 (KB)
     preferAVIF: true,    // 優先使用 AVIF 格式
-    preserveTransparency: true  // 保留透明度
+    preserveTransparency: true,  // 保留透明度
+    logCompression: true // 是否輸出壓縮日誌
 };
 
 /**
@@ -187,6 +188,7 @@ function getFormatName(mimeType) {
  * @param {number} [options.maxSizeKB=200] - 目標最大大小 (KB)
  * @param {boolean} [options.preferAVIF=true] - 優先使用 AVIF 格式
  * @param {boolean} [options.preserveTransparency=true] - 保留透明度
+ * @param {boolean} [options.logCompression=true] - 是否輸出壓縮日誌
  * @returns {Promise<string>} 壓縮後的 base64 數據
  */
 export async function compressImage(base64Data, options = {}) {
@@ -274,7 +276,9 @@ export async function compressImage(base64Data, options = {}) {
                 // 如果壓縮後比原始更大，返回原始數據
                 const compressedBytes = getBase64ByteSize(bestResult.data);
                 if (compressedBytes >= originalBytes) {
-                    console.log('壓縮後大小未減少，使用原始圖片');
+                    if (config.logCompression) {
+                        console.log('壓縮後大小未減少，使用原始圖片');
+                    }
                     resolve(base64Data);
                     return;
                 }
@@ -284,11 +288,13 @@ export async function compressImage(base64Data, options = {}) {
                 const compressionRatio = Math.round((1 - compressedBytes / originalBytes) * 100);
                 const formatName = getFormatName(bestFormat);
 
-                console.log(
-                    `圖片壓縮完成 (${formatName}, 質量=${Math.round(bestResult.quality * 100)}%): ` +
-                    `${originalSizeKB}KB → ${compressedSizeKB}KB (減少 ${compressionRatio}%)` +
-                    (imageHasAlpha ? ' [保留透明度]' : '')
-                );
+                if (config.logCompression) {
+                    console.log(
+                        `圖片壓縮完成 (${formatName}, 質量=${Math.round(bestResult.quality * 100)}%): ` +
+                        `${originalSizeKB}KB → ${compressedSizeKB}KB (減少 ${compressionRatio}%)` +
+                        (imageHasAlpha ? ' [保留透明度]' : '')
+                    );
+                }
 
                 resolve(bestResult.data);
             } catch (error) {
@@ -496,6 +502,7 @@ export async function createThumbnailImage(base64Data) {
         quality: 0.62,
         maxSizeKB: 24,
         preferAVIF: false,
-        preserveTransparency: true
+        preserveTransparency: true,
+        logCompression: false
     });
 }
