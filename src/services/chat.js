@@ -87,8 +87,11 @@ function escapeRegExp(text) {
 }
 
 function applyPromptTemplate(template, variables = {}) {
-    if (typeof template !== 'string' || !template) {
-        return template || '';
+    if (typeof template !== 'string') {
+        return '';
+    }
+    if (!template) {
+        return '';
     }
 
     return Object.entries(variables).reduce((acc, [key, value]) => {
@@ -97,7 +100,7 @@ function applyPromptTemplate(template, variables = {}) {
         }
         const normalizedValue = String(value);
         const pattern = new RegExp(`\\{\\{${escapeRegExp(key)}\\}\\}`, 'gm');
-        return acc.replace(pattern, normalizedValue);
+        return acc.replace(pattern, () => normalizedValue);
     }, template);
 }
 
@@ -367,10 +370,10 @@ export function formatAIErrorMessage(error, fallbackMessage = '') {
  * @param {string} rawQuery - 原始查詢文本
  * @param {APIConfig} apiConfig - API 配置
  * @param {Array<Message>} [contextMessages=[]] - 用於提取關鍵字的上下文消息（僅取最近 7 條）
- * @param {Object} [promptTemplateVariables={}] - 提示詞模板變量
+ * @param {string} [queryDescription=''] - 已渲染的關鍵字提取提示詞
  * @returns {Promise<string>} 提取後的英文關鍵字
  */
-async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessages = [], promptTemplateVariables = {}) {
+async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessages = [], queryDescription = '') {
     if (!rawQuery || typeof rawQuery !== 'string' || !rawQuery.trim()) {
         throw new Error(t('service.keywordEmpty'));
     }
@@ -381,6 +384,9 @@ async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessage
     const normalizedRawQuery = rawQuery.trim();
     const keywordContext = buildKeywordContextForQuery(contextMessages, normalizedRawQuery, 7);
     const promptContent = keywordContext || normalizedRawQuery;
+    const systemPromptContent = (typeof queryDescription === 'string' && queryDescription.trim())
+        ? queryDescription
+        : await getWebSearchToolQueryDescription();
 
     let response;
     try {
@@ -396,7 +402,7 @@ async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessage
                     messages: [
                         {
                             role: 'system',
-                            content: applyPromptTemplate(await getWebSearchToolQueryDescription(), promptTemplateVariables)
+                            content: systemPromptContent
                         },
                         {
                             role: 'user',
@@ -547,21 +553,24 @@ function buildKeywordContextForQuery(messages, rawQuery, maxMessages = 7) {
 /**
  * 网络搜索工具定义（用于 Function Calling）
  */
-async function createWebSearchTool(promptTemplateVariables = {}) {
-    const toolDescription = applyPromptTemplate(await getWebSearchToolDescription(), promptTemplateVariables);
-    const queryDescription = applyPromptTemplate(await getWebSearchToolQueryDescription(), promptTemplateVariables);
-
+async function createWebSearchTool({ toolDescription = '', queryDescription = '' } = {}) {
+    const resolvedToolDescription = (typeof toolDescription === 'string' && toolDescription.trim())
+        ? toolDescription
+        : await getWebSearchToolDescription();
+    const resolvedQueryDescription = (typeof queryDescription === 'string' && queryDescription.trim())
+        ? queryDescription
+        : await getWebSearchToolQueryDescription();
     return {
         type: "function",
         function: {
             name: "web_search",
-            description: toolDescription,
+            description: resolvedToolDescription,
             parameters: {
                 type: "object",
                 properties: {
                     query: {
                         type: "string",
-                        description: queryDescription
+                        description: resolvedQueryDescription
                     }
                 },
                 required: ["query"]
@@ -810,6 +819,24 @@ export async function callAPI({
     const currentApiKey = effectiveSearchConfig.provider === 'exa'
         ? effectiveSearchConfig.exaApiKey
         : effectiveSearchConfig.tavilyApiKey;
+    // 判断是否使用 Function Calling（自动模式）
+    const useToolCalling = webSearchMode === 'auto' && currentApiKey;
+
+    // 同一次請求重用已渲染的 web-search prompt 文本，避免重複讀取/替換
+    let renderedQueryDescription = '';
+    let renderedToolDescription = '';
+    if (webSearchMode === 'on' || useToolCalling) {
+        renderedQueryDescription = applyPromptTemplate(
+            await getWebSearchToolQueryDescription(),
+            promptTemplateVariables
+        );
+    }
+    if (useToolCalling) {
+        renderedToolDescription = applyPromptTemplate(
+            await getWebSearchToolDescription(),
+            promptTemplateVariables
+        );
+    }
 
     // 处理网络搜索 - 根据模式决定行为
     // 'on' 模式：強制搜索，且每次先用 LLM 提取關鍵字再搜索
@@ -836,7 +863,7 @@ export async function callAPI({
 
         let extractedQuery;
         try {
-            extractedQuery = await generateSearchKeywordsWithLLM(rawQuery, apiConfig, messages, promptTemplateVariables);
+            extractedQuery = await generateSearchKeywordsWithLLM(rawQuery, apiConfig, messages, renderedQueryDescription);
         } catch (error) {
             console.error('on 模式關鍵字提取失敗，fallback 到原始查詢:', error);
             extractedQuery = rawQuery.trim();
@@ -894,9 +921,6 @@ export async function callAPI({
         console.warn(`网络搜索已启用，但未设置 ${effectiveSearchConfig.provider} API Key`);
     }
 
-    // 判断是否使用 Function Calling（自动模式）
-    const useToolCalling = webSearchMode === 'auto' && currentApiKey;
-
     const systemMessage = {
         role: "system",
         content: systemMessageContent
@@ -953,7 +977,10 @@ export async function callAPI({
     // 如果是自动模式，添加工具定义
     let webSearchTool;
     if (useToolCalling) {
-        webSearchTool = await createWebSearchTool(promptTemplateVariables);
+        webSearchTool = await createWebSearchTool({
+            toolDescription: renderedToolDescription,
+            queryDescription: renderedQueryDescription
+        });
         requestBody.tools = [webSearchTool];
         requestBody.tool_choice = "auto";
     }
