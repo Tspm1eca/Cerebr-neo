@@ -32,6 +32,9 @@ const WEBDAV_KNOWN_DIRS_KEY = 'webdav_known_directories';
 // 跨分頁節流：共享 checkSyncStatus 的時間戳和結果（存儲在 chrome.storage.local）
 const WEBDAV_CROSS_TAB_CHECK_TIME_KEY = 'webdav_cross_tab_check_time';
 const WEBDAV_CROSS_TAB_CHECK_RESULT_KEY = 'webdav_cross_tab_check_result';
+const WEBDAV_ORPHAN_CLEANUP_PENDING_KEY = 'webdav_orphan_cleanup_pending';
+const WEBDAV_ORPHAN_CLEANUP_LAST_SCAN_AT_KEY = 'webdav_orphan_cleanup_last_scan_at';
+const WEBDAV_ORPHAN_CLEANUP_LOCK_KEY = 'webdav_orphan_cleanup_lock';
 
 // HTTP 状态码常量
 const HTTP_STATUS = {
@@ -45,11 +48,13 @@ const HTTP_STATUS = {
     NOT_FOUND: 404,
     METHOD_NOT_ALLOWED: 405,
     CONFLICT: 409,
-    FAILED_DEPENDENCY: 424
+    FAILED_DEPENDENCY: 424,
+    NOT_IMPLEMENTED: 501
 };
 
 // 默认请求超时时间（毫秒）
 const DEFAULT_TIMEOUT = 30000;
+const ORPHAN_CLEANUP_DEFAULT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 // 默认配置
 const DEFAULT_CONFIG = {
@@ -60,13 +65,26 @@ const DEFAULT_CONFIG = {
     enabled: false,
     syncApiConfig: false, // 是否同步 API 配置
     encryptApiKeys: false, // 是否加密 API Keys
-    encryptionPassword: '' // 加密密码（仅存储在本地，不同步）
+    encryptionPassword: '', // 加密密码（仅存储在本地，不同步）
+    orphanCleanupEnabled: true,
+    orphanCleanupCooldownMs: ORPHAN_CLEANUP_DEFAULT_COOLDOWN_MS,
+    orphanCleanupMaxDeletesPerRun: 20,
+    orphanCleanupDeleteConcurrency: 2
 };
 
 // 聊天目錄常量
 const CHAT_DIRECTORY = 'chats';
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 天
 const UPLOAD_CONCURRENCY = 5; // 並行上傳數量
+const ORPHAN_CLEANUP_LOCK_TTL_MS = 5 * 60 * 1000; // 5 分鐘
+
+function toPositiveInt(value, fallback) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return fallback;
+    }
+    return Math.floor(parsed);
+}
 
 // ========== Helper Functions ==========
 
@@ -514,6 +532,74 @@ class WebDAVClient {
     }
 
     /**
+     * 列舉指定目錄下的 json 檔案（Depth:1）
+     * @param {string} directoryPath - 相對於 syncPath 的目錄路徑
+     * @returns {Promise<string[]>} 不含副檔名的檔名 ID 列表
+     */
+    async listJsonFilesInDirectory(directoryPath) {
+        const normalizedDirectory = directoryPath.replace(/^\/+/, '').replace(/\/+$/, '');
+        const directoryUrl = `${this.getFullUrl(normalizedDirectory)}/`;
+        const response = await this.fetchWithTimeout(directoryUrl, {
+            method: 'PROPFIND',
+            headers: {
+                ...this.getAuthHeaders(),
+                'Depth': '1'
+            }
+        });
+
+        if (response.status === HTTP_STATUS.NOT_FOUND) {
+            return [];
+        }
+
+        if (response.status === HTTP_STATUS.METHOD_NOT_ALLOWED ||
+            response.status === HTTP_STATUS.NOT_IMPLEMENTED) {
+            const unsupportedError = new Error(`[WebDAV] PROPFIND 不支援 (HTTP ${response.status})`);
+            unsupportedError.status = response.status;
+            unsupportedError.code = 'PROPFIND_UNSUPPORTED';
+            throw unsupportedError;
+        }
+
+        if (response.status !== HTTP_STATUS.MULTI_STATUS && response.status !== HTTP_STATUS.OK) {
+            const statusError = new Error(`[WebDAV] 列舉目錄失敗: HTTP ${response.status}`);
+            statusError.status = response.status;
+            throw statusError;
+        }
+
+        const xmlText = await response.text();
+        return this._extractJsonFileIdsFromPropfind(xmlText, directoryUrl);
+    }
+
+    _extractJsonFileIdsFromPropfind(xmlText, directoryUrl) {
+        const hrefPattern = /<[^>]*href[^>]*>([^<]+)<\/[^>]*href>/gi;
+        const directoryPathname = decodeURIComponent(new URL(directoryUrl).pathname).replace(/\/+$/, '/');
+        const ids = new Set();
+        let match;
+
+        while ((match = hrefPattern.exec(xmlText)) !== null) {
+            const rawHref = match[1].trim().replace(/&amp;/g, '&');
+            if (!rawHref) continue;
+
+            let pathname;
+            try {
+                pathname = decodeURIComponent(new URL(rawHref, directoryUrl).pathname);
+            } catch {
+                continue;
+            }
+
+            if (!pathname.startsWith(directoryPathname)) continue;
+
+            const relativePath = pathname.slice(directoryPathname.length);
+            if (!relativePath || relativePath.endsWith('/')) continue;
+            if (relativePath.includes('/')) continue;
+            if (!relativePath.toLowerCase().endsWith('.json')) continue;
+
+            ids.add(relativePath.slice(0, -5));
+        }
+
+        return [...ids];
+    }
+
+    /**
      * 获取远端文件的 ETag（轻量级 HEAD 请求）
      */
     async getRemoteETag(filename) {
@@ -580,6 +666,7 @@ class WebDAVSyncManager {
         this._lastSyncOnCloseTime = 0;
         // 標記：啟動後是否已完成首次 hash fallback 檢查
         this._initialHashCheckDone = false;
+        this._orphanCleanupOwnerId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
     /**
@@ -724,6 +811,150 @@ class WebDAVSyncManager {
         if (!tombstones.some(t => t.id === chatId)) {
             tombstones.push({ id: chatId, deletedAt: new Date().toISOString() });
             await this.saveDeletedChatIds(tombstones);
+        }
+    }
+
+    async markOrphanCleanupPending() {
+        try {
+            await storageAdapter.set({ [WEBDAV_ORPHAN_CLEANUP_PENDING_KEY]: true });
+        } catch (error) {
+            console.warn('[WebDAV] 設定 orphan cleanup pending 失敗:', error);
+        }
+    }
+
+    _getOrphanCleanupRuntimeConfig() {
+        return {
+            enabled: this.config.orphanCleanupEnabled !== false,
+            cooldownMs: toPositiveInt(this.config.orphanCleanupCooldownMs, ORPHAN_CLEANUP_DEFAULT_COOLDOWN_MS),
+            maxDeletesPerRun: toPositiveInt(this.config.orphanCleanupMaxDeletesPerRun, 20),
+            deleteConcurrency: toPositiveInt(this.config.orphanCleanupDeleteConcurrency, 2)
+        };
+    }
+
+    async _tryAcquireOrphanCleanupLock() {
+        const now = Date.now();
+        const lockResult = await storageAdapter.get(WEBDAV_ORPHAN_CLEANUP_LOCK_KEY);
+        const existingLock = lockResult[WEBDAV_ORPHAN_CLEANUP_LOCK_KEY];
+        const existingValid = existingLock &&
+            typeof existingLock.expiresAt === 'number' &&
+            existingLock.expiresAt > now;
+
+        if (existingValid && existingLock.owner !== this._orphanCleanupOwnerId) {
+            return false;
+        }
+
+        const nextLock = {
+            owner: this._orphanCleanupOwnerId,
+            expiresAt: now + ORPHAN_CLEANUP_LOCK_TTL_MS
+        };
+        await storageAdapter.set({ [WEBDAV_ORPHAN_CLEANUP_LOCK_KEY]: nextLock });
+
+        const verify = await storageAdapter.get(WEBDAV_ORPHAN_CLEANUP_LOCK_KEY);
+        return verify[WEBDAV_ORPHAN_CLEANUP_LOCK_KEY]?.owner === this._orphanCleanupOwnerId;
+    }
+
+    async _releaseOrphanCleanupLock() {
+        try {
+            const lockResult = await storageAdapter.get(WEBDAV_ORPHAN_CLEANUP_LOCK_KEY);
+            const lock = lockResult[WEBDAV_ORPHAN_CLEANUP_LOCK_KEY];
+            if (lock?.owner === this._orphanCleanupOwnerId) {
+                await storageAdapter.remove([WEBDAV_ORPHAN_CLEANUP_LOCK_KEY]);
+            }
+        } catch (error) {
+            console.warn('[WebDAV] 釋放 orphan cleanup lock 失敗:', error);
+        }
+    }
+
+    async _runOrphanCleanupIfNeeded(latestManifest = null) {
+        if (!this.client) return;
+
+        const runtimeConfig = this._getOrphanCleanupRuntimeConfig();
+        if (!runtimeConfig.enabled) {
+            return;
+        }
+
+        let lockAcquired = false;
+
+        try {
+            const stateResult = await storageAdapter.get([
+                WEBDAV_ORPHAN_CLEANUP_PENDING_KEY,
+                WEBDAV_ORPHAN_CLEANUP_LAST_SCAN_AT_KEY
+            ]);
+            const pending = stateResult[WEBDAV_ORPHAN_CLEANUP_PENDING_KEY] === true;
+            if (!pending) {
+                return;
+            }
+
+            const now = Date.now();
+            const lastScanRaw = stateResult[WEBDAV_ORPHAN_CLEANUP_LAST_SCAN_AT_KEY];
+            const lastScanMs = Date.parse(lastScanRaw || '');
+            if (Number.isFinite(lastScanMs) && (now - lastScanMs) < runtimeConfig.cooldownMs) {
+                return;
+            }
+
+            lockAcquired = await this._tryAcquireOrphanCleanupLock();
+            if (!lockAcquired) {
+                return;
+            }
+
+            const manifest = (latestManifest && Array.isArray(latestManifest.chatIndex))
+                ? latestManifest
+                : await this.loadCachedManifest();
+            if (!manifest || !Array.isArray(manifest.chatIndex)) {
+                console.warn('[WebDAV] orphan cleanup 略過：manifest 不可用');
+                return;
+            }
+
+            const keepSet = new Set(manifest.chatIndex.map(entry => entry.id));
+            for (const tombstone of (manifest.deletedChatIds || [])) {
+                keepSet.add(tombstone.id);
+            }
+
+            const remoteChatIds = await this.client.listJsonFilesInDirectory(CHAT_DIRECTORY);
+            const orphanIds = remoteChatIds.filter(chatId => !keepSet.has(chatId));
+            const lastScanAtIso = new Date().toISOString();
+
+            if (orphanIds.length === 0) {
+                await storageAdapter.set({
+                    [WEBDAV_ORPHAN_CLEANUP_PENDING_KEY]: false,
+                    [WEBDAV_ORPHAN_CLEANUP_LAST_SCAN_AT_KEY]: lastScanAtIso
+                });
+                return;
+            }
+
+            const deleteTargets = orphanIds.slice(0, runtimeConfig.maxDeletesPerRun);
+            const failedDeletes = new Set();
+            const deleteTasks = deleteTargets.map(chatId => async () => {
+                try {
+                    await this.client.deleteFile(`${CHAT_DIRECTORY}/${chatId}.json`);
+                } catch (error) {
+                    failedDeletes.add(chatId);
+                    console.warn(`[WebDAV] orphan cleanup 刪除 ${chatId}.json 失敗:`, error);
+                }
+            });
+            await runWithConcurrency(deleteTasks, runtimeConfig.deleteConcurrency);
+
+            const hasMoreOrphans = orphanIds.length > deleteTargets.length;
+            const hasFailedDeletes = failedDeletes.size > 0;
+            await storageAdapter.set({
+                [WEBDAV_ORPHAN_CLEANUP_PENDING_KEY]: hasMoreOrphans || hasFailedDeletes,
+                [WEBDAV_ORPHAN_CLEANUP_LAST_SCAN_AT_KEY]: lastScanAtIso
+            });
+        } catch (error) {
+            if (error?.code === 'PROPFIND_UNSUPPORTED') {
+                console.warn('[WebDAV] orphan cleanup 略過：伺服器不支援 PROPFIND，已清除 pending');
+                await storageAdapter.set({
+                    [WEBDAV_ORPHAN_CLEANUP_PENDING_KEY]: false,
+                    [WEBDAV_ORPHAN_CLEANUP_LAST_SCAN_AT_KEY]: new Date().toISOString()
+                }).catch(() => {});
+                return;
+            }
+            console.warn('[WebDAV] orphan cleanup 執行失敗，保留 pending 供下次重試:', error);
+            await storageAdapter.set({ [WEBDAV_ORPHAN_CLEANUP_PENDING_KEY]: true }).catch(() => {});
+        } finally {
+            if (lockAcquired) {
+                await this._releaseOrphanCleanupLock();
+            }
         }
     }
 
@@ -1039,6 +1270,7 @@ class WebDAVSyncManager {
                 lastSync,
                 remoteTimestamp: manifest.timestamp
             });
+            await this._runOrphanCleanupIfNeeded(manifest);
 
             this.notifyListeners('sync-complete', {
                 direction: 'upload',
@@ -1554,6 +1786,7 @@ class WebDAVSyncManager {
                 lastSync,
                 remoteTimestamp: manifest.timestamp
             });
+            await this._runOrphanCleanupIfNeeded(manifest);
 
             this.notifyListeners('sync-complete', {
                 direction: 'merge',

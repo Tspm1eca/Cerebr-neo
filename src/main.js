@@ -2101,6 +2101,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         const { chatId } = e.detail;
         if (webdavSyncManager.getConfig().enabled) {
             await webdavSyncManager.addDeletedChatId(chatId);
+            await webdavSyncManager.markOrphanCleanupPending();
         }
     });
 
@@ -2111,6 +2112,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             for (const id of chatIds) {
                 await webdavSyncManager.addDeletedChatId(id);
             }
+            await webdavSyncManager.markOrphanCleanupPending();
         }
     });
 

@@ -540,9 +540,13 @@ async function performWebDAVSyncUpload() {
             return;
         }
 
-        // 2. 讀取 dirty chat IDs（重新讀取，可能已被面板清除）
-        const { cerebr_dirty_chat_ids: dirtyIds } = await chrome.storage.local.get('cerebr_dirty_chat_ids');
-        if (!dirtyIds || dirtyIds.length === 0) return;
+        // 2. 讀取 dirty chat IDs + tombstone（重新讀取，可能已被面板更新）
+        const {
+            cerebr_dirty_chat_ids: dirtyIdsRaw,
+            webdav_deleted_chat_ids: tombstonesRaw
+        } = await chrome.storage.local.get(['cerebr_dirty_chat_ids', 'webdav_deleted_chat_ids']);
+        const dirtyIds = Array.isArray(dirtyIdsRaw) ? dirtyIdsRaw : [];
+        const tombstones = Array.isArray(tombstonesRaw) ? tombstonesRaw : [];
 
         // 3. 讀取 dirty chats + 同步狀態
         const chatKeys = dirtyIds.map(id => `cerebr_chat_${id}`);
@@ -555,6 +559,10 @@ async function performWebDAVSyncUpload() {
         const cachedManifest = localData.webdav_cached_manifest;
         const hashTable = new Map(Object.entries(localData.webdav_local_chat_hashes || {}));
         const chatIndex = [...(cachedManifest?.chatIndex || [])];
+        const tombstonesForReplay = tombstones.length > 0
+            ? tombstones
+            : (cachedManifest?.deletedChatIds || []);
+        if (dirtyIds.length === 0 && tombstonesForReplay.length === 0) return;
 
         // 4. 建立 WebDAV 請求基礎
         const baseUrl = config.serverUrl.replace(/\/+$/, '');
@@ -604,14 +612,34 @@ async function performWebDAVSyncUpload() {
             }
         }
 
-        if (uploadedIds.length === 0) return;
+        // 6. 回放 tombstone 刪除（404 視為成功）
+        const failedTombstones = new Set();
+        for (const tombstone of tombstonesForReplay) {
+            try {
+                const response = await fetch(getUrl(`chats/${tombstone.id}.json`), {
+                    method: 'DELETE',
+                    headers
+                });
+                if (!response.ok && response.status !== 404) {
+                    failedTombstones.add(tombstone.id);
+                    console.warn(`[WebDAV SW] 刪除 tombstone ${tombstone.id} 失敗: HTTP ${response.status}`);
+                }
+            } catch (error) {
+                failedTombstones.add(tombstone.id);
+                console.warn(`[WebDAV SW] 刪除 tombstone ${tombstone.id} 失敗:`, error);
+            }
+        }
+        const remainingTombstones = tombstonesForReplay.filter(t => failedTombstones.has(t.id));
 
-        // 6. 建立並上傳 manifest
+        const tombstoneChanged = remainingTombstones.length !== tombstonesForReplay.length;
+        if (uploadedIds.length === 0 && !tombstoneChanged) return;
+
+        // 7. 建立並上傳 manifest
         const manifest = {
             version: 2,
             timestamp: new Date().toISOString(),
             chatIndex,
-            deletedChatIds: cachedManifest?.deletedChatIds || [],
+            deletedChatIds: remainingTombstones,
             quickChatOptions: cachedManifest?.quickChatOptions || []
         };
 
@@ -631,7 +659,7 @@ async function performWebDAVSyncUpload() {
             throw new Error(`manifest 上傳失敗: HTTP ${manifestResponse.status}`);
         }
 
-        // 7. 更新同步狀態
+        // 8. 更新同步狀態
         const newETag = manifestResponse.headers.get('ETag') || manifestResponse.headers.get('Last-Modified') || null;
 
         const syncUpdates = {};
@@ -647,11 +675,14 @@ async function performWebDAVSyncUpload() {
 
         await chrome.storage.local.set({
             cerebr_dirty_chat_ids: remaining,
+            webdav_deleted_chat_ids: remainingTombstones,
             webdav_cached_manifest: manifest,
             webdav_local_chat_hashes: Object.fromEntries(hashTable)
         });
 
-        console.log(`[WebDAV SW] 關閉同步完成：已上傳 ${uploadedIds.length} 個聊天`);
+        console.log(
+            `[WebDAV SW] 關閉同步完成：已上傳 ${uploadedIds.length} 個聊天，已刪除 ${tombstonesForReplay.length - remainingTombstones.length} 個 tombstone`
+        );
     } catch (e) {
         console.error('[WebDAV SW] 同步上傳失敗:', e);
         throw e;
