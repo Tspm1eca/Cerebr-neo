@@ -1043,7 +1043,15 @@ function moveCaretToEnd(element) {
  * @param {Object} config - 配置对象
  */
 export function handleWindowMessage(event, config) {
-    const { messageInput, newChatButton, uiConfig, onNewChatShortcut } = config;
+    const {
+        messageInput,
+        newChatButton,
+        uiConfig,
+        onNewChatShortcut = () => {
+            newChatButton.click();
+            messageInput.focus();
+        }
+    } = config;
 
     if (event.data.type === 'DROP_IMAGE') {
         const imageData = event.data.imageData;
@@ -1101,12 +1109,6 @@ export function handleWindowMessage(event, config) {
             timeout: event.data.timeout
         });
     } else if (event.data.type === 'NEW_CHAT') {
-        if (typeof onNewChatShortcut === 'function') {
-            onNewChatShortcut();
-        } else {
-            // 模拟点击新对话按钮
-            newChatButton.click();
-            messageInput.focus();
-        }
+        onNewChatShortcut();
     }
 }

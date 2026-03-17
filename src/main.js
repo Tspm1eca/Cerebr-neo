@@ -317,9 +317,16 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     }
 
 
+    const hasActiveResponseGeneration = () => Boolean(
+        currentController ||
+        abortControllerRef.current ||
+        abortControllerRef.pendingAbort ||
+        typeof stopResponseButton.onclick === 'function'
+    );
+
     const triggerNewChatFromShortcut = () => {
         // 快捷键触发新对话时，若正在生成则先复用停止按钮逻辑中止生成
-        if (stopResponseButton.classList.contains('button-visible')) {
+        if (hasActiveResponseGeneration()) {
             stopResponseButton.click();
         }
         newChatButton.click();

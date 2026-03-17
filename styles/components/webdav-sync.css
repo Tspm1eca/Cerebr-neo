@@ -113,12 +113,19 @@
     opacity: 1;
 }
 
-.webdav-server-container .test-connection-btn:focus,
-.webdav-server-container .test-connection-btn:focus-visible,
-.webdav-server-container .test-connection-btn:active {
-    opacity: 0.6;
+.webdav-server-container .test-connection-btn:focus {
     outline: none;
     box-shadow: none;
+}
+
+.webdav-server-container .test-connection-btn:focus-visible {
+    opacity: 1;
+    outline: none;
+    box-shadow: 0 0 0 2px var(--cerebr-focus-border-color);
+}
+
+.webdav-server-container .test-connection-btn:active {
+    opacity: 0.6;
 }
 
 .webdav-server-container .test-connection-btn:disabled {
@@ -179,12 +186,19 @@
     opacity: 1;
 }
 
-.toggle-password-btn:focus,
-.toggle-password-btn:focus-visible,
-.toggle-password-btn:active {
-    opacity: 0.6;
+.toggle-password-btn:focus {
     outline: none;
     box-shadow: none;
+}
+
+.toggle-password-btn:focus-visible {
+    opacity: 1;
+    outline: none;
+    box-shadow: 0 0 0 2px var(--cerebr-focus-border-color);
+}
+
+.toggle-password-btn:active {
+    opacity: 0.6;
 }
 
 /* 自動同步區域 */
