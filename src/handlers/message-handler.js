@@ -6,6 +6,7 @@ import { processMathAndMarkdown, renderMathInElement, textMayContainMath } from 
 import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
 import { isTimestampLink } from '../../htmd/timestamp.js';
 import { storageAdapter } from '../utils/storage-adapter.js';
+import { t } from '../utils/i18n.js';
 
 const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
@@ -979,12 +980,12 @@ export async function updateAIMessage({
 
 async function fetchImageBlob(imageSource) {
     if (!isHttpImageUrl(imageSource)) {
-        throw new Error('不支持的远端图片地址');
+        throw new Error(t('chat.remoteImageUnsupported'));
     }
 
     const response = await fetch(imageSource);
     if (!response.ok) {
-        throw new Error(`拉取远端图片失败: HTTP ${response.status}`);
+        throw new Error(t('chat.remoteImageFetchFailed', { status: response.status }));
     }
 
     return await response.blob();

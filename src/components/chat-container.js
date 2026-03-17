@@ -704,7 +704,7 @@ export function initChatContainer({
                         const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(imageUrl)}`;
                         const response = await fetch(proxyUrl);
                         if (!response.ok) {
-                            throw new Error(`通过代理获取图片失败: ${response.statusText}`);
+                            throw new Error(t('chat.imageProxyFetchFailed', { statusText: response.statusText }));
                         }
                         blob = await response.blob();
                     }
@@ -715,7 +715,7 @@ export function initChatContainer({
                         new ClipboardItem({ [blob.type]: blob })
                     ]);
                 } else {
-                    throw new Error('无法获取图片数据。');
+                    throw new Error(t('chat.imageDataUnavailable'));
                 }
 
             } catch (err) {

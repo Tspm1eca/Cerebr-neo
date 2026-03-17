@@ -4,6 +4,8 @@
  * 用於加密 WebDAV 同步中的敏感數據（如 API Keys）
  */
 
+import { t } from './i18n.js';
+
 // 加密配置常量
 const CRYPTO_CONFIG = {
     algorithm: 'AES-GCM',
@@ -89,7 +91,7 @@ async function deriveKey(password, salt) {
  */
 export async function encrypt(data, password) {
     if (!password || password.length === 0) {
-        throw new Error('加密密码不能为空');
+        throw new Error(t('crypto.encryptPasswordEmpty'));
     }
 
     const encoder = new TextEncoder();
@@ -135,20 +137,20 @@ export async function encrypt(data, password) {
  */
 export async function decrypt(encryptedData, password, parseJson = true) {
     if (!password || password.length === 0) {
-        throw new Error('解密密码不能为空');
+        throw new Error(t('crypto.decryptPasswordEmpty'));
     }
 
     if (!encryptedData || !encryptedData.salt || !encryptedData.iv || !encryptedData.ciphertext) {
-        throw new Error('加密数据格式无效：缺少必要的加密字段（salt、iv 或 ciphertext）');
+        throw new Error(t('crypto.encryptedDataMissingFields'));
     }
 
     // 檢查加密版本
     const version = encryptedData.version;
     if (version === undefined) {
-        throw new Error('加密数据格式无效：缺少版本标识');
+        throw new Error(t('crypto.encryptedDataMissingVersion'));
     }
     if (version !== 1) {
-        throw new Error(`不支持的加密版本：${version}，当前仅支持版本 1`);
+        throw new Error(t('crypto.unsupportedEncryptedVersion', { version }));
     }
 
     const decoder = new TextDecoder();
@@ -160,7 +162,7 @@ export async function decrypt(encryptedData, password, parseJson = true) {
         iv = new Uint8Array(base64ToArrayBuffer(encryptedData.iv));
         ciphertext = base64ToArrayBuffer(encryptedData.ciphertext);
     } catch (e) {
-        throw new Error('加密数据解码失败：Base64 格式无效');
+        throw new Error(t('crypto.base64Invalid'));
     }
 
     // 派生密鑰
@@ -195,9 +197,9 @@ export async function decrypt(encryptedData, password, parseJson = true) {
     } catch (error) {
         // 解密失敗，提供更具體的錯誤信息
         if (error.name === 'OperationError') {
-            throw new Error('解密失败：密码错误或数据已损坏。请确认您输入的密码与加密时使用的密码一致。');
+            throw new Error(t('crypto.decryptFailedWrongPassword'));
         }
-        throw new Error(`解密过程发生错误：${error.message}`);
+        throw new Error(t('crypto.decryptProcessError', { message: error.message }));
     }
 }
 
@@ -222,12 +224,12 @@ export function isEncrypted(data) {
  */
 export function validatePassword(password) {
     if (!password || password.length === 0) {
-        return { valid: false, message: '密码不能为空' };
+        return { valid: false, message: t('crypto.validationEmpty') };
     }
 
     // 已移除密碼長度限制，允許任意長度的密碼
 
-    return { valid: true, message: '密码有效' };
+    return { valid: true, message: t('crypto.validationValid') };
 }
 
 /**
@@ -299,7 +301,7 @@ async function deriveMasterKey() {
  */
 export async function encryptPasswordForStorage(password) {
     if (!password || password.length === 0) {
-        throw new Error('密碼不能為空');
+        throw new Error(t('crypto.storagePasswordEmpty'));
     }
 
     const encoder = new TextEncoder();
@@ -338,16 +340,16 @@ export async function encryptPasswordForStorage(password) {
  */
 export async function decryptPasswordFromStorage(encryptedPassword) {
     if (!encryptedPassword || !encryptedPassword.iv || !encryptedPassword.ciphertext) {
-        throw new Error('加密密码格式无效：缺少必要的加密字段（iv 或 ciphertext）');
+        throw new Error(t('crypto.encryptedPasswordMissingFields'));
     }
 
     // 檢查加密版本
     const version = encryptedPassword.version;
     if (version === undefined) {
-        throw new Error('加密密码格式无效：缺少版本标签');
+        throw new Error(t('crypto.encryptedPasswordMissingVersion'));
     }
     if (version !== 1) {
-        throw new Error(`不支持的加密密码版本：${version}，当前仅支持版本 1`);
+        throw new Error(t('crypto.unsupportedEncryptedPasswordVersion', { version }));
     }
 
     const decoder = new TextDecoder();
@@ -358,7 +360,7 @@ export async function decryptPasswordFromStorage(encryptedPassword) {
         iv = new Uint8Array(base64ToArrayBuffer(encryptedPassword.iv));
         ciphertext = base64ToArrayBuffer(encryptedPassword.ciphertext);
     } catch (e) {
-        throw new Error('加密密碼解碼失敗：Base64 格式無效');
+        throw new Error(t('crypto.encryptedPasswordBase64Invalid'));
     }
 
     // 派生主密鑰
@@ -381,9 +383,9 @@ export async function decryptPasswordFromStorage(encryptedPassword) {
     } catch (error) {
         // 解密失敗
         if (error.name === 'OperationError') {
-            throw new Error('解密失败：数据已损坏或扩展环境已变更');
+            throw new Error(t('crypto.decryptPasswordFailed'));
         }
-        throw new Error(`解密过程发生错误：${error.message}`);
+        throw new Error(t('crypto.decryptPasswordProcessError', { message: error.message }));
     }
 }
 

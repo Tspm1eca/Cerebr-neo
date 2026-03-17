@@ -1,6 +1,7 @@
 import { storageAdapter } from './storage-adapter.js';
 import { generateTitle } from '../services/title-generator.js';
 import { HISTORY_LIMIT_THRESHOLD } from '../constants/history.js';
+import { t } from './i18n.js';
 
 const CHAT_KEY_PREFIX = 'cerebr_chat_'; // Per-chat key 前綴
 const CHAT_INDEX_KEY = 'cerebr_chat_index'; // 輕量索引
@@ -359,7 +360,7 @@ export class ChatManager {
 
     async switchChat(chatId) {
         if (!this.chats.has(chatId)) {
-            throw new Error('对话不存在');
+            throw new Error(t('chat.notFound'));
         }
 
         const chat = this.chats.get(chatId);
@@ -385,7 +386,7 @@ export class ChatManager {
 
     async deleteChat(chatId) {
         if (!this.chats.has(chatId)) {
-            throw new Error('对话不存在');
+            throw new Error(t('chat.notFound'));
         }
         this.chats.delete(chatId);
         this._removeIndexEntry(chatId);
@@ -477,7 +478,7 @@ export class ChatManager {
     async addMessageToCurrentChat(message, webpageInfo) {
         const currentChat = this.getCurrentChat();
         if (!currentChat) {
-            throw new Error('当前没有活动的对话');
+            throw new Error(t('chat.noActiveChat'));
         }
 
         const isFirstMessage = currentChat.isNew && currentChat.messages.length === 0;
@@ -604,7 +605,7 @@ export class ChatManager {
     async popMessage() {
         const currentChat = this.getCurrentChat();
         if (!currentChat) {
-            throw new Error('对话不存在');
+            throw new Error(t('chat.notFound'));
         }
         currentChat.messages.pop();
         currentChat.updatedAt = new Date().toISOString();

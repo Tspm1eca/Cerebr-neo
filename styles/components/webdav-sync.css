@@ -113,6 +113,14 @@
     opacity: 1;
 }
 
+.webdav-server-container .test-connection-btn:focus,
+.webdav-server-container .test-connection-btn:focus-visible,
+.webdav-server-container .test-connection-btn:active {
+    opacity: 0.6;
+    outline: none;
+    box-shadow: none;
+}
+
 .webdav-server-container .test-connection-btn:disabled {
     cursor: not-allowed;
     opacity: 0.4;
@@ -169,6 +177,14 @@
 
 .toggle-password-btn:hover {
     opacity: 1;
+}
+
+.toggle-password-btn:focus,
+.toggle-password-btn:focus-visible,
+.toggle-password-btn:active {
+    opacity: 0.6;
+    outline: none;
+    box-shadow: none;
 }
 
 /* 自動同步區域 */
@@ -448,10 +464,14 @@
 .webdav-form.disabled #webdav-server-url,
 .webdav-form.disabled #webdav-username,
 .webdav-form.disabled #webdav-password,
-.webdav-form.disabled #webdav-sync-path,
-.webdav-form.disabled #webdav-test-connection,
-.webdav-form.disabled #webdav-toggle-password {
+.webdav-form.disabled #webdav-sync-path {
     opacity: 1;
+    pointer-events: auto;
+}
+
+.webdav-form.disabled #webdav-test-connection:not(:disabled),
+.webdav-form.disabled #webdav-toggle-password {
+    opacity: 0.6;
     pointer-events: auto;
 }
 

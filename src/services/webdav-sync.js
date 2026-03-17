@@ -17,6 +17,7 @@ import {
 import { encrypt, decrypt, isEncrypted, encryptPasswordForStorage, decryptPasswordFromStorage, isEncryptedPassword } from '../utils/crypto.js';
 import { chatManager } from '../utils/chat-manager.js';
 import { computeChatHash } from '../utils/chat-hash.js';
+import { t } from '../utils/i18n.js';
 
 // WebDAV 配置键
 const WEBDAV_CONFIG_KEY = 'webdav_config';
@@ -204,7 +205,7 @@ class WebDAVClient {
             return response;
         } catch (error) {
             if (error.name === 'AbortError') {
-                throw new Error(`请求超时（${timeout / 1000}秒）`);
+                throw new Error(t('webdav.requestTimeout', { seconds: timeout / 1000 }));
             }
             throw error;
         } finally {
@@ -248,7 +249,7 @@ class WebDAVClient {
      */
     async testConnection() {
         if (!this.config.serverUrl || !this.config.username) {
-            throw new Error('请填写服务器地址和用户名');
+            throw new Error(t('webdav.serverUrlUsernameRequired'));
         }
 
         try {
@@ -263,26 +264,26 @@ class WebDAVClient {
             if (response.status === HTTP_STATUS.NOT_FOUND) {
                 const result = await this.createDirectory();
                 if (result.error) {
-                    throw new Error(`同步路径不存在且创建失败: ${result.error}`);
+                    throw new Error(t('webdav.syncPathCreateFailed', { error: result.error }));
                 }
-                return { success: true, message: '连接成功' };
+                return { success: true, message: t('webdav.connectionSuccess') };
             }
 
             if (response.status === HTTP_STATUS.MULTI_STATUS || response.status === HTTP_STATUS.OK) {
                 // 連接成功，將根同步目錄標記為已知存在
                 const syncPath = this._normalizedSyncPath;
                 if (syncPath) this._knownDirectories.add(syncPath);
-                return { success: true, message: '连接成功' };
+                return { success: true, message: t('webdav.connectionSuccess') };
             }
 
             if (response.status === HTTP_STATUS.UNAUTHORIZED) {
-                throw new Error('认证失败，请检查用户名和密码');
+                throw new Error(t('webdav.authFailed'));
             }
 
-            throw new Error(`连接失败: HTTP ${response.status}`);
+            throw new Error(t('webdav.connectionFailedStatus', { status: response.status }));
         } catch (error) {
             if (error.message.includes('Failed to fetch')) {
-                throw new Error('无法连接到服务器，请检查地址是否正确');
+                throw new Error(t('webdav.cannotReachServer'));
             }
             throw error;
         }
@@ -318,7 +319,7 @@ class WebDAVClient {
             if (response.status === HTTP_STATUS.CONFLICT || response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
                 const parentCreated = await this.createParentDirectories();
                 if (!parentCreated) {
-                    return { created: false, error: '无法创建父目录' };
+                    return { created: false, error: t('webdav.createParentDirFailed') };
                 }
                 // createParentDirectories 已建立整條路徑（含 syncPath 本身）
                 return { created: true, error: null };
@@ -429,13 +430,13 @@ class WebDAVClient {
             });
 
             if (response.status === HTTP_STATUS.FAILED_DEPENDENCY || response.status === HTTP_STATUS.CONFLICT) {
-                const error = new Error(`上传失败: HTTP ${response.status}`);
+                const error = new Error(t('webdav.uploadFailedStatus', { status: response.status }));
                 error.status = response.status;
                 throw error;
             }
 
             if (!response.ok && response.status !== HTTP_STATUS.CREATED && response.status !== HTTP_STATUS.NO_CONTENT) {
-                const error = new Error(`上传失败: HTTP ${response.status}`);
+                const error = new Error(t('webdav.uploadFailedStatus', { status: response.status }));
                 error.status = response.status;
                 throw error;
             }
@@ -464,13 +465,13 @@ class WebDAVClient {
             }
 
             if (response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                const error = new Error(`下载失败: HTTP ${response.status}`);
+                const error = new Error(t('webdav.downloadFailedStatus', { status: response.status }));
                 error.status = response.status;
                 throw error;
             }
 
             if (!response.ok) {
-                const error = new Error(`下载失败: HTTP ${response.status}`);
+                const error = new Error(t('webdav.downloadFailedStatus', { status: response.status }));
                 error.status = response.status;
                 throw error;
             }
@@ -481,7 +482,7 @@ class WebDAVClient {
             try {
                 return { data: JSON.parse(text), etag };
             } catch (e) {
-                throw new Error('数据格式错误');
+                throw new Error(t('webdav.dataFormatError'));
             }
         };
 
@@ -506,7 +507,7 @@ class WebDAVClient {
         });
 
         if (!response.ok && response.status !== HTTP_STATUS.NOT_FOUND) {
-            throw new Error(`删除失败: HTTP ${response.status}`);
+            throw new Error(t('webdav.deleteFailed', { status: response.status }));
         }
 
         return true;
@@ -529,13 +530,13 @@ class WebDAVClient {
             }
 
             if (response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                const error = new Error(`获取 ETag 失败: HTTP ${response.status}`);
+                const error = new Error(t('webdav.etagFailedStatus', { status: response.status }));
                 error.status = response.status;
                 throw error;
             }
 
             if (!response.ok) {
-                const error = new Error(`获取 ETag 失败: HTTP ${response.status}`);
+                const error = new Error(t('webdav.etagFailedStatus', { status: response.status }));
                 error.status = response.status;
                 throw error;
             }
@@ -885,15 +886,15 @@ class WebDAVSyncManager {
      */
     async syncToRemote(options = {}) {
         if (!this.config.enabled) {
-            throw new Error('WebDAV未启用');
+            throw new Error(t('webdav.notEnabled'));
         }
 
         if (this._isEncryptionIncomplete()) {
-            throw new Error('加密已启用但未设置加密密码');
+            throw new Error(t('webdav.encryptionPasswordMissing'));
         }
 
         if (this.client.syncInProgress) {
-            throw new Error('同步正在进行中');
+            throw new Error(t('webdav.syncInProgress'));
         }
 
         this.client.syncInProgress = true;
@@ -907,7 +908,7 @@ class WebDAVSyncManager {
                 await this.getLocalSyncData();
 
             if (!localData) {
-                throw new Error('无法获取本地数据');
+                throw new Error(t('webdav.localDataUnavailable'));
             }
 
             const chats = localData.chats || [];
@@ -959,7 +960,7 @@ class WebDAVSyncManager {
                         changedChatCount: 0,
                         includesApiConfig: false
                     });
-                    return { success: true, message: '数据无变更', timestamp: lastSync };
+                    return { success: true, message: t('webdav.noChanges'), timestamp: lastSync };
                 }
             }
 
@@ -967,7 +968,7 @@ class WebDAVSyncManager {
             if (changedChats.length > 0) {
                 const dirResult = await this.client.createDirectoryAtPath(CHAT_DIRECTORY);
                 if (dirResult?.error) {
-                    throw new Error(`创建聊天目录失败: ${dirResult.error}`);
+                    throw new Error(t('webdav.createChatDirFailed', { error: dirResult.error }));
                 }
             }
 
@@ -1015,7 +1016,7 @@ class WebDAVSyncManager {
                         console.log('[WebDAV] API 配置已加密');
                     } catch (encryptError) {
                         console.error('[WebDAV] 加密 API 配置失败:', encryptError);
-                        throw new Error('加密 API 配置失败: ' + encryptError.message);
+                        throw new Error(t('webdav.encryptApiConfigFailed', { error: encryptError.message }));
                     }
                 }
             }
@@ -1074,15 +1075,15 @@ class WebDAVSyncManager {
      */
     async syncFromRemote(options = {}) {
         if (!this.config.enabled) {
-            throw new Error('WebDAV 未启用');
+            throw new Error(t('webdav.notEnabled'));
         }
 
         if (this._isEncryptionIncomplete()) {
-            throw new Error('加密已启用但未设置加密密码');
+            throw new Error(t('webdav.encryptionPasswordMissing'));
         }
 
         if (this.client.syncInProgress) {
-            throw new Error('同步正在进行中');
+            throw new Error(t('webdav.syncInProgress'));
         }
 
         this.client.syncInProgress = true;
@@ -1111,11 +1112,11 @@ class WebDAVSyncManager {
             const downloadETag = downloadResult.etag;
 
             if (!syncData) {
-                throw new Error('远端没有同步数据');
+                throw new Error(t('webdav.remoteDataMissing'));
             }
 
             if (!Array.isArray(syncData.chatIndex)) {
-                throw new Error('同步数据格式错误');
+                throw new Error(t('webdav.syncDataInvalid'));
             }
 
             // 載入本地聊天以進行比對（從 ChatManager 記憶體讀取，無 I/O）
@@ -1217,13 +1218,13 @@ class WebDAVSyncManager {
 
                 if (syncData.apiSettingsEncrypted && isEncrypted(apiSettings)) {
                     if (!this.config.encryptionPassword) {
-                        throw new Error('远端 API 配置已加密，请设置解密密码');
+                        throw new Error(t('webdav.remoteApiConfigEncrypted'));
                     }
                     try {
                         apiSettings = await decrypt(apiSettings, this.config.encryptionPassword);
                         console.log('[WebDAV] API 配置已解密');
                     } catch (decryptError) {
-                        throw new Error('解密API配置失败<br>密码错误或数据已损坏');
+                        throw new Error(t('webdav.decryptApiConfigFailed'));
                     }
                 }
 
@@ -1299,11 +1300,11 @@ class WebDAVSyncManager {
      */
     async bidirectionalSync(options = {}) {
         if (!this.config.enabled) {
-            throw new Error('WebDAV 未启用');
+            throw new Error(t('webdav.notEnabled'));
         }
 
         if (this.client.syncInProgress) {
-            throw new Error('同步正在进行中');
+            throw new Error(t('webdav.syncInProgress'));
         }
 
         this.client.syncInProgress = true;
@@ -1325,7 +1326,7 @@ class WebDAVSyncManager {
             const downloadETag = downloadResult.etag;
 
             if (!remoteManifest || !Array.isArray(remoteManifest.chatIndex)) {
-                throw new Error('远端同步数据格式错误');
+                throw new Error(t('webdav.remoteSyncDataInvalid'));
             }
 
             // 3. 取得本地資料、chatIndex
@@ -1333,7 +1334,7 @@ class WebDAVSyncManager {
                 await this.getLocalSyncData();
 
             if (!localData) {
-                throw new Error('无法获取本地数据');
+                throw new Error(t('webdav.localDataUnavailable'));
             }
 
             const localChats = localData.chats || [];
@@ -1464,7 +1465,7 @@ class WebDAVSyncManager {
             if (chatsToUpload.length > 0) {
                 const dirResult = await this.client.createDirectoryAtPath(CHAT_DIRECTORY);
                 if (dirResult?.error) {
-                    throw new Error(`创建聊天目录失败: ${dirResult.error}`);
+                    throw new Error(t('webdav.createChatDirFailed', { error: dirResult.error }));
                 }
             }
 
@@ -1509,7 +1510,7 @@ class WebDAVSyncManager {
                         manifest.apiSettingsEncrypted = true;
                     } catch (encryptError) {
                         console.error('[WebDAV] 加密 API 配置失败:', encryptError);
-                        throw new Error('加密 API 配置失败: ' + encryptError.message);
+                        throw new Error(t('webdav.encryptApiConfigFailed', { error: encryptError.message }));
                     }
                 }
             }
