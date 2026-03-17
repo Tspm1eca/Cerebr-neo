@@ -1911,7 +1911,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     apiKey: '',
                     baseUrl: 'https://api.CloseAi.com/v1/chat/completions',
                     modelName: '',
-                    profileName: '配置 1',
+                    profileName: t('api.profileDefault', { index: 1 }),
                     advancedSettings: {
                         systemPrompt: await getDefaultSystemPrompt(),
                         isExpanded: false
@@ -1940,7 +1940,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 apiKey: '',
                 baseUrl: 'https://api.CloseAi.com/v1/chat/completions',
                 modelName: '',
-                profileName: '配置 1',
+                profileName: t('api.profileDefault', { index: 1 }),
                 advancedSettings: {
                     systemPrompt: await getDefaultSystemPrompt(),
                     isExpanded: false
