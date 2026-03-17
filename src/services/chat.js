@@ -82,6 +82,76 @@ function withTimeout(promise, timeout, errorMessage, errorType = 'stream') {
     });
 }
 
+function escapeRegExp(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function applyPromptTemplate(template, variables = {}) {
+    if (typeof template !== 'string' || !template) {
+        return template || '';
+    }
+
+    return Object.entries(variables).reduce((acc, [key, value]) => {
+        if (value == null) {
+            return acc;
+        }
+        const normalizedValue = String(value);
+        const pattern = new RegExp(`\\{\\{${escapeRegExp(key)}\\}\\}`, 'gm');
+        return acc.replace(pattern, normalizedValue);
+    }, template);
+}
+
+function resolveBrowserTimezone() {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+        return 'UTC';
+    }
+}
+
+function formatDateInTimezone(date, timezone) {
+    try {
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: timezone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).formatToParts(date);
+        const year = parts.find(part => part.type === 'year')?.value;
+        const month = parts.find(part => part.type === 'month')?.value;
+        const day = parts.find(part => part.type === 'day')?.value;
+        if (year && month && day) {
+            return `${year}-${month}-${day}`;
+        }
+    } catch {
+        // ignore and fallback below
+    }
+
+    const localYear = date.getFullYear();
+    const localMonth = String(date.getMonth() + 1).padStart(2, '0');
+    const localDay = String(date.getDate()).padStart(2, '0');
+    return `${localYear}-${localMonth}-${localDay}`;
+}
+
+function buildPromptTemplateVariables(userLanguage = 'en') {
+    const timezone = resolveBrowserTimezone();
+    const currentDate = formatDateInTimezone(new Date(), timezone);
+
+    let userLanguageName = userLanguage;
+    try {
+        userLanguageName = new Intl.DisplayNames(['en'], { type: 'language' }).of(userLanguage) || userLanguage;
+    } catch {
+        userLanguageName = userLanguage;
+    }
+
+    return {
+        userLanguageName,
+        userLanguage,
+        currentDate,
+        timezone
+    };
+}
+
 const REDIRECT_HTTP_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 function createAPIResponseError(message, { code = 'API_RESPONSE_ERROR', status = null } = {}) {
@@ -297,9 +367,10 @@ export function formatAIErrorMessage(error, fallbackMessage = '') {
  * @param {string} rawQuery - 原始查詢文本
  * @param {APIConfig} apiConfig - API 配置
  * @param {Array<Message>} [contextMessages=[]] - 用於提取關鍵字的上下文消息（僅取最近 7 條）
+ * @param {Object} [promptTemplateVariables={}] - 提示詞模板變量
  * @returns {Promise<string>} 提取後的英文關鍵字
  */
-async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessages = []) {
+async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessages = [], promptTemplateVariables = {}) {
     if (!rawQuery || typeof rawQuery !== 'string' || !rawQuery.trim()) {
         throw new Error(t('service.keywordEmpty'));
     }
@@ -325,7 +396,7 @@ async function generateSearchKeywordsWithLLM(rawQuery, apiConfig, contextMessage
                     messages: [
                         {
                             role: 'system',
-                            content: await getWebSearchToolQueryDescription()
+                            content: applyPromptTemplate(await getWebSearchToolQueryDescription(), promptTemplateVariables)
                         },
                         {
                             role: 'user',
@@ -476,18 +547,21 @@ function buildKeywordContextForQuery(messages, rawQuery, maxMessages = 7) {
 /**
  * 网络搜索工具定义（用于 Function Calling）
  */
-async function createWebSearchTool() {
+async function createWebSearchTool(promptTemplateVariables = {}) {
+    const toolDescription = applyPromptTemplate(await getWebSearchToolDescription(), promptTemplateVariables);
+    const queryDescription = applyPromptTemplate(await getWebSearchToolQueryDescription(), promptTemplateVariables);
+
     return {
         type: "function",
         function: {
             name: "web_search",
-            description: await getWebSearchToolDescription(),
+            description: toolDescription,
             parameters: {
                 type: "object",
                 properties: {
                     query: {
                         type: "string",
-                        description: await getWebSearchToolQueryDescription()
+                        description: queryDescription
                     }
                 },
                 required: ["query"]
@@ -686,6 +760,7 @@ export async function callAPI({
 
     // 构建系统消息
     let systemMessageContent = '';
+    const promptTemplateVariables = buildPromptTemplateVariables(userLanguage);
 
     // 獲取用戶設定的 systemPrompt
     // 網絡搜索模式（on/auto）強制使用 WEB_SEARCH_SYSTEM_PROMPT
@@ -707,10 +782,7 @@ export async function callAPI({
     } else {
         userSystemPrompt = '';
     }
-    const userLanguageName = new Intl.DisplayNames(['en'], { type: 'language' }).of(userLanguage);
-    const processedSystemPrompt = userSystemPrompt
-        .replace(/\{\{userLanguageName\}\}/gm, userLanguageName)
-        .replace(/\{\{userLanguage\}\}/gm, userLanguage);
+    const processedSystemPrompt = applyPromptTemplate(userSystemPrompt, promptTemplateVariables);
 
     if (webpageInfo && webpageInfo.pages && webpageInfo.pages.length > 0) {
         const pagesContent = webpageInfo.pages.map(page => {
@@ -764,7 +836,7 @@ export async function callAPI({
 
         let extractedQuery;
         try {
-            extractedQuery = await generateSearchKeywordsWithLLM(rawQuery, apiConfig, messages);
+            extractedQuery = await generateSearchKeywordsWithLLM(rawQuery, apiConfig, messages, promptTemplateVariables);
         } catch (error) {
             console.error('on 模式關鍵字提取失敗，fallback 到原始查詢:', error);
             extractedQuery = rawQuery.trim();
@@ -881,7 +953,7 @@ export async function callAPI({
     // 如果是自动模式，添加工具定义
     let webSearchTool;
     if (useToolCalling) {
-        webSearchTool = await createWebSearchTool();
+        webSearchTool = await createWebSearchTool(promptTemplateVariables);
         requestBody.tools = [webSearchTool];
         requestBody.tool_choice = "auto";
     }
