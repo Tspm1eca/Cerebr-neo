@@ -23,6 +23,7 @@ import { initWebDAVSettings, showToast as showWebDAVToast } from './components/w
 import { webdavSyncManager } from './services/webdav-sync.js';
 import { initI18n, t } from './utils/i18n.js';
 import { fetchAndCacheRemotePrompts, getDefaultSystemPrompt } from './services/remote-prompts.js';
+import { hideMenuWithAnimation, showMenuWithAnimation } from './utils/menu-animation.js';
 import {
     USER_QUESTION_HISTORY_STORAGE_KEY,
     sanitizeUserQuestions
@@ -870,11 +871,16 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     document.addEventListener('click', (e) => {
         // 如果点击的不是设置按钮本身和设置菜单，就关闭菜单
         if (!settingsButton.contains(e.target) && !settingsMenu.contains(e.target)) {
-            settingsMenu.classList.remove('visible');
+            hideMenuWithAnimation(settingsMenu);
         }
        if (!webpageQAContainer.contains(e.target) && !webpageContentMenu.contains(e.target)) {
            webpageContentMenu.classList.remove('visible');
        }
+        if (!newChatButton.contains(e.target) && !modelSelectorMenu.contains(e.target)) {
+            isModelSearchFocused = false;
+            clearTimeout(modelSelectorTimeout);
+            hideMenuWithAnimation(modelSelectorMenu);
+        }
     });
 
     // Close subpages with Escape key
@@ -931,13 +937,13 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         clearTimeout(menuTimeout);
         // 互斥：立即關閉 model-selector-menu
         clearTimeout(modelSelectorTimeout);
-        modelSelectorMenu.classList.remove('visible');
-        settingsMenu.classList.add('visible');
+        hideMenuWithAnimation(modelSelectorMenu);
+        showMenuWithAnimation(settingsMenu);
     };
 
     const hideMenu = () => {
         scheduleHide(menuTimeout, t => menuTimeout = t, isSettingsAreaHovered, () => {
-            settingsMenu.classList.remove('visible');
+            hideMenuWithAnimation(settingsMenu);
             webpageContentMenu.classList.remove('visible');
         });
     };
@@ -958,7 +964,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     // 点击按钮：不再切换 settings-menu，改为快速切换“传送网页”
     settingsButton.addEventListener('click', (e) => {
         e.stopPropagation();
-        settingsMenu.classList.remove('visible');
+        hideMenuWithAnimation(settingsMenu);
         webpageContentMenu.classList.remove('visible');
 
         if (sendWebpageSwitch) {
@@ -972,15 +978,32 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     let modelListCache = {}; // 緩存模型列表
     let isModelSearchFocused = false; // 追蹤搜索框焦點狀態
 
-    // 獲取模型列表
-    async function fetchModelList(force = false) {
-        const config = apiConfigs[selectedConfigIndex];
+    function getModelCacheContext(config = apiConfigs[selectedConfigIndex]) {
         if (!config?.apiKey || !config?.baseUrl) {
             return null;
         }
-
         const baseUrl = config.baseUrl.replace(/\/chat\/completions$/, '');
-        const cacheKey = `${baseUrl}:${config.apiKey}`;
+        return {
+            baseUrl,
+            cacheKey: `${baseUrl}:${config.apiKey}`
+        };
+    }
+
+    function getCachedModels(config = apiConfigs[selectedConfigIndex]) {
+        const cacheContext = getModelCacheContext(config);
+        if (!cacheContext) return null;
+        return modelListCache[cacheContext.cacheKey] || null;
+    }
+
+    // 獲取模型列表
+    async function fetchModelList(force = false) {
+        const config = apiConfigs[selectedConfigIndex];
+        const cacheContext = getModelCacheContext(config);
+        if (!cacheContext) {
+            return null;
+        }
+
+        const { baseUrl, cacheKey } = cacheContext;
 
         if (!force && modelListCache[cacheKey]) {
             return modelListCache[cacheKey];
@@ -1012,6 +1035,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         const listContainer = modelSelectorMenu.querySelector('.model-selector-list');
         const emptyContainer = modelSelectorMenu.querySelector('.model-selector-empty');
         const config = apiConfigs[selectedConfigIndex];
+        const normalizedFilterText = typeof filterText === 'string' ? filterText.trim() : '';
+        const normalizedFilterQuery = normalizedFilterText.toLowerCase();
 
         // 動畫：如果菜單可見，記錄起始尺寸
         const isVisible = modelSelectorMenu.classList.contains('visible');
@@ -1033,8 +1058,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             }
 
             // 根據篩選文字過濾模型
-            const filteredModels = filterText
-                ? models.filter(model => model.toLowerCase().includes(filterText.toLowerCase()))
+            const filteredModels = normalizedFilterText
+                ? models.filter(model => model.toLowerCase().includes(normalizedFilterQuery))
                 : models;
 
             if (filteredModels.length === 0) {
@@ -1063,6 +1088,15 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 });
                 listContainer.appendChild(item);
             });
+
+            // 輸入篩選詞後，讓鍵盤導航預設從當前使用中的模型開始
+            if (normalizedFilterText) {
+                const selectedItem = listContainer.querySelector('.model-selector-item.selected');
+                if (selectedItem) {
+                    selectedItem.classList.add('highlighted');
+                    selectedItem.scrollIntoView({ block: 'nearest' });
+                }
+            }
         };
 
         updateDOM();
@@ -1127,9 +1161,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         clearTimeout(modelSelectorTimeout);
         // 互斥：立即關閉 settings-menu
         clearTimeout(menuTimeout);
-        settingsMenu.classList.remove('visible');
+        hideMenuWithAnimation(settingsMenu);
         webpageContentMenu.classList.remove('visible');
-        modelSelectorMenu.classList.add('visible');
+        showMenuWithAnimation(modelSelectorMenu);
 
         const searchInput = modelSelectorMenu.querySelector('.model-search-input');
         const config = apiConfigs[selectedConfigIndex];
@@ -1146,12 +1180,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             return;
         }
 
-        // 檢查緩存
-        const baseUrl = config.baseUrl.replace(/\/chat\/completions$/, '');
-        const cacheKey = `${baseUrl}:${config.apiKey}`;
-
-        if (modelListCache[cacheKey]) {
-            renderModelSelectorList(modelListCache[cacheKey]);
+        const cachedModels = getCachedModels(config);
+        if (cachedModels) {
+            renderModelSelectorList(cachedModels);
             return;
         }
 
@@ -1165,7 +1196,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         // 如果搜索框有焦點，不隱藏菜單
         if (isModelSearchFocused) return;
         scheduleHide(modelSelectorTimeout, t => modelSelectorTimeout = t, isModelSelectorHovered, () => {
-            modelSelectorMenu.classList.remove('visible');
+            hideMenuWithAnimation(modelSelectorMenu);
         });
     }
 
@@ -1194,7 +1225,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
     // 點擊新對話按鈕時隱藏子菜單
     newChatButton.addEventListener('click', () => {
-        modelSelectorMenu.classList.remove('visible');
+        hideMenuWithAnimation(modelSelectorMenu);
     });
 
     // 模型搜索輸入框事件
@@ -1203,11 +1234,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         // 輸入時篩選模型列表
         modelSearchInput.addEventListener('input', (e) => {
             const config = apiConfigs[selectedConfigIndex];
-            if (!config?.apiKey || !config?.baseUrl) return;
-
-            const baseUrl = config.baseUrl.replace(/\/chat\/completions$/, '');
-            const cacheKey = `${baseUrl}:${config.apiKey}`;
-            const models = modelListCache[cacheKey];
+            const models = getCachedModels(config);
 
             if (models) {
                 renderModelSelectorList(models, e.target.value);
@@ -1239,12 +1266,16 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             const listContainer = modelSelectorMenu.querySelector('.model-selector-list');
             const items = listContainer.querySelectorAll('.model-selector-item');
             const highlightedItem = listContainer.querySelector('.model-selector-item.highlighted');
+            const selectedItem = listContainer.querySelector('.model-selector-item.selected');
 
             if (items.length === 0) return;
 
+            const itemArray = Array.from(items);
             let currentIndex = -1;
             if (highlightedItem) {
-                currentIndex = Array.from(items).indexOf(highlightedItem);
+                currentIndex = itemArray.indexOf(highlightedItem);
+            } else if (selectedItem) {
+                currentIndex = itemArray.indexOf(selectedItem);
             }
 
             switch (e.key) {
@@ -1262,19 +1293,30 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     items[currentIndex].classList.add('highlighted');
                     items[currentIndex].scrollIntoView({ block: 'nearest' });
                     break;
-                case 'Enter':
+                case 'Enter': {
                     e.preventDefault();
                     // 先讓搜索框失去焦點，確保 hideModelSelectorMenu 能正常工作
                     modelSearchInput.blur();
-                    if (highlightedItem) {
-                        selectModel(highlightedItem.textContent);
-                    } else if (items.length > 0) {
-                        selectModel(items[0].textContent);
+                    const targetItem = highlightedItem || selectedItem || items[0];
+                    if (targetItem) {
+                        selectModel(targetItem.textContent);
                     }
                     break;
+                }
                 case 'Escape':
                     e.preventDefault();
-                    hideModelSelectorMenu();
+                    if (modelSearchInput.value !== '') {
+                        modelSearchInput.value = '';
+                        const config = apiConfigs[selectedConfigIndex];
+                        const models = getCachedModels(config);
+                        if (models) {
+                            renderModelSelectorList(models, '');
+                        }
+                    } else {
+                        modelSearchInput.blur();
+                        clearTimeout(modelSelectorTimeout);
+                        hideMenuWithAnimation(modelSelectorMenu);
+                    }
                     break;
             }
         });
@@ -1772,7 +1814,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
    unifiedSettingsToggle.addEventListener('click', () => {
        unifiedSettingsPage.style.display = 'flex';
-       settingsMenu.classList.remove('visible');
+       hideMenuWithAnimation(settingsMenu);
    });
 
    backButton.addEventListener('click', () => {

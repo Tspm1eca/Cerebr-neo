@@ -7,6 +7,7 @@ import { adjustTextareaHeight, createImageTag, showImagePreview, hideImagePrevie
 import { handleImageDrop, compressImage, createThumbnailImage, processImageWithPreview } from '../utils/image.js';
 import { t } from '../utils/i18n.js';
 import { normalizeUserQuestion, trimUserQuestionHistory } from '../utils/question-history.js';
+import { hideMenuWithAnimation } from '../utils/menu-animation.js';
 
 // 跟踪输入法状态
 let isComposing = false;
@@ -672,7 +673,7 @@ export function initMessageInput(config) {
 
         // 如果存在设置菜单，则隐藏它
         if (settingsMenu) {
-            settingsMenu.classList.remove('visible');
+            hideMenuWithAnimation(settingsMenu);
         }
 
         // 如果存在网页内容菜单，则隐藏它

@@ -3,6 +3,7 @@ import { storageAdapter, browserAdapter, isExtensionEnvironment } from '../utils
 import { toggleQuickChatOptions } from './quick-chat.js';
 import { t } from '../utils/i18n.js';
 import { HISTORY_LIMIT_THRESHOLD } from '../constants/history.js';
+import { hideMenuWithAnimation } from '../utils/menu-animation.js';
 
 function updateHistoryCountDisplay(totalCount) {
     const historyCountElement = document.getElementById('chat-history-count');
@@ -272,7 +273,7 @@ export function initializeChatList({
         // 新建对话后，立即渲染一次列表，以显示这个“新对话”
         const chatCards = chatListPage.querySelector('.chat-cards');
         renderChatList(chatManager, chatCards);
-        settingsMenu.classList.remove('visible');
+        hideMenuWithAnimation(settingsMenu);
         messageInput.focus();
     });
 
@@ -284,7 +285,7 @@ export function initializeChatList({
             renderChatList(chatManager, chatCards);
             console.log(`[Cerebr] 共有 ${chatManager.getAllChats().length} 條歷史記錄`);
         });
-        settingsMenu.classList.remove('visible');
+        hideMenuWithAnimation(settingsMenu);
     };
 
     // 用於去重 pointerdown 後的相容 click 事件
