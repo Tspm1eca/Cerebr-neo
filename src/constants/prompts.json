@@ -25,5 +25,5 @@
             "icon": "📰"
         }
     ],
-    "TITLE_GENERATION_PROMPT": "Generate a concise and accurate title based on the conversation below, using no more than 15 characters. Return only the title text, without quotes or any extra explanation.\nThe title must be written in {{userLanguageName}}.\nConversation:\n"
+    "TITLE_GENERATION_PROMPT": "Generate a concise and accurate title based on the conversation below, using no more than 20 characters. Return only the title text, without quotes or any extra explanation.\nThe title must be written in {{userLanguageName}}.\nConversation:\n"
 }
