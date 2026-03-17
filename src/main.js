@@ -317,13 +317,23 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     }
 
 
+    const triggerNewChatFromShortcut = () => {
+        // 快捷键触发新对话时，若正在生成则先复用停止按钮逻辑中止生成
+        if (stopResponseButton.classList.contains('button-visible')) {
+            stopResponseButton.click();
+        }
+        newChatButton.click();
+        messageInput.focus();
+    };
+
     // 监听来自 content script 的消息
     window.addEventListener('message', (event) => {
         // 使用消息输入组件的窗口消息处理函数
         handleWindowMessage(event, {
             messageInput,
             newChatButton,
-            uiConfig
+            uiConfig,
+            onNewChatShortcut: triggerNewChatFromShortcut
         });
 
         // 处理检查对话状态的消息
@@ -339,8 +349,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     if (isExtensionEnvironment && chrome.runtime?.onMessage) {
         chrome.runtime.onMessage.addListener((message) => {
             if (message.type === 'NEW_CHAT') {
-                newChatButton.click();
-                messageInput.focus();
+                triggerNewChatFromShortcut();
             }
         });
     }
