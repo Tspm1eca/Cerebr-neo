@@ -1130,7 +1130,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     }
 
     // 選擇模型
-    async function selectModel(modelName) {
+    async function selectModel(modelName, { forceClose = false } = {}) {
         const config = apiConfigs[selectedConfigIndex];
         if (config) {
             config.modelName = modelName;
@@ -1151,8 +1151,14 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             // 重新渲染 API 卡片以更新設置頁面中的模型名稱顯示
             await renderAPICardsWithCallbacks();
 
-            // 隱藏子菜單
-            hideModelSelectorMenu();
+            // Enter 鍵選擇時強制關閉；滑鼠點擊保留原有 hover 延遲隱藏邏輯
+            if (forceClose) {
+                isModelSearchFocused = false;
+                clearTimeout(modelSelectorTimeout);
+                hideMenuWithAnimation(modelSelectorMenu);
+            } else {
+                hideModelSelectorMenu();
+            }
         }
     }
 
@@ -1299,7 +1305,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     modelSearchInput.blur();
                     const targetItem = highlightedItem || selectedItem || items[0];
                     if (targetItem) {
-                        selectModel(targetItem.textContent);
+                        selectModel(targetItem.textContent, { forceClose: true });
                     }
                     break;
                 }
