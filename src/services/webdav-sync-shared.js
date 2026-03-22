@@ -82,9 +82,84 @@ export async function runWithConcurrency(tasks, concurrency) {
     return runWorkerQueue(tasks, concurrency);
 }
 
+function normalizeTimestampToIso(value) {
+    const parsed = Date.parse(value || '');
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function normalizeTombstoneRecord(tombstone) {
+    if (!tombstone?.id) return null;
+
+    const deletedAt = normalizeTimestampToIso(tombstone.deletedAt);
+    if (!deletedAt) return null;
+
+    const normalized = {
+        id: tombstone.id,
+        deletedAt
+    };
+    const fileDeletedAt = normalizeTimestampToIso(tombstone.fileDeletedAt);
+    if (fileDeletedAt) {
+        normalized.fileDeletedAt = fileDeletedAt;
+    }
+    return normalized;
+}
+
+export function mergeTombstoneRecords(left, right) {
+    if (!left) return right ? { ...right } : null;
+    if (!right) return left ? { ...left } : null;
+
+    const leftDeletedMs = Date.parse(left.deletedAt || '');
+    const rightDeletedMs = Date.parse(right.deletedAt || '');
+    if (Number.isFinite(leftDeletedMs) && Number.isFinite(rightDeletedMs)) {
+        if (rightDeletedMs > leftDeletedMs) {
+            return { ...right };
+        }
+        if (rightDeletedMs < leftDeletedMs) {
+            return { ...left };
+        }
+    }
+
+    const leftFileDeletedAt = normalizeTimestampToIso(left.fileDeletedAt);
+    const rightFileDeletedAt = normalizeTimestampToIso(right.fileDeletedAt);
+    let fileDeletedAt = leftFileDeletedAt || rightFileDeletedAt || null;
+    if (leftFileDeletedAt && rightFileDeletedAt) {
+        fileDeletedAt = leftFileDeletedAt >= rightFileDeletedAt ? leftFileDeletedAt : rightFileDeletedAt;
+    }
+
+    return {
+        id: right.id || left.id,
+        deletedAt: right.deletedAt || left.deletedAt,
+        ...(fileDeletedAt ? { fileDeletedAt } : {})
+    };
+}
+
 export function cleanTombstones(tombstones, maxAgeMs) {
-    const cutoff = Date.now() - maxAgeMs;
-    return tombstones.filter((tombstone) => new Date(tombstone.deletedAt).getTime() > cutoff);
+    const cutoff = Number.isFinite(maxAgeMs)
+        ? (Date.now() - maxAgeMs)
+        : Number.NEGATIVE_INFINITY;
+    const deduped = new Map();
+
+    for (const rawTombstone of (Array.isArray(tombstones) ? tombstones : [])) {
+        const normalized = normalizeTombstoneRecord(rawTombstone);
+        if (!normalized) continue;
+
+        const deletedAtMs = Date.parse(normalized.deletedAt);
+        if (!Number.isFinite(deletedAtMs) || deletedAtMs <= cutoff) {
+            continue;
+        }
+
+        const existing = deduped.get(normalized.id);
+        deduped.set(normalized.id, mergeTombstoneRecords(existing, normalized));
+    }
+
+    return [...deduped.values()].sort((left, right) => {
+        const leftMs = Date.parse(left.deletedAt || '');
+        const rightMs = Date.parse(right.deletedAt || '');
+        if (leftMs !== rightMs) {
+            return leftMs - rightMs;
+        }
+        return String(left.id).localeCompare(String(right.id));
+    });
 }
 
 export function createDefaultMetadataSyncState() {
@@ -138,6 +213,58 @@ export function buildSyncedMetadataSyncState({
             lastSyncedAt: apiSettings === undefined ? null : (apiSettingsUpdatedAt || null),
             modifiedAt: null
         }
+    };
+}
+
+export async function buildUploadMetadataPayload({
+    metadataSyncState = null,
+    previousManifest = null,
+    quickChatOptions,
+    apiSettings,
+    syncApiConfig = false,
+    encryptApiKeys = false,
+    encryptionPassword = '',
+    encryptValue = null,
+    now = new Date().toISOString()
+}) {
+    const normalizedState = normalizeMetadataSyncState(metadataSyncState);
+    const quickChatOptionsForManifest = Array.isArray(quickChatOptions) ? quickChatOptions : [];
+    const quickChatOptionsUpdatedAt = normalizedState.quickChatOptions.modifiedAt ||
+        normalizedState.quickChatOptions.lastSyncedAt ||
+        previousManifest?.quickChatOptionsUpdatedAt ||
+        previousManifest?.timestamp ||
+        now;
+
+    let manifestApiSettings = undefined;
+    let manifestApiSettingsEncrypted = false;
+    let apiSettingsUpdatedAt = null;
+
+    if (syncApiConfig && apiSettings !== undefined) {
+        manifestApiSettings = apiSettings;
+        apiSettingsUpdatedAt = normalizedState.apiSettings.modifiedAt ||
+            normalizedState.apiSettings.lastSyncedAt ||
+            previousManifest?.apiSettingsUpdatedAt ||
+            previousManifest?.timestamp ||
+            now;
+
+        if (encryptApiKeys) {
+            if (!encryptionPassword) {
+                throw new Error(t('webdav.encryptionPasswordMissing'));
+            }
+            if (typeof encryptValue !== 'function') {
+                throw new Error('WebDAV upload metadata encryption is unavailable');
+            }
+            manifestApiSettings = await encryptValue(apiSettings, encryptionPassword);
+            manifestApiSettingsEncrypted = true;
+        }
+    }
+
+    return {
+        quickChatOptionsForManifest,
+        quickChatOptionsUpdatedAt,
+        manifestApiSettings,
+        manifestApiSettingsEncrypted,
+        apiSettingsUpdatedAt
     };
 }
 
@@ -597,28 +724,40 @@ export async function uploadManifestSnapshot({
         await runWorkerQueue(uploadTasks, uploadConcurrency);
     }
 
-    const failedTombstones = new Set();
-    if (tombstones.length > 0) {
-        const deleteTasks = tombstones.map((tombstone) => async () => {
+    const normalizedTombstones = cleanTombstones(tombstones, Number.POSITIVE_INFINITY);
+    const confirmedDeletedIds = new Set();
+    if (normalizedTombstones.length > 0) {
+        const deleteTasks = normalizedTombstones
+            .filter((tombstone) => !tombstone.fileDeletedAt)
+            .map((tombstone) => async () => {
             try {
                 await client.deleteFile(`${CHAT_DIRECTORY}/${tombstone.id}.json`);
+                confirmedDeletedIds.add(tombstone.id);
             } catch (error) {
-                failedTombstones.add(tombstone.id);
                 console.warn(`[WebDAV] 刪除聊天檔案 ${tombstone.id} 失敗:`, error);
             }
         });
         await runWorkerQueue(deleteTasks, uploadConcurrency);
     }
 
-    const deletedIds = new Set(tombstones.map((tombstone) => tombstone.id));
-    const remainingTombstones = tombstones.filter((tombstone) => failedTombstones.has(tombstone.id));
+    const persistedTombstones = normalizedTombstones.map((tombstone) => {
+        if (!confirmedDeletedIds.has(tombstone.id) || tombstone.fileDeletedAt) {
+            return tombstone;
+        }
+        return {
+            ...tombstone,
+            fileDeletedAt: timestamp
+        };
+    });
+
+    const deletedIds = new Set(persistedTombstones.map((tombstone) => tombstone.id));
     const manifestChatIndex = chatIndex.filter((entry) => entry?.id && !deletedIds.has(entry.id));
 
     const manifest = {
         version: 2,
         timestamp,
         chatIndex: manifestChatIndex,
-        deletedChatIds: remainingTombstones
+        deletedChatIds: persistedTombstones
     };
 
     if (Array.isArray(quickChatOptions)) {
@@ -642,7 +781,7 @@ export async function uploadManifestSnapshot({
     return {
         manifest,
         uploadResult,
-        remainingTombstones,
+        persistedTombstones,
         uploadedIds: uploadItems.map(({ chat }) => chat.id)
     };
 }

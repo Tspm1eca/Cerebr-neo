@@ -21,6 +21,7 @@ import { t } from '../utils/i18n.js';
 import {
     CHAT_DIRECTORY as SHARED_CHAT_DIRECTORY,
     UPLOAD_CONCURRENCY as SHARED_UPLOAD_CONCURRENCY,
+    buildUploadMetadataPayload,
     WebDAVClient as SharedWebDAVClient,
     buildSyncedMetadataSyncState,
     cleanTombstones as sharedCleanTombstones,
@@ -82,6 +83,10 @@ function toPositiveInt(value, fallback) {
 function parseTimestampMs(value) {
     const parsed = Date.parse(value || '');
     return Number.isFinite(parsed) ? parsed : null;
+}
+
+function computeTombstoneHash(tombstones) {
+    return computeStructuredHash(sharedCleanTombstones(tombstones, Number.POSITIVE_INFINITY));
 }
 
 // ========== Helper Functions ==========
@@ -477,10 +482,34 @@ class WebDAVSyncManager {
     }
 
     async addDeletedChatId(chatId) {
+        await this.addDeletedChatIds([chatId]);
+    }
+
+    async addDeletedChatIds(chatIds) {
+        const normalizedChatIds = [...new Set((Array.isArray(chatIds) ? chatIds : [chatIds]).filter(Boolean))];
+        if (normalizedChatIds.length === 0) {
+            return;
+        }
+
         const tombstones = await this.loadDeletedChatIds();
-        if (!tombstones.some(t => t.id === chatId)) {
-            tombstones.push({ id: chatId, deletedAt: new Date().toISOString() });
-            await this.saveDeletedChatIds(tombstones);
+        const tombstoneMap = new Map(
+            tombstones
+                .filter((tombstone) => tombstone?.id)
+                .map((tombstone) => [tombstone.id, tombstone])
+        );
+        let changed = false;
+        const deletedAt = new Date().toISOString();
+
+        for (const chatId of normalizedChatIds) {
+            if (tombstoneMap.has(chatId)) {
+                continue;
+            }
+            tombstoneMap.set(chatId, { id: chatId, deletedAt });
+            changed = true;
+        }
+
+        if (changed) {
+            await this.saveDeletedChatIds([...tombstoneMap.values()]);
         }
     }
 
@@ -848,18 +877,23 @@ class WebDAVSyncManager {
 
             // 處理刪除的聊天
             const tombstones = sharedCleanTombstones(await this.loadDeletedChatIds(), TOMBSTONE_MAX_AGE_MS);
+            const previousTombstones = sharedCleanTombstones(previousManifest?.deletedChatIds || [], TOMBSTONE_MAX_AGE_MS);
+            const tombstonesChanged = computeTombstoneHash(tombstones) !== computeTombstoneHash(previousTombstones);
 
-            // 短路：無變更的聊天、無 tombstone、且 overall hash 未改變 → 跳過上傳
-            if (uploadItems.length === 0 && tombstones.length === 0) {
+            // 短路：聊天/metadata/tombstone 均無變更 → 跳過上傳
+            if (uploadItems.length === 0) {
                 const hashResult = await syncStorageAdapter.get(WEBDAV_LOCAL_HASH_KEY);
                 const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];
-                if (localHash === lastLocalHash) {
+                if (localHash === lastLocalHash && !tombstonesChanged) {
                     chatManager.clearDirtyChatIds(dirtySnapshot);
                     if (hasDirtyLocalData) {
                         await this.clearLocalDataDirty();
                     }
-                    this.clearCache();
                     const lastSync = new Date().toISOString();
+                    await syncStorageAdapter.set({
+                        [WEBDAV_LAST_SYNC_KEY]: lastSync
+                    });
+                    this.clearCache();
                     this.notifyListeners('sync-complete', {
                         direction: 'upload',
                         timestamp: lastSync,
@@ -871,35 +905,40 @@ class WebDAVSyncManager {
                 }
             }
 
+            let quickChatOptionsForManifest;
+            let quickChatOptionsUpdatedAt;
             let manifestApiSettings;
             let manifestApiSettingsEncrypted = false;
-            const quickChatOptionsForManifest = this._normalizeQuickChatOptions(localData.quickChatOptions);
-            const quickChatOptionsUpdatedAt = metadataSyncState.quickChatOptions.modifiedAt ||
-                metadataSyncState.quickChatOptions.lastSyncedAt ||
-                previousManifest?.quickChatOptionsUpdatedAt ||
-                previousManifest?.timestamp ||
-                new Date().toISOString();
             let apiSettingsUpdatedAt = null;
-            if (this.config.syncApiConfig && localData.apiSettings) {
-                manifestApiSettings = localData.apiSettings;
-                apiSettingsUpdatedAt = metadataSyncState.apiSettings.modifiedAt ||
-                    metadataSyncState.apiSettings.lastSyncedAt ||
-                    previousManifest?.apiSettingsUpdatedAt ||
-                    previousManifest?.timestamp ||
-                    new Date().toISOString();
-                if (this.config.encryptApiKeys && this.config.encryptionPassword) {
-                    try {
-                        manifestApiSettings = await encrypt(localData.apiSettings, this.config.encryptionPassword);
-                        manifestApiSettingsEncrypted = true;
-                        console.log('[WebDAV] API 配置已加密');
-                    } catch (encryptError) {
-                        console.error('[WebDAV] 加密 API 配置失败:', encryptError);
-                        throw new Error(t('webdav.encryptApiConfigFailed', { error: encryptError.message }));
-                    }
+            try {
+                ({
+                    quickChatOptionsForManifest,
+                    quickChatOptionsUpdatedAt,
+                    manifestApiSettings,
+                    manifestApiSettingsEncrypted,
+                    apiSettingsUpdatedAt
+                } = await buildUploadMetadataPayload({
+                    metadataSyncState,
+                    previousManifest,
+                    quickChatOptions: localData.quickChatOptions,
+                    apiSettings: localData.apiSettings,
+                    syncApiConfig: this.config.syncApiConfig,
+                    encryptApiKeys: this.config.encryptApiKeys,
+                    encryptionPassword: this.config.encryptionPassword,
+                    encryptValue: encrypt
+                }));
+                if (manifestApiSettingsEncrypted) {
+                    console.log('[WebDAV] API 配置已加密');
                 }
+            } catch (encryptError) {
+                if (this.config.syncApiConfig && localData.apiSettings && this.config.encryptApiKeys) {
+                    console.error('[WebDAV] 加密 API 配置失败:', encryptError);
+                    throw new Error(t('webdav.encryptApiConfigFailed', { error: encryptError.message }));
+                }
+                throw encryptError;
             }
 
-            const { manifest, uploadResult, remainingTombstones } = await uploadManifestSnapshot({
+            const { manifest, uploadResult, persistedTombstones } = await uploadManifestSnapshot({
                 client: this.client,
                 initialChatIndex: chatIndex,
                 uploadItems,
@@ -929,7 +968,7 @@ class WebDAVSyncManager {
             await this._batchSavePostSyncState({
                 manifest,
                 localChatHashes,
-                tombstones: remainingTombstones,
+                tombstones: persistedTombstones,
                 etag: newETag || `__needs_refresh_${Date.now()}`,
                 localHash,
                 lastSync,
@@ -992,23 +1031,23 @@ class WebDAVSyncManager {
             const dirtySnapshot = new Set(chatManager.getDirtyChatIds());
 
             const currentChatId = options.currentChatId || null;
+            let currentRemoteChatRequest = null;
+            const loadCurrentRemoteChat = async () => {
+                if (!currentChatId) {
+                    return { data: null, etag: null, error: null };
+                }
+                if (!currentRemoteChatRequest) {
+                    currentRemoteChatRequest = this.client
+                        .downloadData(`${SHARED_CHAT_DIRECTORY}/${currentChatId}.json`)
+                        .catch((error) => {
+                            console.warn(`[WebDAV] 当前聊天 ${currentChatId} 下载失敗:`, error);
+                            return { data: null, etag: null, error };
+                        });
+                }
+                return await currentRemoteChatRequest;
+            };
 
-            // 並行下載 manifest 和當前聊天（省一次 HTTP 往返）
-            const downloadPromises = [
-                this.client.downloadData('cerebr.json')
-            ];
-            if (currentChatId) {
-                downloadPromises.push(
-                    this.client.downloadData(`${SHARED_CHAT_DIRECTORY}/${currentChatId}.json`).catch((error) => {
-                        console.warn(`[WebDAV] 当前聊天 ${currentChatId} 預先下載失敗:`, error);
-                        return { data: null, etag: null, error };
-                    })
-                );
-            } else {
-                downloadPromises.push(Promise.resolve(null));
-            }
-
-            const [downloadResult, prefetchedCurrentChat] = await Promise.all(downloadPromises);
+            const downloadResult = await this.client.downloadData('cerebr.json');
             const syncData = downloadResult.data;
             const downloadETag = downloadResult.etag;
 
@@ -1031,9 +1070,8 @@ class WebDAVSyncManager {
             const localChatHashes = await this.loadLocalChatHashes();
 
             // 處理 tombstone 刪除
-            const deletedIds = new Set(
-                (syncData.deletedChatIds || []).map(t => t.id)
-            );
+            const remoteTombstones = sharedCleanTombstones(syncData.deletedChatIds || [], TOMBSTONE_MAX_AGE_MS);
+            const deletedIds = new Set(remoteTombstones.map((tombstone) => tombstone.id));
 
             // 建立合併後的聊天列表
             const mergedChats = [];
@@ -1069,18 +1107,17 @@ class WebDAVSyncManager {
                     continue;
                 }
 
-                // 需要遠端資料：當前聊天使用預先下載的結果，其他建立空殼
+                // 需要遠端資料：當前聊天才抓正文，其他聊天先建立空殼
                 if (entry.id === currentChatId) {
-                    const prefetchedData = prefetchedCurrentChat?.data;
-                    const prefetchError = prefetchedCurrentChat?.error || null;
-                    if (prefetchedData) {
-                        mergedChats.push(buildHydratedRemoteChat(prefetchedData, entry));
+                    const currentRemoteChat = await loadCurrentRemoteChat();
+                    if (currentRemoteChat.data) {
+                        mergedChats.push(buildHydratedRemoteChat(currentRemoteChat.data, entry));
                         dirtyIds.add(entry.id);
                         updatedHashes.set(entry.id, entry.hash);
                         continue;
                     }
-                    if (prefetchError) {
-                        throw new Error(`当前聊天 ${entry.id} 远端数据下载失败，已中止本次同步：${prefetchError.message}`);
+                    if (currentRemoteChat.error) {
+                        throw new Error(`当前聊天 ${entry.id} 远端数据下载失败，已中止本次同步：${currentRemoteChat.error.message}`);
                     }
                     throw new Error(`当前聊天 ${entry.id} 远端数据缺失，已中止本次同步`);
                 }
@@ -1175,6 +1212,7 @@ class WebDAVSyncManager {
             await this._batchSavePostSyncState({
                 manifest: syncData,
                 localChatHashes: updatedHashes,
+                tombstones: remoteTombstones,
                 etag: downloadETag || `__needs_refresh_${Date.now()}`,
                 localHash,
                 lastSync,
@@ -1236,17 +1274,24 @@ class WebDAVSyncManager {
             // 1. 快照當前 dirty IDs
             const dirtySnapshot = new Set(chatManager.getDirtyChatIds());
             const currentChatId = options.currentChatId || null;
+            let currentRemoteChatRequest = null;
+            const loadCurrentRemoteChat = async () => {
+                if (!currentChatId) {
+                    return { data: null, etag: null, error: null };
+                }
+                if (!currentRemoteChatRequest) {
+                    currentRemoteChatRequest = this.client
+                        .downloadData(`${SHARED_CHAT_DIRECTORY}/${currentChatId}.json`)
+                        .catch((error) => {
+                            console.warn(`[WebDAV] 当前聊天 ${currentChatId} 下载失敗:`, error);
+                            return { data: null, etag: null, error };
+                        });
+                }
+                return await currentRemoteChatRequest;
+            };
 
-            // 2. 並行下載 remote manifest + prefetch currentChat
-            const [downloadResult, prefetchedCurrentChat] = await Promise.all([
-                this.client.downloadData('cerebr.json'),
-                currentChatId
-                    ? this.client.downloadData(`${SHARED_CHAT_DIRECTORY}/${currentChatId}.json`).catch((error) => {
-                        console.warn(`[WebDAV] 当前聊天 ${currentChatId} 預先下載失敗:`, error);
-                        return { data: null, etag: null, error };
-                    })
-                    : Promise.resolve(null)
-            ]);
+            // 2. 下載 remote manifest（當前聊天正文改為真正需要時再抓）
+            const downloadResult = await this.client.downloadData('cerebr.json');
             const remoteManifest = downloadResult.data;
             const downloadETag = downloadResult.etag;
 
@@ -1302,17 +1347,10 @@ class WebDAVSyncManager {
             // 5. 合併 tombstones（本地 + 遠端取聯集，by id 去重保留較新的 deletedAt）
             const localTombstones = sharedCleanTombstones(await this.loadDeletedChatIds(), TOMBSTONE_MAX_AGE_MS);
             const remoteTombstones = sharedCleanTombstones(remoteManifest.deletedChatIds || [], TOMBSTONE_MAX_AGE_MS);
-            const tombstoneMap = new Map();
-            for (const t of localTombstones) {
-                tombstoneMap.set(t.id, t);
-            }
-            for (const t of remoteTombstones) {
-                const existing = tombstoneMap.get(t.id);
-                if (!existing || new Date(t.deletedAt) > new Date(existing.deletedAt)) {
-                    tombstoneMap.set(t.id, t);
-                }
-            }
-            const mergedTombstones = [...tombstoneMap.values()];
+            const mergedTombstones = sharedCleanTombstones(
+                [...localTombstones, ...remoteTombstones],
+                TOMBSTONE_MAX_AGE_MS
+            );
             const deletedIds = new Set(mergedTombstones.map(t => t.id));
 
             // 6. 遍歷所有 chatId（本地 ∪ 遠端），分類處理
@@ -1330,27 +1368,29 @@ class WebDAVSyncManager {
             let downloadCount = 0;
             let conflictCount = 0;
 
-            // 取得遠端聊天（優先用 prefetch，否則建 stub）並追蹤需寫入的 ID
+            // 取得遠端聊天：僅當前聊天在必要時抓正文，其餘建立 stub
             const dirtyIds = new Set();
-            const pickRemoteChat = (entry) => {
-                if (entry.id === currentChatId && prefetchedCurrentChat?.data) {
-                    dirtyIds.add(entry.id);
-                    return {
-                        chat: buildHydratedRemoteChat(prefetchedCurrentChat.data, entry),
-                        manifestEntry: entry,
-                        downloaded: true
-                    };
-                }
+            const pickRemoteChat = async (entry) => {
                 if (entry.id === currentChatId) {
-                    if (prefetchedCurrentChat?.error) {
-                        throw new Error(`当前聊天 ${entry.id} 远端数据下载失败，已中止本次同步：${prefetchedCurrentChat.error.message}`);
+                    const currentRemoteChat = await loadCurrentRemoteChat();
+                    if (currentRemoteChat.data) {
+                        dirtyIds.add(entry.id);
+                        return {
+                            chat: buildHydratedRemoteChat(currentRemoteChat.data, entry),
+                            manifestEntry: entry,
+                            downloaded: true
+                        };
+                    }
+                    if (currentRemoteChat.error) {
+                        throw new Error(`当前聊天 ${entry.id} 远端数据下载失败，已中止本次同步：${currentRemoteChat.error.message}`);
                     }
                     throw new Error(`当前聊天 ${entry.id} 远端数据缺失，已中止本次同步`);
                 }
+
                 return {
                     chat: buildRemoteOnlyStub(entry),
                     manifestEntry: entry,
-                    downloaded: entry.id !== currentChatId
+                    downloaded: true
                 };
             };
 
@@ -1374,8 +1414,8 @@ class WebDAVSyncManager {
                         uploadItems.push({ chat: localChat, entry: localEntry });
                     }
                 } else if (!localEntry && remoteEntry) {
-                    // 僅遠端有 → 下載 stub（currentChat 用 prefetch）
-                    const remoteSelection = pickRemoteChat(remoteEntry);
+                    // 僅遠端有 → 下載 stub（currentChat 真正需要時才抓正文）
+                    const remoteSelection = await pickRemoteChat(remoteEntry);
                     mergedChats.push(remoteSelection.chat);
                     manifestChatIndex.push(remoteSelection.manifestEntry);
                     if (remoteSelection.downloaded) {
@@ -1403,7 +1443,7 @@ class WebDAVSyncManager {
                         }
                     } else if (baseHash === localHash && baseHash !== remoteHash) {
                         // (c) 僅遠端改 → 下載 stub
-                        const remoteSelection = pickRemoteChat(remoteEntry);
+                        const remoteSelection = await pickRemoteChat(remoteEntry);
                         mergedChats.push(remoteSelection.chat);
                         manifestChatIndex.push(remoteSelection.manifestEntry);
                         if (remoteSelection.downloaded) {
@@ -1428,7 +1468,7 @@ class WebDAVSyncManager {
                             }
                         } else {
                             // 遠端較新 → 下載 stub
-                            const remoteSelection = pickRemoteChat(remoteEntry);
+                            const remoteSelection = await pickRemoteChat(remoteEntry);
                             mergedChats.push(remoteSelection.chat);
                             manifestChatIndex.push(remoteSelection.manifestEntry);
                             if (remoteSelection.downloaded) {
@@ -1474,7 +1514,7 @@ class WebDAVSyncManager {
                 }
             }
 
-            const { manifest, uploadResult, remainingTombstones } = await uploadManifestSnapshot({
+            const { manifest, uploadResult, persistedTombstones } = await uploadManifestSnapshot({
                 client: this.client,
                 initialChatIndex: manifestChatIndex,
                 uploadItems,
@@ -1529,7 +1569,7 @@ class WebDAVSyncManager {
             await this._batchSavePostSyncState({
                 manifest,
                 localChatHashes: updatedHashes,
-                tombstones: remainingTombstones,
+                tombstones: persistedTombstones,
                 etag: newETag || `__needs_refresh_${Date.now()}`,
                 localHash,
                 lastSync,

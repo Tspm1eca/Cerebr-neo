@@ -6,9 +6,11 @@ import {
 import { computeChatHash } from './src/utils/chat-hash.js';
 import { SYNC_MODE_FLAG_KEY } from './src/utils/storage-adapter.js';
 import {
+  buildUploadMetadataPayload,
   WebDAVClient,
   buildSyncedMetadataSyncState,
   cleanTombstones,
+  computeStructuredHash,
   normalizeMetadataSyncState,
   uploadManifestSnapshot
 } from './src/services/webdav-sync-shared.js';
@@ -70,6 +72,10 @@ function computeOverallHash(chatIndex, quickChatOptions, apiSettings) {
         hash = hash & hash;
     }
     return Math.abs(hash).toString(16);
+}
+
+function computeTombstoneHash(tombstones) {
+    return computeStructuredHash(cleanTombstones(tombstones, Number.POSITIVE_INFINITY));
 }
 
 // 确保 Service Worker 立即激活
@@ -662,10 +668,13 @@ async function performWebDAVSyncUpload() {
         const initialChatIndex = Array.isArray(cachedManifest?.chatIndex) && cachedManifest.chatIndex.length > 0
             ? [...cachedManifest.chatIndex]
             : buildLocalHashChatIndex(storedChatIndex, hashTable);
-        const tombstonesForReplay = tombstones.length > 0
+        const tombstonesForUpload = tombstones.length > 0
             ? cleanTombstones(tombstones, TOMBSTONE_MAX_AGE_MS)
             : cleanTombstones(cachedManifest?.deletedChatIds || [], TOMBSTONE_MAX_AGE_MS);
-        if (dirtyIds.length === 0 && tombstonesForReplay.length === 0 && !localDataDirty) return;
+        const previousTombstones = cleanTombstones(cachedManifest?.deletedChatIds || [], TOMBSTONE_MAX_AGE_MS);
+        const pendingTombstones = tombstonesForUpload.filter((tombstone) => !tombstone.fileDeletedAt);
+        const tombstonesChanged = computeTombstoneHash(tombstonesForUpload) !== computeTombstoneHash(previousTombstones);
+        if (dirtyIds.length === 0 && pendingTombstones.length === 0 && !localDataDirty && !tombstonesChanged) return;
 
         const syncMetadata = await syncStorage.get([
             'quickChatOptions',
@@ -680,25 +689,33 @@ async function performWebDAVSyncUpload() {
         const quickChatOptions = Array.isArray(syncMetadata.quickChatOptions) ? syncMetadata.quickChatOptions : undefined;
         const quickChatOptionsForHash = Array.isArray(quickChatOptions) ? quickChatOptions : [];
         const apiSettingsForHash = config.syncApiConfig ? normalizeApiSettings(syncMetadata) : undefined;
-        const quickChatOptionsUpdatedAt = quickChatOptions
-            ? (metadataSyncState.quickChatOptions.modifiedAt ||
-                metadataSyncState.quickChatOptions.lastSyncedAt ||
-                cachedManifest?.quickChatOptionsUpdatedAt ||
-                cachedManifest?.timestamp ||
-                new Date().toISOString())
-            : metadataSyncState.quickChatOptions.lastSyncedAt;
-        const apiSettingsUpdatedAt = config.syncApiConfig && apiSettingsForHash
-            ? (metadataSyncState.apiSettings.modifiedAt ||
-                metadataSyncState.apiSettings.lastSyncedAt ||
-                cachedManifest?.apiSettingsUpdatedAt ||
-                cachedManifest?.timestamp ||
-                new Date().toISOString())
-            : metadataSyncState.apiSettings.lastSyncedAt;
-        let manifestApiSettings = apiSettingsForHash;
+        let quickChatOptionsForManifest;
+        let quickChatOptionsUpdatedAt;
+        let manifestApiSettings;
         let manifestApiSettingsEncrypted = false;
-        if (config.syncApiConfig && apiSettingsForHash && config.encryptApiKeys && config.encryptionPassword) {
-            manifestApiSettings = await encrypt(apiSettingsForHash, config.encryptionPassword);
-            manifestApiSettingsEncrypted = true;
+        let apiSettingsUpdatedAt = null;
+        try {
+            ({
+                quickChatOptionsForManifest,
+                quickChatOptionsUpdatedAt,
+                manifestApiSettings,
+                manifestApiSettingsEncrypted,
+                apiSettingsUpdatedAt
+            } = await buildUploadMetadataPayload({
+                metadataSyncState,
+                previousManifest: cachedManifest,
+                quickChatOptions,
+                apiSettings: apiSettingsForHash,
+                syncApiConfig: config.syncApiConfig,
+                encryptApiKeys: config.encryptApiKeys,
+                encryptionPassword: config.encryptionPassword,
+                encryptValue: encrypt
+            }));
+        } catch (encryptError) {
+            if (config.syncApiConfig && apiSettingsForHash && config.encryptApiKeys) {
+                throw new Error(`WebDAV API 配置加密失败: ${encryptError.message}`);
+            }
+            throw encryptError;
         }
 
         const client = new WebDAVClient(config, localData[WEBDAV_KNOWN_DIRS_KEY] || []);
@@ -715,12 +732,12 @@ async function performWebDAVSyncUpload() {
             });
         }
 
-        const { manifest, uploadResult, remainingTombstones, uploadedIds } = await uploadManifestSnapshot({
+        const { manifest, uploadResult, persistedTombstones, uploadedIds } = await uploadManifestSnapshot({
             client,
             initialChatIndex,
             uploadItems,
-            tombstones: tombstonesForReplay,
-            quickChatOptions,
+            tombstones: tombstonesForUpload,
+            quickChatOptions: quickChatOptionsForManifest,
             quickChatOptionsUpdatedAt,
             apiSettings: manifestApiSettings,
             apiSettingsEncrypted: manifestApiSettingsEncrypted,
@@ -753,7 +770,7 @@ async function performWebDAVSyncUpload() {
 
         await chrome.storage.local.set({
             cerebr_dirty_chat_ids: remaining,
-            webdav_deleted_chat_ids: remainingTombstones,
+            webdav_deleted_chat_ids: persistedTombstones,
             webdav_cached_manifest: manifest,
             webdav_local_chat_hashes: Object.fromEntries(hashTable),
             [WEBDAV_METADATA_SYNC_STATE_KEY]: nextMetadataSyncState,
@@ -762,7 +779,7 @@ async function performWebDAVSyncUpload() {
         });
 
         console.log(
-            `[WebDAV SW] 關閉同步完成：已上傳 ${uploadedIds.length} 個聊天，已刪除 ${tombstonesForReplay.length - remainingTombstones.length} 個 tombstone，metadataDirty=${localDataDirty}`
+            `[WebDAV SW] 關閉同步完成：已上傳 ${uploadedIds.length} 個聊天，已同步 ${persistedTombstones.length} 個 tombstone，metadataDirty=${localDataDirty}`
         );
     } catch (e) {
         console.error('[WebDAV SW] 同步上傳失敗:', e);

@@ -2112,6 +2112,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         const { chatId } = e.detail;
         if (webdavSyncManager.getConfig().enabled) {
             await webdavSyncManager.addDeletedChatId(chatId);
+            await webdavSyncManager.markLocalDataDirty('chat-delete');
             await webdavSyncManager.markOrphanCleanupPending();
         }
     });
@@ -2120,9 +2121,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     document.addEventListener('chats-cleared', async (e) => {
         const { chatIds } = e.detail;
         if (webdavSyncManager.getConfig().enabled) {
-            for (const id of chatIds) {
-                await webdavSyncManager.addDeletedChatId(id);
-            }
+            await webdavSyncManager.addDeletedChatIds(chatIds);
+            await webdavSyncManager.markLocalDataDirty('chat-delete');
             await webdavSyncManager.markOrphanCleanupPending();
         }
     });
