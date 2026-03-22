@@ -1749,4 +1749,4 @@ class WebDAVSyncManager {
 export const webdavSyncManager = new WebDAVSyncManager();
 
 // 导出类以供测试
-export { WebDAVClient, WebDAVSyncManager };
+export { SharedWebDAVClient as WebDAVClient, WebDAVSyncManager };
