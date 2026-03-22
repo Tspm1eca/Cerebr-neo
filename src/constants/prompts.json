@@ -21,9 +21,9 @@
         {
             "id": "option-3",
             "title": "列出新聞",
-            "prompt": "```\n# 任務\n只以表格方式列出不少於20條最重要的新聞\n\n## 規則\n新聞連結需要使用原文語言\n\n## 表格格式\n| 譯文標題 | 原文標題 |\n| :--- | :--- |\n| 譯文標題 [1](#:~:text=原文片段) | <新聞連結> |\n| 譯文標題 [2](#:~:text=原文片段) | <新聞連結> |\n```",
+            "prompt": "```markdown\n# 任務\n只以表格方式列出不少於20條最重要的新聞\n\n## 規則\n新聞連結需要使用原文語言\n\n## 表格格式\n| 譯文標題 | 原文標題 |\n| :--- | :--- |\n| 譯文標題 [1](#:~:text=原文片段) | <新聞連結> |\n| 譯文標題 [2](#:~:text=原文片段) | <新聞連結> |\n```",
             "icon": "📰"
         }
     ],
-    "TITLE_GENERATION_PROMPT": "Generate a concise and accurate title based on the conversation below. Return only a single brief title, without quotes or any extra explanation.\nThe title must be written in {{userLanguageName}}.\nConversation:\n"
+    "TITLE_GENERATION_PROMPT": "Generate a concise and accurate title based on the conversation below. Return only a single brief title, without quotes or any extra explanation.\nUse {{userLanguageName}} language for the title.\nConversation:\n"
 }
