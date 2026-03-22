@@ -6,6 +6,7 @@
 import { syncStorageAdapter } from '../utils/storage-adapter.js';
 import { clearMessageInput } from './message-input.js';
 import { getDefaultQuickChatOptions } from '../services/remote-prompts.js';
+import { webdavSyncManager } from '../services/webdav-sync.js';
 import { t } from '../utils/i18n.js';
 
 // 存儲鍵名
@@ -61,6 +62,7 @@ export async function initQuickChat({
     async function saveQuickChatOptions() {
         try {
             await syncStorageAdapter.set({ [QUICK_CHAT_OPTIONS_KEY]: quickChatOptions });
+            await webdavSyncManager.markLocalDataDirty('quick-chat-options');
         } catch (error) {
             console.error('保存常用聊天选项失败:', error);
         }
@@ -674,6 +676,7 @@ export async function getQuickChatOptions() {
 export async function updateQuickChatOptions(options) {
     try {
         await syncStorageAdapter.set({ [QUICK_CHAT_OPTIONS_KEY]: options });
+        await webdavSyncManager.markLocalDataDirty('quick-chat-options');
     } catch (error) {
         console.error('更新常用聊天选项失败:', error);
     }

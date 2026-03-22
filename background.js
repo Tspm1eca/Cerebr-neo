@@ -1,10 +1,61 @@
+import { encrypt } from './src/utils/crypto.js';
 import { computeChatHash } from './src/utils/chat-hash.js';
 import { SYNC_MODE_FLAG_KEY } from './src/utils/storage-adapter.js';
+
+const WEBDAV_LOCAL_DATA_DIRTY_KEY = 'webdav_local_data_dirty';
 
 // Helper: 根據 sync 模式 flag 取得正確的 storage area（Service Worker 可能隨時重啟）
 async function getSyncStorage() {
     const result = await chrome.storage.local.get(SYNC_MODE_FLAG_KEY);
     return result[SYNC_MODE_FLAG_KEY] ? chrome.storage.local : chrome.storage.sync;
+}
+
+function normalizeApiSettings(raw = {}) {
+    return {
+        apiConfigs: raw.apiConfigs || [],
+        selectedConfigIndex: raw.selectedConfigIndex ?? 0,
+        searchProvider: raw.searchProvider || 'tavily',
+        tavilyApiKey: raw.tavilyApiKey || '',
+        tavilyApiUrl: raw.tavilyApiUrl || '',
+        exaApiKey: raw.exaApiKey || '',
+        exaApiUrl: raw.exaApiUrl || ''
+    };
+}
+
+function buildHashedChatIndexEntry(source, hash) {
+    if (!source?.id || hash == null) return null;
+    return {
+        id: source.id,
+        title: source.title,
+        createdAt: source.createdAt,
+        updatedAt: source.updatedAt || source.createdAt || new Date().toISOString(),
+        webpageUrls: source.webpageUrls || [],
+        messageCount: Number.isFinite(source.messageCount)
+            ? source.messageCount
+            : (Array.isArray(source.messages) ? source.messages.length : 0),
+        hash
+    };
+}
+
+function buildLocalHashChatIndex(storedChatIndex, hashTable) {
+    return storedChatIndex
+        .filter(entry => entry?.id && !entry._remoteOnly)
+        .map(entry => buildHashedChatIndexEntry(entry, hashTable.get(entry.id)))
+        .filter(Boolean);
+}
+
+function computeOverallHash(chatIndex, quickChatOptions, apiSettings) {
+    const hashSource = JSON.stringify({
+        chatIndex,
+        quickChatOptions,
+        apiSettings
+    });
+    let hash = 5381;
+    for (let i = 0; i < hashSource.length; i++) {
+        hash = ((hash << 5) + hash) + hashSource.charCodeAt(i);
+        hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16);
 }
 
 // 确保 Service Worker 立即激活
@@ -543,26 +594,65 @@ async function performWebDAVSyncUpload() {
         // 2. 讀取 dirty chat IDs + tombstone（重新讀取，可能已被面板更新）
         const {
             cerebr_dirty_chat_ids: dirtyIdsRaw,
-            webdav_deleted_chat_ids: tombstonesRaw
-        } = await chrome.storage.local.get(['cerebr_dirty_chat_ids', 'webdav_deleted_chat_ids']);
+            webdav_deleted_chat_ids: tombstonesRaw,
+            [WEBDAV_LOCAL_DATA_DIRTY_KEY]: localDataDirtyRaw
+        } = await chrome.storage.local.get(['cerebr_dirty_chat_ids', 'webdav_deleted_chat_ids', WEBDAV_LOCAL_DATA_DIRTY_KEY]);
         const dirtyIds = Array.isArray(dirtyIdsRaw) ? dirtyIdsRaw : [];
         const tombstones = Array.isArray(tombstonesRaw) ? tombstonesRaw : [];
+        const localDataDirty = Boolean(localDataDirtyRaw);
 
         // 3. 讀取 dirty chats + 同步狀態
         const chatKeys = dirtyIds.map(id => `cerebr_chat_${id}`);
         const localData = await chrome.storage.local.get([
             ...chatKeys,
+            'cerebr_chat_index',
             'webdav_cached_manifest',
             'webdav_local_chat_hashes'
         ]);
 
         const cachedManifest = localData.webdav_cached_manifest;
         const hashTable = new Map(Object.entries(localData.webdav_local_chat_hashes || {}));
-        const chatIndex = [...(cachedManifest?.chatIndex || [])];
+        const storedChatIndex = Array.isArray(localData.cerebr_chat_index) ? localData.cerebr_chat_index : [];
+        const missingHashIds = storedChatIndex
+            .filter(entry => entry?.id && !entry._remoteOnly && !hashTable.has(entry.id))
+            .map(entry => entry.id);
+        if (missingHashIds.length > 0) {
+            const missingChats = await chrome.storage.local.get(missingHashIds.map(id => `cerebr_chat_${id}`));
+            for (const id of missingHashIds) {
+                const chat = missingChats[`cerebr_chat_${id}`];
+                if (!chat || chat._remoteOnly) continue;
+                hashTable.set(id, computeChatHash(chat));
+            }
+        }
+        let chatIndex = [...(cachedManifest?.chatIndex || [])];
+        if (chatIndex.length === 0 && storedChatIndex.length > 0) {
+            chatIndex = storedChatIndex
+                .map((entry) => buildHashedChatIndexEntry(entry, hashTable.get(entry.id)))
+                .filter(Boolean);
+        }
         const tombstonesForReplay = tombstones.length > 0
             ? tombstones
             : (cachedManifest?.deletedChatIds || []);
-        if (dirtyIds.length === 0 && tombstonesForReplay.length === 0) return;
+        if (dirtyIds.length === 0 && tombstonesForReplay.length === 0 && !localDataDirty) return;
+
+        const syncMetadata = await syncStorage.get([
+            'quickChatOptions',
+            'apiConfigs',
+            'selectedConfigIndex',
+            'searchProvider',
+            'tavilyApiKey',
+            'tavilyApiUrl',
+            'exaApiKey',
+            'exaApiUrl'
+        ]);
+        const quickChatOptions = syncMetadata.quickChatOptions || [];
+        const apiSettingsForHash = config.syncApiConfig ? normalizeApiSettings(syncMetadata) : undefined;
+        let manifestApiSettings = apiSettingsForHash;
+        let manifestApiSettingsEncrypted = false;
+        if (config.syncApiConfig && config.encryptApiKeys && config.encryptionPassword) {
+            manifestApiSettings = await encrypt(apiSettingsForHash, config.encryptionPassword);
+            manifestApiSettingsEncrypted = true;
+        }
 
         // 4. 建立 WebDAV 請求基礎
         const baseUrl = config.serverUrl.replace(/\/+$/, '');
@@ -632,7 +722,7 @@ async function performWebDAVSyncUpload() {
         const remainingTombstones = tombstonesForReplay.filter(t => failedTombstones.has(t.id));
 
         const tombstoneChanged = remainingTombstones.length !== tombstonesForReplay.length;
-        if (uploadedIds.length === 0 && !tombstoneChanged) return;
+        if (uploadedIds.length === 0 && !tombstoneChanged && !localDataDirty) return;
 
         // 7. 建立並上傳 manifest
         const manifest = {
@@ -640,13 +730,12 @@ async function performWebDAVSyncUpload() {
             timestamp: new Date().toISOString(),
             chatIndex,
             deletedChatIds: remainingTombstones,
-            quickChatOptions: cachedManifest?.quickChatOptions || []
+            quickChatOptions
         };
 
-        // 保留快取 manifest 中的 API 設定（不在 SW 中重新加密）
-        if (cachedManifest?.apiSettings) {
-            manifest.apiSettings = cachedManifest.apiSettings;
-            if (cachedManifest.apiSettingsEncrypted) {
+        if (config.syncApiConfig && manifestApiSettings) {
+            manifest.apiSettings = manifestApiSettings;
+            if (manifestApiSettingsEncrypted) {
                 manifest.apiSettingsEncrypted = true;
             }
         }
@@ -661,11 +750,13 @@ async function performWebDAVSyncUpload() {
 
         // 8. 更新同步狀態
         const newETag = manifestResponse.headers.get('ETag') || manifestResponse.headers.get('Last-Modified') || null;
+        const localHashChatIndex = buildLocalHashChatIndex(storedChatIndex, hashTable);
 
         const syncUpdates = {};
         if (newETag) syncUpdates.webdav_remote_etag = newETag;
         syncUpdates.webdav_last_sync = manifest.timestamp;
         syncUpdates.webdav_last_sync_timestamp = manifest.timestamp;
+        syncUpdates.webdav_local_hash = computeOverallHash(localHashChatIndex, quickChatOptions, apiSettingsForHash);
         await syncStorage.set(syncUpdates);
 
         // 清除已上傳的 dirty IDs，儲存更新後的狀態
@@ -677,11 +768,12 @@ async function performWebDAVSyncUpload() {
             cerebr_dirty_chat_ids: remaining,
             webdav_deleted_chat_ids: remainingTombstones,
             webdav_cached_manifest: manifest,
-            webdav_local_chat_hashes: Object.fromEntries(hashTable)
+            webdav_local_chat_hashes: Object.fromEntries(hashTable),
+            [WEBDAV_LOCAL_DATA_DIRTY_KEY]: null
         });
 
         console.log(
-            `[WebDAV SW] 關閉同步完成：已上傳 ${uploadedIds.length} 個聊天，已刪除 ${tombstonesForReplay.length - remainingTombstones.length} 個 tombstone`
+            `[WebDAV SW] 關閉同步完成：已上傳 ${uploadedIds.length} 個聊天，已刪除 ${tombstonesForReplay.length - remainingTombstones.length} 個 tombstone，metadataDirty=${localDataDirty}`
         );
     } catch (e) {
         console.error('[WebDAV SW] 同步上傳失敗:', e);

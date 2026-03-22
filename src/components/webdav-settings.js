@@ -565,7 +565,7 @@ class WebDAVSettingsController {
         syncNow.disabled = true;
 
         try {
-            const status = await webdavSyncManager.checkSyncStatus();
+            const status = await webdavSyncManager.checkSyncStatus({ forceFresh: true });
 
             if (!status.needsSync) {
                 // 没有检测到差异，强制上传本地数据

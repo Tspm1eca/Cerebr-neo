@@ -1551,6 +1551,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
               exaApiKey,
               exaApiUrl
           });
+          await webdavSyncManager.markLocalDataDirty('search-settings');
       } catch (error) {
           console.error('保存搜索设置失败:', error);
       }
@@ -1966,7 +1967,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     }
                 }];
                 // 只有在没有任何配置的情况下才保存默认配置
-                await saveAPIConfigs();
+                await saveAPIConfigs({ markWebDAVDirty: false });
             }
 
             // 只有当 selectedConfigIndex 为 undefined 或 null 时才使用默认值 0
@@ -2055,13 +2056,17 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         );
     };
     // 保存配置到存储
-    async function saveAPIConfigs() {
+    async function saveAPIConfigs(options = {}) {
+        const { markWebDAVDirty = true } = options;
         try {
             // 统一使用 syncStorageAdapter 来实现配置同步
             await syncStorageAdapter.set({
                 apiConfigs,
                 selectedConfigIndex
             });
+            if (markWebDAVDirty) {
+                await webdavSyncManager.markLocalDataDirty('api-config');
+            }
         } catch (error) {
             console.error('保存 API 配置失败:', error);
         }

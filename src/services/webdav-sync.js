@@ -32,6 +32,7 @@ const WEBDAV_KNOWN_DIRS_KEY = 'webdav_known_directories';
 // 跨分頁節流：共享 checkSyncStatus 的時間戳和結果（存儲在 chrome.storage.local）
 const WEBDAV_CROSS_TAB_CHECK_TIME_KEY = 'webdav_cross_tab_check_time';
 const WEBDAV_CROSS_TAB_CHECK_RESULT_KEY = 'webdav_cross_tab_check_result';
+const WEBDAV_LOCAL_DATA_DIRTY_KEY = 'webdav_local_data_dirty';
 const WEBDAV_ORPHAN_CLEANUP_PENDING_KEY = 'webdav_orphan_cleanup_pending';
 const WEBDAV_ORPHAN_CLEANUP_LAST_SCAN_AT_KEY = 'webdav_orphan_cleanup_last_scan_at';
 const WEBDAV_ORPHAN_CLEANUP_LOCK_KEY = 'webdav_orphan_cleanup_lock';
@@ -700,8 +701,30 @@ class WebDAVSyncManager {
         this._cachedChatIndex = null;
         this._cachedLocalChatHashes = null;
         this._cacheTimestamp = 0;
+        this._lastCheckSyncTime = 0;
+        this._lastCheckSyncResult = null;
         // 清除跨分頁節流快取
         storageAdapter.remove([WEBDAV_CROSS_TAB_CHECK_TIME_KEY, WEBDAV_CROSS_TAB_CHECK_RESULT_KEY]).catch(() => {});
+    }
+
+    async markLocalDataDirty(reason = 'local-update') {
+        this.clearCache();
+        this._initialHashCheckDone = false;
+        await storageAdapter.set({
+            [WEBDAV_LOCAL_DATA_DIRTY_KEY]: {
+                at: new Date().toISOString(),
+                reason
+            }
+        });
+    }
+
+    async clearLocalDataDirty() {
+        await storageAdapter.remove([WEBDAV_LOCAL_DATA_DIRTY_KEY]);
+    }
+
+    async hasLocalDataDirty() {
+        const result = await storageAdapter.get(WEBDAV_LOCAL_DATA_DIRTY_KEY);
+        return Boolean(result[WEBDAV_LOCAL_DATA_DIRTY_KEY]);
     }
 
     // ========== 目錄快取持久化 ==========
@@ -1134,6 +1157,7 @@ class WebDAVSyncManager {
         try {
             // 快照當前 dirty IDs，同步完成後只清除這些（保留同步期間新增的）
             const dirtySnapshot = new Set(chatManager.getDirtyChatIds());
+            const hasDirtyLocalData = await this.hasLocalDataDirty();
 
             const { data: localData, hash: localHash, chatIndex: prebuiltChatIndex, localChatHashes } =
                 await this.getLocalSyncData();
@@ -1181,8 +1205,10 @@ class WebDAVSyncManager {
                 const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];
                 if (localHash === lastLocalHash) {
                     chatManager.clearDirtyChatIds(dirtySnapshot);
+                    if (hasDirtyLocalData) {
+                        await this.clearLocalDataDirty();
+                    }
                     this.clearCache();
-                    this._lastCheckSyncResult = null;
                     const lastSync = new Date().toISOString();
                     this.notifyListeners('sync-complete', {
                         direction: 'upload',
@@ -1270,6 +1296,7 @@ class WebDAVSyncManager {
                 lastSync,
                 remoteTimestamp: manifest.timestamp
             });
+            await this.clearLocalDataDirty();
             await this._runOrphanCleanupIfNeeded(manifest);
 
             this.notifyListeners('sync-complete', {
@@ -1289,7 +1316,6 @@ class WebDAVSyncManager {
             }
 
             this.clearCache();
-            this._lastCheckSyncResult = null;
 
             return { success: true, message, timestamp: lastSync };
         } catch (error) {
@@ -1493,6 +1519,7 @@ class WebDAVSyncManager {
                 lastSync,
                 remoteTimestamp: syncData.timestamp || lastSync
             });
+            await this.clearLocalDataDirty();
 
             const remoteOnlyCount = mergedChats.filter(c => c._remoteOnly).length;
             this.notifyListeners('sync-complete', {
@@ -1786,6 +1813,7 @@ class WebDAVSyncManager {
                 lastSync,
                 remoteTimestamp: manifest.timestamp
             });
+            await this.clearLocalDataDirty();
             await this._runOrphanCleanupIfNeeded(manifest);
 
             this.notifyListeners('sync-complete', {
@@ -1979,8 +2007,9 @@ class WebDAVSyncManager {
     /**
      * 检查同步状态 - 使用 dirty flag 短路 + ETag 双向检测
      */
-    async checkSyncStatus() {
+    async checkSyncStatus(options = {}) {
         try {
+            const { forceFresh = false } = options;
             if (!this.client) {
                 return { needsSync: true, direction: 'upload', reason: '客户端未初始化' };
             }
@@ -1988,13 +2017,15 @@ class WebDAVSyncManager {
             // 使用 dirty flag 快速判斷本地是否有變更（零 hash 計算）
             const dirtyChatIds = chatManager.getDirtyChatIds();
             const hasDirtyChats = dirtyChatIds.size > 0;
+            const hasDirtyLocalData = await this.hasLocalDataDirty();
+            const hasPendingLocalChanges = hasDirtyChats || hasDirtyLocalData;
 
             const now = Date.now();
 
             // 跨分頁節流：檢查 chrome.storage.local 中的共享時間戳
             // 當多個分頁同時開啟時，只有第一個分頁會發 HEAD 請求，其餘分頁使用快取結果
-            let throttled = this._lastCheckSyncResult && (now - this._lastCheckSyncTime) < CHECK_SYNC_THROTTLE_MS;
-            if (!throttled) {
+            let throttled = !forceFresh && this._lastCheckSyncResult && (now - this._lastCheckSyncTime) < CHECK_SYNC_THROTTLE_MS;
+            if (!forceFresh && !throttled) {
                 try {
                     const shared = await storageAdapter.get([WEBDAV_CROSS_TAB_CHECK_TIME_KEY, WEBDAV_CROSS_TAB_CHECK_RESULT_KEY]);
                     const sharedTime = shared[WEBDAV_CROSS_TAB_CHECK_TIME_KEY];
@@ -2009,7 +2040,7 @@ class WebDAVSyncManager {
             }
 
             if (throttled) {
-                if (hasDirtyChats) {
+                if (hasPendingLocalChanges) {
                     return { needsSync: true, direction: 'upload', reason: '节流期间：本地有新变更，需要上传' };
                 }
                 if (!this._lastCheckSyncResult.needsSync) {
@@ -2019,7 +2050,7 @@ class WebDAVSyncManager {
             }
 
             // dirty flag 為主要判斷，overall hash 為 fallback（僅啟動後首次檢查，處理重啟後 dirty 遺失的邊際情況）
-            let localChanged = hasDirtyChats;
+            let localChanged = hasPendingLocalChanges;
             const needHashFallback = !this._initialHashCheckDone;
             this._initialHashCheckDone = true;
             if (!localChanged && needHashFallback) {
@@ -2195,11 +2226,11 @@ class WebDAVSyncManager {
 
         // 短路：有 dirty chats 直接上傳，跳過 checkSyncStatus 的遠端 HEAD 請求
         const hasDirtyChats = chatManager.getDirtyChatIds().size > 0;
-        if (hasDirtyChats) {
+        const hasDirtyLocalData = await this.hasLocalDataDirty();
+        if (hasDirtyChats || hasDirtyLocalData) {
             try {
                 const result = await this.syncToRemote();
                 this._lastSyncOnCloseTime = Date.now();
-                this._lastCheckSyncResult = null;
                 return { synced: true, result, error: null };
             } catch (error) {
                 console.error('[WebDAV] 关闭同步失败:', error);
@@ -2214,7 +2245,6 @@ class WebDAVSyncManager {
             if (status.needsSync && (status.direction === 'upload' || status.direction === 'conflict')) {
                 const result = await this.syncToRemote();
                 this._lastSyncOnCloseTime = Date.now();
-                this._lastCheckSyncResult = null;
                 return { synced: true, result, error: null };
             }
 
