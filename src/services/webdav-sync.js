@@ -22,10 +22,13 @@ import {
     CHAT_DIRECTORY as SHARED_CHAT_DIRECTORY,
     UPLOAD_CONCURRENCY as SHARED_UPLOAD_CONCURRENCY,
     WebDAVClient as SharedWebDAVClient,
+    buildSyncedMetadataSyncState,
     cleanTombstones as sharedCleanTombstones,
+    computeStructuredHash,
+    createDefaultMetadataSyncState,
+    normalizeMetadataSyncState,
     runWithConcurrency as sharedRunWithConcurrency,
-    uploadManifestSnapshot,
-    stripWebDAVMetadata
+    uploadManifestSnapshot
 } from './webdav-sync-shared.js';
 
 // WebDAV 配置键
@@ -38,6 +41,7 @@ const WEBDAV_DELETED_CHAT_IDS_KEY = 'webdav_deleted_chat_ids';
 const WEBDAV_CACHED_MANIFEST_KEY = 'webdav_cached_manifest';
 const WEBDAV_LOCAL_CHAT_HASHES_KEY = 'webdav_local_chat_hashes';
 const WEBDAV_KNOWN_DIRS_KEY = 'webdav_known_directories';
+const WEBDAV_METADATA_SYNC_STATE_KEY = 'webdav_metadata_sync_state';
 // 跨分頁節流：共享 checkSyncStatus 的時間戳和結果（存儲在 chrome.storage.local）
 const WEBDAV_CROSS_TAB_CHECK_TIME_KEY = 'webdav_cross_tab_check_time';
 const WEBDAV_CROSS_TAB_CHECK_RESULT_KEY = 'webdav_cross_tab_check_result';
@@ -73,6 +77,11 @@ function toPositiveInt(value, fallback) {
         return fallback;
     }
     return Math.floor(parsed);
+}
+
+function parseTimestampMs(value) {
+    const parsed = Date.parse(value || '');
+    return Number.isFinite(parsed) ? parsed : null;
 }
 
 // ========== Helper Functions ==========
@@ -139,10 +148,6 @@ function buildHydratedRemoteChat(chat, entry) {
             ? entry.messageCount
             : (Array.isArray(chat.messages) ? chat.messages.length : 0)
     };
-}
-
-function promoteHydratedChatToLocal(chat) {
-    return stripWebDAVMetadata(chat);
 }
 
 /**
@@ -213,12 +218,16 @@ class WebDAVSyncManager {
     async markLocalDataDirty(reason = 'local-update') {
         this.clearCache();
         this._initialHashCheckDone = false;
-        await storageAdapter.set({
-            [WEBDAV_LOCAL_DATA_DIRTY_KEY]: {
-                at: new Date().toISOString(),
-                reason
-            }
-        });
+        const dirtyMarker = {
+            at: new Date().toISOString(),
+            reason
+        };
+        await Promise.all([
+            storageAdapter.set({
+                [WEBDAV_LOCAL_DATA_DIRTY_KEY]: dirtyMarker
+            }),
+            this._markMetadataDirty(reason, dirtyMarker.at)
+        ]);
     }
 
     async clearLocalDataDirty() {
@@ -228,6 +237,32 @@ class WebDAVSyncManager {
     async hasLocalDataDirty() {
         const result = await storageAdapter.get(WEBDAV_LOCAL_DATA_DIRTY_KEY);
         return Boolean(result[WEBDAV_LOCAL_DATA_DIRTY_KEY]);
+    }
+
+    async loadMetadataSyncState() {
+        try {
+            const result = await storageAdapter.get(WEBDAV_METADATA_SYNC_STATE_KEY);
+            return normalizeMetadataSyncState(result[WEBDAV_METADATA_SYNC_STATE_KEY]);
+        } catch {
+            return createDefaultMetadataSyncState();
+        }
+    }
+
+    async _markMetadataDirty(reason, modifiedAt) {
+        const shouldTouchQuickChat = reason === 'quick-chat-options';
+        const shouldTouchApiSettings = reason === 'api-config' || reason === 'search-settings';
+        if (!shouldTouchQuickChat && !shouldTouchApiSettings) {
+            return;
+        }
+
+        const nextState = await this.loadMetadataSyncState();
+        if (shouldTouchQuickChat) {
+            nextState.quickChatOptions.modifiedAt = modifiedAt;
+        }
+        if (shouldTouchApiSettings) {
+            nextState.apiSettings.modifiedAt = modifiedAt;
+        }
+        await storageAdapter.set({ [WEBDAV_METADATA_SYNC_STATE_KEY]: nextState });
     }
 
     // ========== 目錄快取持久化 ==========
@@ -245,7 +280,17 @@ class WebDAVSyncManager {
      * 批次儲存同步完成後的所有狀態（合併 I/O，並行寫入 local 和 sync storage）
      * 將原本 6~7 次序列 IPC 合併為 2 次並行 IPC
      */
-    async _batchSavePostSyncState({ manifest, localChatHashes, tombstones = null, etag, localHash, lastSync, remoteTimestamp }) {
+    async _batchSavePostSyncState({
+        manifest,
+        localChatHashes,
+        tombstones = null,
+        etag,
+        localHash,
+        lastSync,
+        remoteTimestamp,
+        metadataSyncState = null,
+        syncStorageData = null
+    }) {
         // 合併所有 local storage 寫入（1 次 IPC）
         const localData = {
             [WEBDAV_CACHED_MANIFEST_KEY]: manifest,
@@ -253,6 +298,9 @@ class WebDAVSyncManager {
         };
         if (tombstones !== null) {
             localData[WEBDAV_DELETED_CHAT_IDS_KEY] = tombstones;
+        }
+        if (metadataSyncState !== null) {
+            localData[WEBDAV_METADATA_SYNC_STATE_KEY] = metadataSyncState;
         }
         // 目錄快取為加速用途，失敗不影響同步正確性
         try {
@@ -268,6 +316,9 @@ class WebDAVSyncManager {
             [WEBDAV_LAST_SYNC_KEY]: lastSync,
             [WEBDAV_LAST_SYNC_TIMESTAMP_KEY]: remoteTimestamp
         };
+        if (syncStorageData && typeof syncStorageData === 'object') {
+            Object.assign(syncData, syncStorageData);
+        }
 
         // 並行寫入（2 次 IPC 同時發出，只需等待較慢的一個）
         await Promise.all([
@@ -307,6 +358,107 @@ class WebDAVSyncManager {
         } catch (e) {
             console.warn('[WebDAV] 儲存 local chat hashes 失敗:', e);
         }
+    }
+
+    _normalizeQuickChatOptions(options) {
+        return Array.isArray(options) ? options : [];
+    }
+
+    _hashMetadataValue(value) {
+        return computeStructuredHash(value === undefined ? null : value);
+    }
+
+    _pickNewerMetadataSource(localModifiedAt, remoteUpdatedAt) {
+        const localMs = parseTimestampMs(localModifiedAt);
+        const remoteMs = parseTimestampMs(remoteUpdatedAt);
+
+        if (localMs !== null && remoteMs !== null) {
+            return localMs >= remoteMs ? 'local' : 'remote';
+        }
+        if (localMs !== null) return 'local';
+        if (remoteMs !== null) return 'remote';
+        return 'remote';
+    }
+
+    _mergeMetadataValue({
+        localValue,
+        remoteValue,
+        baseHash = null,
+        localModifiedAt = null,
+        remoteUpdatedAt = null,
+        normalize = (value) => value
+    }) {
+        const normalizedLocal = normalize(localValue);
+        const normalizedRemote = normalize(remoteValue);
+        const localHash = this._hashMetadataValue(normalizedLocal);
+        const remoteHash = this._hashMetadataValue(normalizedRemote);
+
+        if (localHash === remoteHash) {
+            return {
+                value: normalizedLocal,
+                source: 'same',
+                updatedAt: remoteUpdatedAt || localModifiedAt || null,
+                conflictResolved: false
+            };
+        }
+
+        const localChanged = baseHash ? localHash !== baseHash : true;
+        const remoteChanged = baseHash ? remoteHash !== baseHash : true;
+
+        if (localChanged && !remoteChanged) {
+            return {
+                value: normalizedLocal,
+                source: 'local',
+                updatedAt: localModifiedAt || new Date().toISOString(),
+                conflictResolved: false
+            };
+        }
+
+        if (!localChanged && remoteChanged) {
+            return {
+                value: normalizedRemote,
+                source: 'remote',
+                updatedAt: remoteUpdatedAt || new Date().toISOString(),
+                conflictResolved: false
+            };
+        }
+
+        const winner = this._pickNewerMetadataSource(localModifiedAt, remoteUpdatedAt);
+        if (winner === 'local') {
+            return {
+                value: normalizedLocal,
+                source: 'local',
+                updatedAt: localModifiedAt || new Date().toISOString(),
+                conflictResolved: true
+            };
+        }
+
+        return {
+            value: normalizedRemote,
+            source: 'remote',
+            updatedAt: remoteUpdatedAt || new Date().toISOString(),
+            conflictResolved: true
+        };
+    }
+
+    async _resolveManifestApiSettings(manifest) {
+        if (!manifest || manifest.apiSettings === undefined) {
+            return undefined;
+        }
+
+        let apiSettings = manifest.apiSettings;
+        if (manifest.apiSettingsEncrypted && isEncrypted(apiSettings)) {
+            if (!this.config.encryptionPassword) {
+                throw new Error(t('webdav.remoteApiConfigEncrypted'));
+            }
+            try {
+                apiSettings = await decrypt(apiSettings, this.config.encryptionPassword);
+            } catch {
+                throw new Error(t('webdav.decryptApiConfigFailed'));
+            }
+        }
+
+        return this._normalizeApiSettings(apiSettings);
     }
 
     // ========== Tombstone 管理 ==========
@@ -665,6 +817,7 @@ class WebDAVSyncManager {
 
             // 載入上次的 manifest 以比對哪些聊天有變動
             const previousManifest = await this.loadCachedManifest();
+            const metadataSyncState = await this.loadMetadataSyncState();
             const previousChatHashes = new Map(
                 (previousManifest?.chatIndex || []).map(e => [e.id, e.hash])
             );
@@ -720,8 +873,20 @@ class WebDAVSyncManager {
 
             let manifestApiSettings;
             let manifestApiSettingsEncrypted = false;
+            const quickChatOptionsForManifest = this._normalizeQuickChatOptions(localData.quickChatOptions);
+            const quickChatOptionsUpdatedAt = metadataSyncState.quickChatOptions.modifiedAt ||
+                metadataSyncState.quickChatOptions.lastSyncedAt ||
+                previousManifest?.quickChatOptionsUpdatedAt ||
+                previousManifest?.timestamp ||
+                new Date().toISOString();
+            let apiSettingsUpdatedAt = null;
             if (this.config.syncApiConfig && localData.apiSettings) {
                 manifestApiSettings = localData.apiSettings;
+                apiSettingsUpdatedAt = metadataSyncState.apiSettings.modifiedAt ||
+                    metadataSyncState.apiSettings.lastSyncedAt ||
+                    previousManifest?.apiSettingsUpdatedAt ||
+                    previousManifest?.timestamp ||
+                    new Date().toISOString();
                 if (this.config.encryptApiKeys && this.config.encryptionPassword) {
                     try {
                         manifestApiSettings = await encrypt(localData.apiSettings, this.config.encryptionPassword);
@@ -739,9 +904,11 @@ class WebDAVSyncManager {
                 initialChatIndex: chatIndex,
                 uploadItems,
                 tombstones,
-                quickChatOptions: Array.isArray(localData.quickChatOptions) ? localData.quickChatOptions : undefined,
+                quickChatOptions: quickChatOptionsForManifest,
+                quickChatOptionsUpdatedAt,
                 apiSettings: manifestApiSettings,
                 apiSettingsEncrypted: manifestApiSettingsEncrypted,
+                apiSettingsUpdatedAt,
                 uploadConcurrency: SHARED_UPLOAD_CONCURRENCY
             });
 
@@ -751,6 +918,14 @@ class WebDAVSyncManager {
             // 一次性批次儲存所有同步狀態（合併 6 次序列 IPC → 2 次並行 IPC）
             const newETag = uploadResult.etag;
             const lastSync = new Date().toISOString();
+            const syncedMetadataState = buildSyncedMetadataSyncState({
+                quickChatOptions: quickChatOptionsForManifest,
+                quickChatOptionsUpdatedAt: manifest.quickChatOptionsUpdatedAt || quickChatOptionsUpdatedAt || manifest.timestamp,
+                apiSettings: this.config.syncApiConfig ? localData.apiSettings : undefined,
+                apiSettingsUpdatedAt: this.config.syncApiConfig
+                    ? (manifest.apiSettingsUpdatedAt || apiSettingsUpdatedAt || manifest.timestamp)
+                    : null
+            });
             await this._batchSavePostSyncState({
                 manifest,
                 localChatHashes,
@@ -758,7 +933,8 @@ class WebDAVSyncManager {
                 etag: newETag || `__needs_refresh_${Date.now()}`,
                 localHash,
                 lastSync,
-                remoteTimestamp: manifest.timestamp
+                remoteTimestamp: manifest.timestamp,
+                metadataSyncState: syncedMetadataState
             });
             await this.clearLocalDataDirty();
             await this._runOrphanCleanupIfNeeded(manifest);
@@ -825,7 +1001,7 @@ class WebDAVSyncManager {
                 downloadPromises.push(
                     this.client.downloadData(`${SHARED_CHAT_DIRECTORY}/${currentChatId}.json`).catch((error) => {
                         console.warn(`[WebDAV] 当前聊天 ${currentChatId} 預先下載失敗:`, error);
-                        return null;
+                        return { data: null, etag: null, error };
                     })
                 );
             } else {
@@ -847,6 +1023,9 @@ class WebDAVSyncManager {
             // 載入本地聊天以進行比對（從 ChatManager 記憶體讀取，無 I/O）
             const localChats = chatManager.getAllChatsArray();
             const localChatMap = new Map(localChats.map(c => [c.id, c]));
+            const localQuickChatResult = await syncStorageAdapter.get('quickChatOptions');
+            const localQuickChatOptions = this._normalizeQuickChatOptions(localQuickChatResult.quickChatOptions);
+            const metadataSyncState = await this.loadMetadataSyncState();
 
             // 載入 per-chat hash table（用查表取代重新計算 hash）
             const localChatHashes = await this.loadLocalChatHashes();
@@ -893,22 +1072,17 @@ class WebDAVSyncManager {
                 // 需要遠端資料：當前聊天使用預先下載的結果，其他建立空殼
                 if (entry.id === currentChatId) {
                     const prefetchedData = prefetchedCurrentChat?.data;
+                    const prefetchError = prefetchedCurrentChat?.error || null;
                     if (prefetchedData) {
                         mergedChats.push(buildHydratedRemoteChat(prefetchedData, entry));
                         dirtyIds.add(entry.id);
                         updatedHashes.set(entry.id, entry.hash);
                         continue;
                     }
-                    console.warn(`[WebDAV] 当前聊天 ${entry.id} 預先下載失敗，回退到本地/空殼版本並繼續同步`);
-                    if (hasLocalFull) {
-                        const fallbackChat = promoteHydratedChatToLocal(localChat);
-                        mergedChats.push(fallbackChat);
-                        if (localChat._webdavHydrated) {
-                            dirtyIds.add(entry.id);
-                        }
-                        updatedHashes.set(entry.id, computeChatHash(fallbackChat));
-                        continue;
+                    if (prefetchError) {
+                        throw new Error(`当前聊天 ${entry.id} 远端数据下载失败，已中止本次同步：${prefetchError.message}`);
                     }
+                    throw new Error(`当前聊天 ${entry.id} 远端数据缺失，已中止本次同步`);
                 }
 
                 mergedChats.push(buildRemoteOnlyStub(entry));
@@ -939,16 +1113,15 @@ class WebDAVSyncManager {
             const hasRemoteQuickChatOptions = Array.isArray(syncData.quickChatOptions);
             const effectiveQuickChatOptions = hasRemoteQuickChatOptions
                 ? syncData.quickChatOptions
-                : [];
-            let quickChatOptionsSynced = false;
-            if (hasRemoteQuickChatOptions) {
-                await syncStorageAdapter.set({ quickChatOptions: effectiveQuickChatOptions });
-                quickChatOptionsSynced = true;
-            }
+                : localQuickChatOptions;
 
             // 同步 API 配置
             let apiConfigSynced = false;
             let effectiveApiSettings = undefined;
+            const syncMetadataUpdates = {};
+            if (hasRemoteQuickChatOptions) {
+                syncMetadataUpdates.quickChatOptions = effectiveQuickChatOptions;
+            }
             if (this.config.syncApiConfig && syncData.apiSettings) {
                 let apiSettings = syncData.apiSettings;
 
@@ -965,7 +1138,7 @@ class WebDAVSyncManager {
                 }
 
                 effectiveApiSettings = this._normalizeApiSettings(apiSettings);
-                await syncStorageAdapter.set(effectiveApiSettings);
+                Object.assign(syncMetadataUpdates, effectiveApiSettings);
                 apiConfigSynced = true;
             }
 
@@ -989,13 +1162,25 @@ class WebDAVSyncManager {
 
             // 一次性批次儲存所有同步狀態（合併 5 次序列 IPC → 2 次並行 IPC）
             const lastSync = new Date().toISOString();
+            const syncedMetadataState = buildSyncedMetadataSyncState({
+                quickChatOptions: effectiveQuickChatOptions,
+                quickChatOptionsUpdatedAt: hasRemoteQuickChatOptions
+                    ? (syncData.quickChatOptionsUpdatedAt || syncData.timestamp || lastSync)
+                    : metadataSyncState.quickChatOptions.lastSyncedAt,
+                apiSettings: this.config.syncApiConfig ? postSyncApiSettings : undefined,
+                apiSettingsUpdatedAt: apiConfigSynced
+                    ? (syncData.apiSettingsUpdatedAt || syncData.timestamp || lastSync)
+                    : (this.config.syncApiConfig ? metadataSyncState.apiSettings.lastSyncedAt : null)
+            });
             await this._batchSavePostSyncState({
                 manifest: syncData,
                 localChatHashes: updatedHashes,
                 etag: downloadETag || `__needs_refresh_${Date.now()}`,
                 localHash,
                 lastSync,
-                remoteTimestamp: syncData.timestamp || lastSync
+                remoteTimestamp: syncData.timestamp || lastSync,
+                metadataSyncState: syncedMetadataState,
+                syncStorageData: Object.keys(syncMetadataUpdates).length > 0 ? syncMetadataUpdates : null
             });
             await this.clearLocalDataDirty();
 
@@ -1058,7 +1243,7 @@ class WebDAVSyncManager {
                 currentChatId
                     ? this.client.downloadData(`${SHARED_CHAT_DIRECTORY}/${currentChatId}.json`).catch((error) => {
                         console.warn(`[WebDAV] 当前聊天 ${currentChatId} 預先下載失敗:`, error);
-                        return null;
+                        return { data: null, etag: null, error };
                     })
                     : Promise.resolve(null)
             ]);
@@ -1083,6 +1268,36 @@ class WebDAVSyncManager {
 
             // 4. 取得 baseHashes（上次同步時的狀態）
             const baseHashes = await this.loadLocalChatHashes();
+            const metadataSyncState = await this.loadMetadataSyncState();
+            const localQuickChatOptions = this._normalizeQuickChatOptions(localData.quickChatOptions);
+            const remoteQuickChatOptions = this._normalizeQuickChatOptions(remoteManifest.quickChatOptions);
+            const quickChatMerge = this._mergeMetadataValue({
+                localValue: localQuickChatOptions,
+                remoteValue: remoteQuickChatOptions,
+                baseHash: metadataSyncState.quickChatOptions.baseHash,
+                localModifiedAt: metadataSyncState.quickChatOptions.modifiedAt,
+                remoteUpdatedAt: remoteManifest.quickChatOptionsUpdatedAt || remoteManifest.timestamp,
+                normalize: (value) => this._normalizeQuickChatOptions(value)
+            });
+            let effectiveApiSettings = undefined;
+            let apiSettingsMerge = {
+                value: undefined,
+                source: 'disabled',
+                updatedAt: null,
+                conflictResolved: false
+            };
+            if (this.config.syncApiConfig) {
+                const remoteApiSettings = await this._resolveManifestApiSettings(remoteManifest);
+                apiSettingsMerge = this._mergeMetadataValue({
+                    localValue: localData.apiSettings,
+                    remoteValue: remoteApiSettings,
+                    baseHash: metadataSyncState.apiSettings.baseHash,
+                    localModifiedAt: metadataSyncState.apiSettings.modifiedAt,
+                    remoteUpdatedAt: remoteManifest.apiSettingsUpdatedAt || remoteManifest.timestamp,
+                    normalize: (value) => value === undefined ? undefined : this._normalizeApiSettings(value)
+                });
+                effectiveApiSettings = apiSettingsMerge.value;
+            }
 
             // 5. 合併 tombstones（本地 + 遠端取聯集，by id 去重保留較新的 deletedAt）
             const localTombstones = sharedCleanTombstones(await this.loadDeletedChatIds(), TOMBSTONE_MAX_AGE_MS);
@@ -1117,32 +1332,25 @@ class WebDAVSyncManager {
 
             // 取得遠端聊天（優先用 prefetch，否則建 stub）並追蹤需寫入的 ID
             const dirtyIds = new Set();
-            const pickRemoteChat = (entry, fallbackLocalChat = null) => {
+            const pickRemoteChat = (entry) => {
                 if (entry.id === currentChatId && prefetchedCurrentChat?.data) {
                     dirtyIds.add(entry.id);
                     return {
                         chat: buildHydratedRemoteChat(prefetchedCurrentChat.data, entry),
                         manifestEntry: entry,
-                        downloaded: true,
-                        persistLocally: false
+                        downloaded: true
                     };
                 }
                 if (entry.id === currentChatId) {
-                    console.warn(`[WebDAV] 当前聊天 ${entry.id} 預先下載失敗，保留本地版本並延後收斂`);
-                    if (fallbackLocalChat && !fallbackLocalChat._remoteOnly) {
-                        return {
-                            chat: promoteHydratedChatToLocal(fallbackLocalChat),
-                            manifestEntry: entry,
-                            downloaded: false,
-                            persistLocally: Boolean(fallbackLocalChat._webdavHydrated)
-                        };
+                    if (prefetchedCurrentChat?.error) {
+                        throw new Error(`当前聊天 ${entry.id} 远端数据下载失败，已中止本次同步：${prefetchedCurrentChat.error.message}`);
                     }
+                    throw new Error(`当前聊天 ${entry.id} 远端数据缺失，已中止本次同步`);
                 }
                 return {
                     chat: buildRemoteOnlyStub(entry),
                     manifestEntry: entry,
-                    downloaded: entry.id !== currentChatId,
-                    persistLocally: false
+                    downloaded: entry.id !== currentChatId
                 };
             };
 
@@ -1170,9 +1378,6 @@ class WebDAVSyncManager {
                     const remoteSelection = pickRemoteChat(remoteEntry);
                     mergedChats.push(remoteSelection.chat);
                     manifestChatIndex.push(remoteSelection.manifestEntry);
-                    if (remoteSelection.persistLocally) {
-                        dirtyIds.add(remoteEntry.id);
-                    }
                     if (remoteSelection.downloaded) {
                         downloadCount++;
                     }
@@ -1198,12 +1403,9 @@ class WebDAVSyncManager {
                         }
                     } else if (baseHash === localHash && baseHash !== remoteHash) {
                         // (c) 僅遠端改 → 下載 stub
-                        const remoteSelection = pickRemoteChat(remoteEntry, localChat);
+                        const remoteSelection = pickRemoteChat(remoteEntry);
                         mergedChats.push(remoteSelection.chat);
                         manifestChatIndex.push(remoteSelection.manifestEntry);
-                        if (remoteSelection.persistLocally) {
-                            dirtyIds.add(remoteEntry.id);
-                        }
                         if (remoteSelection.downloaded) {
                             downloadCount++;
                         }
@@ -1226,12 +1428,9 @@ class WebDAVSyncManager {
                             }
                         } else {
                             // 遠端較新 → 下載 stub
-                            const remoteSelection = pickRemoteChat(remoteEntry, localChat);
+                            const remoteSelection = pickRemoteChat(remoteEntry);
                             mergedChats.push(remoteSelection.chat);
                             manifestChatIndex.push(remoteSelection.manifestEntry);
-                            if (remoteSelection.persistLocally) {
-                                dirtyIds.add(remoteEntry.id);
-                            }
                             if (remoteSelection.downloaded) {
                                 downloadCount++;
                             }
@@ -1240,13 +1439,33 @@ class WebDAVSyncManager {
                 }
             }
 
+            if (quickChatMerge.conflictResolved) {
+                conflictCount++;
+            }
+            if (apiSettingsMerge.conflictResolved) {
+                conflictCount++;
+            }
+
+            let quickChatOptionsSynced = false;
+            const syncMetadataUpdates = {};
+            if (quickChatMerge.source === 'remote') {
+                syncMetadataUpdates.quickChatOptions = quickChatMerge.value;
+                quickChatOptionsSynced = true;
+            }
+
+            let apiConfigSynced = false;
+            if (this.config.syncApiConfig && apiSettingsMerge.source === 'remote' && effectiveApiSettings) {
+                Object.assign(syncMetadataUpdates, effectiveApiSettings);
+                apiConfigSynced = true;
+            }
+
             let manifestApiSettings = undefined;
             let manifestApiSettingsEncrypted = false;
-            if (this.config.syncApiConfig && localData.apiSettings) {
-                manifestApiSettings = localData.apiSettings;
+            if (this.config.syncApiConfig && effectiveApiSettings) {
+                manifestApiSettings = effectiveApiSettings;
                 if (this.config.encryptApiKeys && this.config.encryptionPassword) {
                     try {
-                        manifestApiSettings = await encrypt(localData.apiSettings, this.config.encryptionPassword);
+                        manifestApiSettings = await encrypt(effectiveApiSettings, this.config.encryptionPassword);
                         manifestApiSettingsEncrypted = true;
                     } catch (encryptError) {
                         console.error('[WebDAV] 加密 API 配置失败:', encryptError);
@@ -1260,9 +1479,11 @@ class WebDAVSyncManager {
                 initialChatIndex: manifestChatIndex,
                 uploadItems,
                 tombstones: mergedTombstones,
-                quickChatOptions: Array.isArray(localData.quickChatOptions) ? localData.quickChatOptions : undefined,
+                quickChatOptions: quickChatMerge.value,
+                quickChatOptionsUpdatedAt: quickChatMerge.updatedAt,
                 apiSettings: manifestApiSettings,
                 apiSettingsEncrypted: manifestApiSettingsEncrypted,
+                apiSettingsUpdatedAt: this.config.syncApiConfig ? apiSettingsMerge.updatedAt : null,
                 uploadConcurrency: SHARED_UPLOAD_CONCURRENCY
             });
 
@@ -1290,13 +1511,21 @@ class WebDAVSyncManager {
             // 直接計算 post-sync overall hash（零 I/O：使用記憶體中的 localHashChatIndex）
             const localHash = this._computeOverallHash(
                 localHashChatIndex,
-                Array.isArray(localData.quickChatOptions) ? localData.quickChatOptions : [],
-                localData.apiSettings
+                quickChatMerge.value,
+                effectiveApiSettings
             );
 
             // 一次性批次儲存所有同步狀態（合併 7 次序列 IPC → 2 次並行 IPC）
             const newETag = uploadResult.etag || downloadETag;
             const lastSync = new Date().toISOString();
+            const syncedMetadataState = buildSyncedMetadataSyncState({
+                quickChatOptions: quickChatMerge.value,
+                quickChatOptionsUpdatedAt: manifest.quickChatOptionsUpdatedAt || quickChatMerge.updatedAt || manifest.timestamp,
+                apiSettings: this.config.syncApiConfig ? effectiveApiSettings : undefined,
+                apiSettingsUpdatedAt: this.config.syncApiConfig
+                    ? (manifest.apiSettingsUpdatedAt || apiSettingsMerge.updatedAt || manifest.timestamp)
+                    : null
+            });
             await this._batchSavePostSyncState({
                 manifest,
                 localChatHashes: updatedHashes,
@@ -1304,7 +1533,9 @@ class WebDAVSyncManager {
                 etag: newETag || `__needs_refresh_${Date.now()}`,
                 localHash,
                 lastSync,
-                remoteTimestamp: manifest.timestamp
+                remoteTimestamp: manifest.timestamp,
+                metadataSyncState: syncedMetadataState,
+                syncStorageData: Object.keys(syncMetadataUpdates).length > 0 ? syncMetadataUpdates : null
             });
             await this.clearLocalDataDirty();
             await this._runOrphanCleanupIfNeeded(manifest);
@@ -1315,7 +1546,9 @@ class WebDAVSyncManager {
                 chatCount: manifest.chatIndex.length,
                 uploadCount: uploadItems.length,
                 downloadCount,
-                conflictCount
+                conflictCount,
+                quickChatOptionsSynced,
+                apiConfigSynced
             });
 
             const message = `智能合并：${uploadItems.length} 个上传，${downloadCount} 个下载` +

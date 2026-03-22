@@ -7,12 +7,15 @@ import { computeChatHash } from './src/utils/chat-hash.js';
 import { SYNC_MODE_FLAG_KEY } from './src/utils/storage-adapter.js';
 import {
   WebDAVClient,
+  buildSyncedMetadataSyncState,
   cleanTombstones,
+  normalizeMetadataSyncState,
   uploadManifestSnapshot
 } from './src/services/webdav-sync-shared.js';
 
 const WEBDAV_LOCAL_DATA_DIRTY_KEY = 'webdav_local_data_dirty';
 const WEBDAV_KNOWN_DIRS_KEY = 'webdav_known_directories';
+const WEBDAV_METADATA_SYNC_STATE_KEY = 'webdav_metadata_sync_state';
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 // Helper: 根據 sync 模式 flag 取得正確的 storage area（Service Worker 可能隨時重啟）
@@ -637,10 +640,12 @@ async function performWebDAVSyncUpload() {
             'cerebr_chat_index',
             'webdav_cached_manifest',
             'webdav_local_chat_hashes',
-            WEBDAV_KNOWN_DIRS_KEY
+            WEBDAV_KNOWN_DIRS_KEY,
+            WEBDAV_METADATA_SYNC_STATE_KEY
         ]);
 
         const cachedManifest = localData.webdav_cached_manifest;
+        const metadataSyncState = normalizeMetadataSyncState(localData[WEBDAV_METADATA_SYNC_STATE_KEY]);
         const hashTable = new Map(Object.entries(localData.webdav_local_chat_hashes || {}));
         const storedChatIndex = Array.isArray(localData.cerebr_chat_index) ? localData.cerebr_chat_index : [];
         const missingHashIds = storedChatIndex
@@ -675,6 +680,20 @@ async function performWebDAVSyncUpload() {
         const quickChatOptions = Array.isArray(syncMetadata.quickChatOptions) ? syncMetadata.quickChatOptions : undefined;
         const quickChatOptionsForHash = Array.isArray(quickChatOptions) ? quickChatOptions : [];
         const apiSettingsForHash = config.syncApiConfig ? normalizeApiSettings(syncMetadata) : undefined;
+        const quickChatOptionsUpdatedAt = quickChatOptions
+            ? (metadataSyncState.quickChatOptions.modifiedAt ||
+                metadataSyncState.quickChatOptions.lastSyncedAt ||
+                cachedManifest?.quickChatOptionsUpdatedAt ||
+                cachedManifest?.timestamp ||
+                new Date().toISOString())
+            : metadataSyncState.quickChatOptions.lastSyncedAt;
+        const apiSettingsUpdatedAt = config.syncApiConfig && apiSettingsForHash
+            ? (metadataSyncState.apiSettings.modifiedAt ||
+                metadataSyncState.apiSettings.lastSyncedAt ||
+                cachedManifest?.apiSettingsUpdatedAt ||
+                cachedManifest?.timestamp ||
+                new Date().toISOString())
+            : metadataSyncState.apiSettings.lastSyncedAt;
         let manifestApiSettings = apiSettingsForHash;
         let manifestApiSettingsEncrypted = false;
         if (config.syncApiConfig && apiSettingsForHash && config.encryptApiKeys && config.encryptionPassword) {
@@ -702,8 +721,10 @@ async function performWebDAVSyncUpload() {
             uploadItems,
             tombstones: tombstonesForReplay,
             quickChatOptions,
+            quickChatOptionsUpdatedAt,
             apiSettings: manifestApiSettings,
-            apiSettingsEncrypted: manifestApiSettingsEncrypted
+            apiSettingsEncrypted: manifestApiSettingsEncrypted,
+            apiSettingsUpdatedAt
         });
 
         // 8. 更新同步狀態
@@ -721,12 +742,21 @@ async function performWebDAVSyncUpload() {
         const { cerebr_dirty_chat_ids: currentDirty } = await chrome.storage.local.get('cerebr_dirty_chat_ids');
         const uploadedSet = new Set(uploadedIds);
         const remaining = (currentDirty || []).filter(id => !uploadedSet.has(id));
+        const nextMetadataSyncState = buildSyncedMetadataSyncState({
+            quickChatOptions: quickChatOptionsForHash,
+            quickChatOptionsUpdatedAt: manifest.quickChatOptionsUpdatedAt || quickChatOptionsUpdatedAt || manifest.timestamp,
+            apiSettings: config.syncApiConfig ? apiSettingsForHash : undefined,
+            apiSettingsUpdatedAt: config.syncApiConfig
+                ? (manifest.apiSettingsUpdatedAt || apiSettingsUpdatedAt || manifest.timestamp)
+                : null
+        });
 
         await chrome.storage.local.set({
             cerebr_dirty_chat_ids: remaining,
             webdav_deleted_chat_ids: remainingTombstones,
             webdav_cached_manifest: manifest,
             webdav_local_chat_hashes: Object.fromEntries(hashTable),
+            [WEBDAV_METADATA_SYNC_STATE_KEY]: nextMetadataSyncState,
             [WEBDAV_KNOWN_DIRS_KEY]: [...client._knownDirectories],
             [WEBDAV_LOCAL_DATA_DIRTY_KEY]: null
         });

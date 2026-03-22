@@ -18,6 +18,18 @@ export const HTTP_STATUS = {
 export const DEFAULT_TIMEOUT = 30000;
 export const CHAT_DIRECTORY = 'chats';
 export const UPLOAD_CONCURRENCY = 5;
+export const DEFAULT_METADATA_SYNC_STATE = Object.freeze({
+    quickChatOptions: Object.freeze({
+        baseHash: null,
+        lastSyncedAt: null,
+        modifiedAt: null
+    }),
+    apiSettings: Object.freeze({
+        baseHash: null,
+        lastSyncedAt: null,
+        modifiedAt: null
+    })
+});
 
 const DEFAULT_CLIENT_CONFIG = {
     serverUrl: '',
@@ -73,6 +85,60 @@ export async function runWithConcurrency(tasks, concurrency) {
 export function cleanTombstones(tombstones, maxAgeMs) {
     const cutoff = Date.now() - maxAgeMs;
     return tombstones.filter((tombstone) => new Date(tombstone.deletedAt).getTime() > cutoff);
+}
+
+export function createDefaultMetadataSyncState() {
+    return {
+        quickChatOptions: { ...DEFAULT_METADATA_SYNC_STATE.quickChatOptions },
+        apiSettings: { ...DEFAULT_METADATA_SYNC_STATE.apiSettings }
+    };
+}
+
+export function normalizeMetadataSyncState(rawState) {
+    const nextState = createDefaultMetadataSyncState();
+    if (rawState?.quickChatOptions && typeof rawState.quickChatOptions === 'object') {
+        nextState.quickChatOptions = {
+            ...nextState.quickChatOptions,
+            ...rawState.quickChatOptions
+        };
+    }
+    if (rawState?.apiSettings && typeof rawState.apiSettings === 'object') {
+        nextState.apiSettings = {
+            ...nextState.apiSettings,
+            ...rawState.apiSettings
+        };
+    }
+    return nextState;
+}
+
+export function computeStructuredHash(value) {
+    const hashSource = JSON.stringify(value === undefined ? null : value);
+    let hash = 5381;
+    for (let i = 0; i < hashSource.length; i++) {
+        hash = ((hash << 5) + hash) + hashSource.charCodeAt(i);
+        hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16);
+}
+
+export function buildSyncedMetadataSyncState({
+    quickChatOptions,
+    quickChatOptionsUpdatedAt = null,
+    apiSettings,
+    apiSettingsUpdatedAt = null
+}) {
+    return {
+        quickChatOptions: {
+            baseHash: computeStructuredHash(Array.isArray(quickChatOptions) ? quickChatOptions : []),
+            lastSyncedAt: quickChatOptionsUpdatedAt || null,
+            modifiedAt: null
+        },
+        apiSettings: {
+            baseHash: apiSettings === undefined ? null : computeStructuredHash(apiSettings),
+            lastSyncedAt: apiSettings === undefined ? null : (apiSettingsUpdatedAt || null),
+            modifiedAt: null
+        }
+    };
 }
 
 export class WebDAVClient {
@@ -506,8 +572,10 @@ export async function uploadManifestSnapshot({
     uploadItems = [],
     tombstones = [],
     quickChatOptions,
+    quickChatOptionsUpdatedAt = null,
     apiSettings,
     apiSettingsEncrypted = false,
+    apiSettingsUpdatedAt = null,
     uploadConcurrency = UPLOAD_CONCURRENCY,
     timestamp = new Date().toISOString()
 }) {
@@ -555,10 +623,16 @@ export async function uploadManifestSnapshot({
 
     if (Array.isArray(quickChatOptions)) {
         manifest.quickChatOptions = quickChatOptions;
+        if (quickChatOptionsUpdatedAt) {
+            manifest.quickChatOptionsUpdatedAt = quickChatOptionsUpdatedAt;
+        }
     }
 
     if (apiSettings !== undefined) {
         manifest.apiSettings = apiSettings;
+        if (apiSettingsUpdatedAt) {
+            manifest.apiSettingsUpdatedAt = apiSettingsUpdatedAt;
+        }
         if (apiSettingsEncrypted) {
             manifest.apiSettingsEncrypted = true;
         }
