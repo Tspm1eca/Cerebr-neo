@@ -505,7 +505,7 @@ export async function uploadManifestSnapshot({
     initialChatIndex = [],
     uploadItems = [],
     tombstones = [],
-    quickChatOptions = [],
+    quickChatOptions,
     apiSettings,
     apiSettingsEncrypted = false,
     uploadConcurrency = UPLOAD_CONCURRENCY,
@@ -550,9 +550,12 @@ export async function uploadManifestSnapshot({
         version: 2,
         timestamp,
         chatIndex: manifestChatIndex,
-        deletedChatIds: remainingTombstones,
-        quickChatOptions
+        deletedChatIds: remainingTombstones
     };
+
+    if (Array.isArray(quickChatOptions)) {
+        manifest.quickChatOptions = quickChatOptions;
+    }
 
     if (apiSettings !== undefined) {
         manifest.apiSettings = apiSettings;

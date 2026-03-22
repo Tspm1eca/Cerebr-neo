@@ -12,6 +12,20 @@ import { t } from '../utils/i18n.js';
 // 存儲鍵名
 const QUICK_CHAT_OPTIONS_KEY = 'quickChatOptions';
 
+async function resolveQuickChatOptions({ persistIfMissing = false } = {}) {
+    const result = await syncStorageAdapter.get(QUICK_CHAT_OPTIONS_KEY);
+    if (Array.isArray(result.quickChatOptions)) {
+        return result.quickChatOptions;
+    }
+
+    const defaultOptions = await getDefaultQuickChatOptions();
+    if (persistIfMissing && defaultOptions.length > 0) {
+        await syncStorageAdapter.set({ [QUICK_CHAT_OPTIONS_KEY]: defaultOptions });
+    }
+
+    return defaultOptions;
+}
+
 /**
  * 初始化常用聊天選項
  * @param {Object} config - 配置對象
@@ -42,8 +56,7 @@ export async function initQuickChat({
     // 加載常用選項配置
     async function loadQuickChatOptions() {
         try {
-            const result = await syncStorageAdapter.get(QUICK_CHAT_OPTIONS_KEY);
-            quickChatOptions = result.quickChatOptions || await getDefaultQuickChatOptions();
+            quickChatOptions = await resolveQuickChatOptions({ persistIfMissing: true });
         } catch (error) {
             console.error('加载常用聊天选项失败:', error);
             quickChatOptions = await getDefaultQuickChatOptions();
@@ -661,8 +674,7 @@ export function toggleQuickChatOptions(show) {
  */
 export async function getQuickChatOptions() {
     try {
-        const result = await syncStorageAdapter.get(QUICK_CHAT_OPTIONS_KEY);
-        return result.quickChatOptions || await getDefaultQuickChatOptions();
+        return await resolveQuickChatOptions({ persistIfMissing: true });
     } catch (error) {
         console.error('获取常用聊天选项失败:', error);
         return getDefaultQuickChatOptions();

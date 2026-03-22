@@ -672,7 +672,8 @@ async function performWebDAVSyncUpload() {
             'exaApiKey',
             'exaApiUrl'
         ]);
-        const quickChatOptions = Array.isArray(syncMetadata.quickChatOptions) ? syncMetadata.quickChatOptions : [];
+        const quickChatOptions = Array.isArray(syncMetadata.quickChatOptions) ? syncMetadata.quickChatOptions : undefined;
+        const quickChatOptionsForHash = Array.isArray(quickChatOptions) ? quickChatOptions : [];
         const apiSettingsForHash = config.syncApiConfig ? normalizeApiSettings(syncMetadata) : undefined;
         let manifestApiSettings = apiSettingsForHash;
         let manifestApiSettingsEncrypted = false;
@@ -713,7 +714,7 @@ async function performWebDAVSyncUpload() {
         };
         syncUpdates.webdav_last_sync = manifest.timestamp;
         syncUpdates.webdav_last_sync_timestamp = manifest.timestamp;
-        syncUpdates.webdav_local_hash = computeOverallHash(localHashChatIndex, quickChatOptions, apiSettingsForHash);
+        syncUpdates.webdav_local_hash = computeOverallHash(localHashChatIndex, quickChatOptionsForHash, apiSettingsForHash);
         await syncStorage.set(syncUpdates);
 
         // 清除已上傳的 dirty IDs，儲存更新後的狀態

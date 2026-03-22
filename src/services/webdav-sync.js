@@ -739,7 +739,7 @@ class WebDAVSyncManager {
                 initialChatIndex: chatIndex,
                 uploadItems,
                 tombstones,
-                quickChatOptions: localData.quickChatOptions || [],
+                quickChatOptions: Array.isArray(localData.quickChatOptions) ? localData.quickChatOptions : undefined,
                 apiSettings: manifestApiSettings,
                 apiSettingsEncrypted: manifestApiSettingsEncrypted,
                 uploadConcurrency: SHARED_UPLOAD_CONCURRENCY
@@ -1260,7 +1260,7 @@ class WebDAVSyncManager {
                 initialChatIndex: manifestChatIndex,
                 uploadItems,
                 tombstones: mergedTombstones,
-                quickChatOptions: localData.quickChatOptions || [],
+                quickChatOptions: Array.isArray(localData.quickChatOptions) ? localData.quickChatOptions : undefined,
                 apiSettings: manifestApiSettings,
                 apiSettingsEncrypted: manifestApiSettingsEncrypted,
                 uploadConcurrency: SHARED_UPLOAD_CONCURRENCY
@@ -1290,7 +1290,7 @@ class WebDAVSyncManager {
             // 直接計算 post-sync overall hash（零 I/O：使用記憶體中的 localHashChatIndex）
             const localHash = this._computeOverallHash(
                 localHashChatIndex,
-                localData.quickChatOptions || [],
+                Array.isArray(localData.quickChatOptions) ? localData.quickChatOptions : [],
                 localData.apiSettings
             );
 
@@ -1370,12 +1370,15 @@ class WebDAVSyncManager {
             const chats = chatManager.getAllChatsArray();
 
             const quickChatResult = await syncStorageAdapter.get('quickChatOptions');
-            const quickChatOptions = quickChatResult.quickChatOptions || [];
+            const hasStoredQuickChatOptions = Array.isArray(quickChatResult.quickChatOptions);
+            const quickChatOptions = hasStoredQuickChatOptions ? quickChatResult.quickChatOptions : [];
 
             const syncData = {
-                chats: chats,
-                quickChatOptions: quickChatOptions
+                chats: chats
             };
+            if (hasStoredQuickChatOptions) {
+                syncData.quickChatOptions = quickChatResult.quickChatOptions;
+            }
 
             if (this.config.syncApiConfig) {
                 const apiConfigResult = await syncStorageAdapter.get([
