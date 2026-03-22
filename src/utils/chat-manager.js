@@ -44,7 +44,8 @@ export class ChatManager {
             updatedAt: chat.updatedAt || chat.createdAt,
             webpageUrls: chat.webpageUrls || [],
             messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0,
-            _remoteOnly: chat._remoteOnly || false
+            _remoteOnly: chat._remoteOnly || false,
+            _webdavHydrated: chat._webdavHydrated || false
         };
     }
 
@@ -102,6 +103,12 @@ export class ChatManager {
      */
     markChatDirty(chatId) {
         if (!chatId) return;
+        const chat = this.chats.get(chatId);
+        if (chat) {
+            delete chat._webdavHydrated;
+            delete chat._webdavHash;
+            delete chat._webdavMessageCount;
+        }
         if (!this._dirtyChatIds.has(chatId)) {
             this._dirtyChatIds.add(chatId);
             this.storage.set({ [DIRTY_CHAT_IDS_KEY]: [...this._dirtyChatIds] }).catch(() => {});
@@ -258,6 +265,12 @@ export class ChatManager {
         }
     }
 
+    async persistModifiedChat(chatId) {
+        if (!chatId) return;
+        this.markChatDirty(chatId);
+        await this.saveChat(chatId);
+    }
+
     /**
      * 延遲儲存單一聊天 — 用於流式更新期間，避免頻繁寫入。
      * 每個 chatId 獨立計時，多次呼叫只會在最後一次呼叫後 500ms 執行一次寫入。
@@ -370,8 +383,12 @@ export class ChatManager {
             const fullChat = await this.onDemandLoader(chatId);
             if (fullChat) {
                 delete fullChat._remoteOnly;
+                fullChat._webdavHydrated = true;
+                fullChat._webdavHash = chat._webdavHash || null;
+                fullChat._webdavMessageCount = Number.isFinite(chat._webdavMessageCount)
+                    ? chat._webdavMessageCount
+                    : (Array.isArray(fullChat.messages) ? fullChat.messages.length : 0);
                 this.chats.set(chatId, fullChat);
-                this.markChatDirty(chatId);
                 await this.saveChat(chatId);
             } else {
                 // 下載失敗，保持空殼狀態

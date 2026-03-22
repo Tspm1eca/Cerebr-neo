@@ -577,43 +577,6 @@
         </div>
     </div>
 
-    <!-- WebDAV Conflict Resolution Modal -->
-    <div id="webdav-conflict-modal" class="confirm-modal" style="display: none;">
-        <div class="confirm-modal-content webdav-conflict-content">
-            <div class="conflict-header">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-                    <line x1="12" y1="9" x2="12" y2="13"></line>
-                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                </svg>
-                <span data-i18n="webdav.conflictTitle">同步冲突</span>
-            </div>
-            <p class="conflict-message" data-i18n="webdav.conflictMessage">本地和云端数据都有更改，请选择要保留的版本：</p>
-            <div class="conflict-info">
-                <button class="conflict-option conflict-option-btn" id="conflict-use-local">
-                    <div class="conflict-option-header">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-                            <line x1="8" y1="21" x2="16" y2="21"></line>
-                            <line x1="12" y1="17" x2="12" y2="21"></line>
-                        </svg>
-                        <span data-i18n="webdav.useLocal">使用本地数据</span>
-                    </div>
-                    <div class="conflict-option-time" id="conflict-local-time">--</div>
-                </button>
-                <button class="conflict-option conflict-option-btn" id="conflict-use-remote">
-                    <div class="conflict-option-header">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
-                        </svg>
-                        <span data-i18n="webdav.useRemote">使用云端数据</span>
-                    </div>
-                    <div class="conflict-option-time" id="conflict-remote-time">--</div>
-                </button>
-            </div>
-        </div>
-    </div>
-
     <!-- System Prompt Expand Modal -->
     <div id="system-prompt-modal" class="system-prompt-modal" style="display: none;">
         <div class="prompt-modal-content">

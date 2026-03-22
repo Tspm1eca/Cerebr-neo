@@ -534,7 +534,7 @@ export function initChatContainer({
                                     textItem.text = newText;
                                 }
                             }
-                            chatManager.saveChat(chatManager.currentChatId);
+                            chatManager.persistModifiedChat(chatManager.currentChatId);
                         }
                     } else {
                         // 如果文本没有变化或为空，恢复原始内容
@@ -609,7 +609,7 @@ export function initChatContainer({
                                     textItem.text = newText;
                                 }
                             }
-                            chatManager.saveChat(chatManager.currentChatId);
+                            chatManager.persistModifiedChat(chatManager.currentChatId);
                         }
 
                         // 触发重新生成消息
@@ -749,7 +749,7 @@ export function initChatContainer({
                 const currentChat = chatManager.getCurrentChat();
                 if (currentChat && messageIndex !== -1) {
                     currentChat.messages.splice(messageIndex, 1);
-                    chatManager.saveChat(chatManager.currentChatId);
+                    chatManager.persistModifiedChat(chatManager.currentChatId);
                 }
 
                 // 隐藏右键菜单

@@ -541,7 +541,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     });
                 }
             }
-            chatManager.saveChat(currentChat.id);
+            chatManager.persistModifiedChat(currentChat.id);
 
             // 只移除AI消息（错误消息或旧的成功消息），保留用户消息
             if (aiMessageElement) {

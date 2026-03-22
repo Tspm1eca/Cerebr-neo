@@ -18,6 +18,15 @@ import { encrypt, decrypt, isEncrypted, encryptPasswordForStorage, decryptPasswo
 import { chatManager } from '../utils/chat-manager.js';
 import { computeChatHash } from '../utils/chat-hash.js';
 import { t } from '../utils/i18n.js';
+import {
+    CHAT_DIRECTORY as SHARED_CHAT_DIRECTORY,
+    UPLOAD_CONCURRENCY as SHARED_UPLOAD_CONCURRENCY,
+    WebDAVClient as SharedWebDAVClient,
+    cleanTombstones as sharedCleanTombstones,
+    runWithConcurrency as sharedRunWithConcurrency,
+    uploadManifestSnapshot,
+    stripWebDAVMetadata
+} from './webdav-sync-shared.js';
 
 // WebDAV 配置键
 const WEBDAV_CONFIG_KEY = 'webdav_config';
@@ -37,24 +46,6 @@ const WEBDAV_ORPHAN_CLEANUP_PENDING_KEY = 'webdav_orphan_cleanup_pending';
 const WEBDAV_ORPHAN_CLEANUP_LAST_SCAN_AT_KEY = 'webdav_orphan_cleanup_last_scan_at';
 const WEBDAV_ORPHAN_CLEANUP_LOCK_KEY = 'webdav_orphan_cleanup_lock';
 
-// HTTP 状态码常量
-const HTTP_STATUS = {
-    OK: 200,
-    CREATED: 201,
-    NO_CONTENT: 204,
-    MULTI_STATUS: 207,
-    MOVED_PERMANENTLY: 301,
-    UNAUTHORIZED: 401,
-    FORBIDDEN: 403,
-    NOT_FOUND: 404,
-    METHOD_NOT_ALLOWED: 405,
-    CONFLICT: 409,
-    FAILED_DEPENDENCY: 424,
-    NOT_IMPLEMENTED: 501
-};
-
-// 默认请求超时时间（毫秒）
-const DEFAULT_TIMEOUT = 30000;
 const ORPHAN_CLEANUP_DEFAULT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 // 默认配置
@@ -73,10 +64,7 @@ const DEFAULT_CONFIG = {
     orphanCleanupDeleteConcurrency: 2
 };
 
-// 聊天目錄常量
-const CHAT_DIRECTORY = 'chats';
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 天
-const UPLOAD_CONCURRENCY = 5; // 並行上傳數量
 const ORPHAN_CLEANUP_LOCK_TTL_MS = 5 * 60 * 1000; // 5 分鐘
 
 function toPositiveInt(value, fallback) {
@@ -117,529 +105,44 @@ function buildRemoteOnlyStub(entry) {
         updatedAt: entry.updatedAt,
         webpageUrls: entry.webpageUrls || [],
         messages: [],
-        _remoteOnly: true
+        _remoteOnly: true,
+        _webdavHash: entry.hash || null,
+        _webdavMessageCount: Number.isFinite(entry.messageCount) ? entry.messageCount : 0
     };
 }
 
-/**
- * 清理過期的 tombstone
- */
-function cleanTombstones(tombstones, maxAgeMs = TOMBSTONE_MAX_AGE_MS) {
-    const cutoff = Date.now() - maxAgeMs;
-    return tombstones.filter(t => new Date(t.deletedAt).getTime() > cutoff);
+function getHydratedChatSyncState(chat, precomputedHash = null) {
+    if (!chat?._webdavHydrated) {
+        return { isRemoteCache: false, hash: precomputedHash };
+    }
+
+    const currentHash = precomputedHash || computeChatHash(chat);
+    return {
+        isRemoteCache: currentHash === (chat._webdavHash || null),
+        hash: currentHash
+    };
 }
 
-/**
- * 並行執行任務，限制並發數
- */
-async function runWithConcurrency(tasks, concurrency) {
-    const results = [];
-    let index = 0;
-
-    async function worker() {
-        while (index < tasks.length) {
-            const currentIndex = index++;
-            results[currentIndex] = await tasks[currentIndex]();
-        }
-    }
-
-    const workers = Array.from(
-        { length: Math.min(concurrency, tasks.length) },
-        () => worker()
-    );
-    await Promise.all(workers);
-    return results;
+function isRemoteCacheChat(chat, precomputedHash = null) {
+    if (chat?._remoteOnly) return true;
+    if (!chat?._webdavHydrated) return false;
+    return getHydratedChatSyncState(chat, precomputedHash).isRemoteCache;
 }
 
-/**
- * WebDAV 客户端类
- */
-class WebDAVClient {
-    constructor(config, knownDirectories = []) {
-        this.config = { ...DEFAULT_CONFIG, ...config };
-        this.syncInProgress = false;
-        // 目錄存在性快取：避免每次同步都重複發送 MKCOL 請求
-        this._knownDirectories = new Set(knownDirectories);
-    }
-
-    /**
-     * 正規化的同步路徑（去除前後斜線）
-     */
-    get _normalizedSyncPath() {
-        return this.config.syncPath.replace(/^\/+/, '').replace(/\/+$/, '');
-    }
-
-    /**
-     * 正規化的伺服器 URL（去除尾斜線）
-     */
-    get _baseUrl() {
-        return this.config.serverUrl.replace(/\/+$/, '');
-    }
-
-    /**
-     * 更新配置
-     */
-    updateConfig(config) {
-        const pathChanged =
-            (config.serverUrl !== undefined && config.serverUrl !== this.config.serverUrl) ||
-            (config.syncPath !== undefined && config.syncPath !== this.config.syncPath);
-        this.config = { ...this.config, ...config };
-        if (pathChanged) this._knownDirectories.clear();
-    }
-
-    /**
-     * 获取完整的 WebDAV URL
-     */
-    getFullUrl(path = '') {
-        return `${this._baseUrl}/${this._normalizedSyncPath}/${path}`.replace(/\/+$/, '');
-    }
-
-    /**
-     * 获取认证头
-     */
-    getAuthHeaders() {
-        const credentials = btoa(`${this.config.username}:${this.config.password}`);
-        return {
-            'Authorization': `Basic ${credentials}`,
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest' // 防止浏览器弹出认证对话框
-        };
-    }
-
-    /**
-     * 带超时的 fetch 请求
-     */
-    async fetchWithTimeout(url, options, timeout = DEFAULT_TIMEOUT) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-        const fetchOptions = {
-            ...options,
-            signal: controller.signal,
-            credentials: 'omit'
-        };
-
-        try {
-            const response = await fetch(url, fetchOptions);
-            return response;
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                throw new Error(t('webdav.requestTimeout', { seconds: timeout / 1000 }));
-            }
-            throw error;
-        } finally {
-            clearTimeout(timeoutId);
-        }
-    }
-
-    /**
-     * 带目录重试的操作包装器
-     */
-    async withDirectoryRetry(operation, operationName, filename = null) {
-        try {
-            const result = await operation();
-            if (filename) this._markAncestorDirectoriesKnown(filename);
-            return result;
-        } catch (error) {
-            if (error.status === HTTP_STATUS.FAILED_DEPENDENCY ||
-                error.status === HTTP_STATUS.CONFLICT ||
-                error.status === HTTP_STATUS.FORBIDDEN ||
-                error.status === HTTP_STATUS.NOT_FOUND) {
-                console.warn(`[WebDAV] ${operationName} 遇到目录问题 (HTTP ${error.status})，清除目錄快取並尝试创建后重试`);
-                this._knownDirectories.clear();
-                // 根據檔案路徑重建完整目錄結構（含子目錄如 chats/）
-                if (filename && filename.includes('/')) {
-                    const dirPart = filename.split('/').slice(0, -1).join('/');
-                    const fullDirPath = [this._normalizedSyncPath, dirPart].filter(Boolean).join('/');
-                    await this._ensureDirectoriesExist(fullDirPath);
-                } else {
-                    await this.createDirectory();
-                }
-                const result = await operation();
-                if (filename) this._markAncestorDirectoriesKnown(filename);
-                return result;
-            }
-            throw error;
-        }
-    }
-
-    /**
-     * 测试连接
-     */
-    async testConnection() {
-        if (!this.config.serverUrl || !this.config.username) {
-            throw new Error(t('webdav.serverUrlUsernameRequired'));
-        }
-
-        try {
-            const response = await this.fetchWithTimeout(this.getFullUrl(), {
-                method: 'PROPFIND',
-                headers: {
-                    ...this.getAuthHeaders(),
-                    'Depth': '0'
-                }
-            });
-
-            if (response.status === HTTP_STATUS.NOT_FOUND) {
-                const result = await this.createDirectory();
-                if (result.error) {
-                    throw new Error(t('webdav.syncPathCreateFailed', { error: result.error }));
-                }
-                return { success: true, message: t('webdav.connectionSuccess') };
-            }
-
-            if (response.status === HTTP_STATUS.MULTI_STATUS || response.status === HTTP_STATUS.OK) {
-                // 連接成功，將根同步目錄標記為已知存在
-                const syncPath = this._normalizedSyncPath;
-                if (syncPath) this._knownDirectories.add(syncPath);
-                return { success: true, message: t('webdav.connectionSuccess') };
-            }
-
-            if (response.status === HTTP_STATUS.UNAUTHORIZED) {
-                throw new Error(t('webdav.authFailed'));
-            }
-
-            throw new Error(t('webdav.connectionFailedStatus', { status: response.status }));
-        } catch (error) {
-            if (error.message.includes('Failed to fetch')) {
-                throw new Error(t('webdav.cannotReachServer'));
-            }
-            throw error;
-        }
-    }
-
-    /**
-     * 创建同步目录（支持多层路径）
-     */
-    async createDirectory() {
-        const syncPath = this._normalizedSyncPath;
-
-        // 若根同步目錄已在快取中，跳過
-        if (syncPath && this._knownDirectories.has(syncPath)) {
-            return { created: false, error: null };
-        }
-
-        try {
-            const response = await this.fetchWithTimeout(this.getFullUrl() + '/', {
-                method: 'MKCOL',
-                headers: this.getAuthHeaders()
-            });
-
-            if (response.status === HTTP_STATUS.CREATED) {
-                if (syncPath) this._knownDirectories.add(syncPath);
-                return { created: true, error: null };
-            }
-
-            if (response.status === HTTP_STATUS.METHOD_NOT_ALLOWED || response.status === HTTP_STATUS.MOVED_PERMANENTLY) {
-                if (syncPath) this._knownDirectories.add(syncPath);
-                return { created: false, error: null };
-            }
-
-            if (response.status === HTTP_STATUS.CONFLICT || response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                const parentCreated = await this.createParentDirectories();
-                if (!parentCreated) {
-                    return { created: false, error: t('webdav.createParentDirFailed') };
-                }
-                // createParentDirectories 已建立整條路徑（含 syncPath 本身）
-                return { created: true, error: null };
-            }
-
-            return { created: false, error: `HTTP ${response.status}` };
-        } catch (error) {
-            return { created: false, error: error.message };
-        }
-    }
-
-    /**
-     * 確保指定路徑的所有目錄層級都存在（共用核心邏輯）
-     * @param {string} normalizedPath - 正規化路徑（不含前後斜線，如 'Cerebr-neo/chats'）
-     * @returns {Promise<{created: boolean, error: string|null}>}
-     */
-    async _ensureDirectoriesExist(normalizedPath) {
-        if (!normalizedPath) {
-            return { created: false, error: null };
-        }
-
-        if (this._knownDirectories.has(normalizedPath)) {
-            return { created: false, error: null };
-        }
-
-        const baseUrl = this._baseUrl;
-        const parts = normalizedPath.split('/').filter(Boolean);
-        let currentPath = '';
-
-        for (const part of parts) {
-            currentPath += '/' + part;
-            const pathKey = currentPath.slice(1);
-
-            if (this._knownDirectories.has(pathKey)) {
-                continue;
-            }
-
-            const response = await this.fetchWithTimeout(`${baseUrl}${currentPath}/`, {
-                method: 'MKCOL',
-                headers: this.getAuthHeaders()
-            });
-
-            if (response.status === HTTP_STATUS.CREATED ||
-                response.status === HTTP_STATUS.METHOD_NOT_ALLOWED ||
-                response.status === HTTP_STATUS.MOVED_PERMANENTLY) {
-                this._knownDirectories.add(pathKey);
-            } else if (response.status !== HTTP_STATUS.CONFLICT &&
-                response.status !== HTTP_STATUS.FAILED_DEPENDENCY) {
-                return { created: false, error: `创建目录 ${currentPath} 失败: HTTP ${response.status}` };
-            }
-        }
-
-        return { created: true, error: null };
-    }
-
-    /**
-     * 递归创建父目录
-     */
-    async createParentDirectories() {
-        try {
-            const result = await this._ensureDirectoriesExist(this._normalizedSyncPath);
-            if (result.error) {
-                console.warn(`[WebDAV] ${result.error}`);
-            }
-            return !result.error;
-        } catch (error) {
-            console.error('[WebDAV] 创建父目录异常:', error);
-            return false;
-        }
-    }
-
-    /**
-     * 從成功的檔案操作反推祖先目錄存在，回填 _knownDirectories 快取
-     * @param {string} relativePath - 相對於 syncPath 的檔案路徑（如 'cerebr.json' 或 'chats/abc.json'）
-     */
-    _markAncestorDirectoriesKnown(relativePath) {
-        const syncPath = this._normalizedSyncPath;
-        if (!syncPath) return;
-
-        const fullPath = relativePath ? `${syncPath}/${relativePath}` : syncPath;
-        const parts = fullPath.split('/').filter(Boolean);
-        if (relativePath) parts.pop(); // 移除檔名，只保留目錄層級
-
-        let current = '';
-        for (const part of parts) {
-            current = current ? `${current}/${part}` : part;
-            this._knownDirectories.add(current);
-        }
-    }
-
-    async createDirectoryAtPath(relativePath) {
-        const childPath = relativePath.replace(/^\/+/, '').replace(/\/+$/, '');
-        const fullPath = [this._normalizedSyncPath, childPath].filter(Boolean).join('/');
-        return await this._ensureDirectoriesExist(fullPath);
-    }
-
-    /**
-     * 上传数据到 WebDAV
-     */
-    async uploadData(filename, data) {
-        const url = this.getFullUrl(filename);
-
-        const doUpload = async () => {
-            const response = await this.fetchWithTimeout(url, {
-                method: 'PUT',
-                headers: this.getAuthHeaders(),
-                body: JSON.stringify(data)
-            });
-
-            if (response.status === HTTP_STATUS.FAILED_DEPENDENCY || response.status === HTTP_STATUS.CONFLICT) {
-                const error = new Error(t('webdav.uploadFailedStatus', { status: response.status }));
-                error.status = response.status;
-                throw error;
-            }
-
-            if (!response.ok && response.status !== HTTP_STATUS.CREATED && response.status !== HTTP_STATUS.NO_CONTENT) {
-                const error = new Error(t('webdav.uploadFailedStatus', { status: response.status }));
-                error.status = response.status;
-                throw error;
-            }
-
-            const etag = response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
-            return { success: true, etag };
-        };
-
-        return await this.withDirectoryRetry(doUpload, '上传数据', filename);
-    }
-
-    /**
-     * 从 WebDAV 下载数据
-     */
-    async downloadData(filename) {
-        const url = this.getFullUrl(filename);
-
-        const doDownload = async () => {
-            const response = await this.fetchWithTimeout(url, {
-                method: 'GET',
-                headers: this.getAuthHeaders()
-            });
-
-            if (response.status === HTTP_STATUS.NOT_FOUND) {
-                return { data: null, etag: null };
-            }
-
-            if (response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                const error = new Error(t('webdav.downloadFailedStatus', { status: response.status }));
-                error.status = response.status;
-                throw error;
-            }
-
-            if (!response.ok) {
-                const error = new Error(t('webdav.downloadFailedStatus', { status: response.status }));
-                error.status = response.status;
-                throw error;
-            }
-
-            const etag = response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
-
-            const text = await response.text();
-            try {
-                return { data: JSON.parse(text), etag };
-            } catch (e) {
-                throw new Error(t('webdav.dataFormatError'));
-            }
-        };
-
-        try {
-            return await this.withDirectoryRetry(doDownload, '下载数据', filename);
-        } catch (error) {
-            if (error.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                return { data: null, etag: null };
-            }
-            throw error;
-        }
-    }
-
-    /**
-     * 删除 WebDAV 上的文件
-     */
-    async deleteFile(filename) {
-        const url = this.getFullUrl(filename);
-        const response = await this.fetchWithTimeout(url, {
-            method: 'DELETE',
-            headers: this.getAuthHeaders()
-        });
-
-        if (!response.ok && response.status !== HTTP_STATUS.NOT_FOUND) {
-            throw new Error(t('webdav.deleteFailed', { status: response.status }));
-        }
-
-        return true;
-    }
-
-    /**
-     * 列舉指定目錄下的 json 檔案（Depth:1）
-     * @param {string} directoryPath - 相對於 syncPath 的目錄路徑
-     * @returns {Promise<string[]>} 不含副檔名的檔名 ID 列表
-     */
-    async listJsonFilesInDirectory(directoryPath) {
-        const normalizedDirectory = directoryPath.replace(/^\/+/, '').replace(/\/+$/, '');
-        const directoryUrl = `${this.getFullUrl(normalizedDirectory)}/`;
-        const response = await this.fetchWithTimeout(directoryUrl, {
-            method: 'PROPFIND',
-            headers: {
-                ...this.getAuthHeaders(),
-                'Depth': '1'
-            }
-        });
-
-        if (response.status === HTTP_STATUS.NOT_FOUND) {
-            return [];
-        }
-
-        if (response.status === HTTP_STATUS.METHOD_NOT_ALLOWED ||
-            response.status === HTTP_STATUS.NOT_IMPLEMENTED) {
-            const unsupportedError = new Error(`[WebDAV] PROPFIND 不支援 (HTTP ${response.status})`);
-            unsupportedError.status = response.status;
-            unsupportedError.code = 'PROPFIND_UNSUPPORTED';
-            throw unsupportedError;
-        }
-
-        if (response.status !== HTTP_STATUS.MULTI_STATUS && response.status !== HTTP_STATUS.OK) {
-            const statusError = new Error(`[WebDAV] 列舉目錄失敗: HTTP ${response.status}`);
-            statusError.status = response.status;
-            throw statusError;
-        }
-
-        const xmlText = await response.text();
-        return this._extractJsonFileIdsFromPropfind(xmlText, directoryUrl);
-    }
-
-    _extractJsonFileIdsFromPropfind(xmlText, directoryUrl) {
-        const hrefPattern = /<[^>]*href[^>]*>([^<]+)<\/[^>]*href>/gi;
-        const directoryPathname = decodeURIComponent(new URL(directoryUrl).pathname).replace(/\/+$/, '/');
-        const ids = new Set();
-        let match;
-
-        while ((match = hrefPattern.exec(xmlText)) !== null) {
-            const rawHref = match[1].trim().replace(/&amp;/g, '&');
-            if (!rawHref) continue;
-
-            let pathname;
-            try {
-                pathname = decodeURIComponent(new URL(rawHref, directoryUrl).pathname);
-            } catch {
-                continue;
-            }
-
-            if (!pathname.startsWith(directoryPathname)) continue;
-
-            const relativePath = pathname.slice(directoryPathname.length);
-            if (!relativePath || relativePath.endsWith('/')) continue;
-            if (relativePath.includes('/')) continue;
-            if (!relativePath.toLowerCase().endsWith('.json')) continue;
-
-            ids.add(relativePath.slice(0, -5));
-        }
-
-        return [...ids];
-    }
-
-    /**
-     * 获取远端文件的 ETag（轻量级 HEAD 请求）
-     */
-    async getRemoteETag(filename) {
-        const url = this.getFullUrl(filename);
-
-        const doGetETag = async () => {
-            const response = await this.fetchWithTimeout(url, {
-                method: 'HEAD',
-                headers: this.getAuthHeaders()
-            });
-
-            if (response.status === HTTP_STATUS.NOT_FOUND) {
-                return null;
-            }
-
-            if (response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                const error = new Error(t('webdav.etagFailedStatus', { status: response.status }));
-                error.status = response.status;
-                throw error;
-            }
-
-            if (!response.ok) {
-                const error = new Error(t('webdav.etagFailedStatus', { status: response.status }));
-                error.status = response.status;
-                throw error;
-            }
-
-            return response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
-        };
-
-        try {
-            return await this.withDirectoryRetry(doGetETag, '获取 ETag', filename);
-        } catch (error) {
-            if (error.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                return null;
-            }
-            throw error;
-        }
-    }
+function buildHydratedRemoteChat(chat, entry) {
+    return {
+        ...chat,
+        _remoteOnly: false,
+        _webdavHydrated: true,
+        _webdavHash: entry.hash || null,
+        _webdavMessageCount: Number.isFinite(entry.messageCount)
+            ? entry.messageCount
+            : (Array.isArray(chat.messages) ? chat.messages.length : 0)
+    };
+}
+
+function promoteHydratedChatToLocal(chat) {
+    return stripWebDAVMetadata(chat);
 }
 
 /**
@@ -784,14 +287,6 @@ class WebDAVSyncManager {
         }
     }
 
-    async saveCachedManifest(manifest) {
-        try {
-            await storageAdapter.set({ [WEBDAV_CACHED_MANIFEST_KEY]: manifest });
-        } catch (e) {
-            console.warn('[WebDAV] 快取 manifest 失敗:', e);
-        }
-    }
-
     // ========== Per-Chat Hash Table ==========
 
     async loadLocalChatHashes() {
@@ -933,7 +428,7 @@ class WebDAVSyncManager {
                 keepSet.add(tombstone.id);
             }
 
-            const remoteChatIds = await this.client.listJsonFilesInDirectory(CHAT_DIRECTORY);
+            const remoteChatIds = await this.client.listJsonFilesInDirectory(SHARED_CHAT_DIRECTORY);
             const orphanIds = remoteChatIds.filter(chatId => !keepSet.has(chatId));
             const lastScanAtIso = new Date().toISOString();
 
@@ -949,13 +444,13 @@ class WebDAVSyncManager {
             const failedDeletes = new Set();
             const deleteTasks = deleteTargets.map(chatId => async () => {
                 try {
-                    await this.client.deleteFile(`${CHAT_DIRECTORY}/${chatId}.json`);
+                    await this.client.deleteFile(`${SHARED_CHAT_DIRECTORY}/${chatId}.json`);
                 } catch (error) {
                     failedDeletes.add(chatId);
                     console.warn(`[WebDAV] orphan cleanup 刪除 ${chatId}.json 失敗:`, error);
                 }
             });
-            await runWithConcurrency(deleteTasks, runtimeConfig.deleteConcurrency);
+            await sharedRunWithConcurrency(deleteTasks, runtimeConfig.deleteConcurrency);
 
             const hasMoreOrphans = orphanIds.length > deleteTargets.length;
             const hasFailedDeletes = failedDeletes.size > 0;
@@ -994,7 +489,7 @@ class WebDAVSyncManager {
         }
 
         try {
-            const result = await this.client.downloadData(`${CHAT_DIRECTORY}/${chatId}.json`);
+            const result = await this.client.downloadData(`${SHARED_CHAT_DIRECTORY}/${chatId}.json`);
             return result.data || null;
         } catch (error) {
             console.error(`[WebDAV] 下載聊天 ${chatId} 失敗:`, error);
@@ -1061,7 +556,7 @@ class WebDAVSyncManager {
             }
 
             // 從 storage 載入持久化的目錄快取，避免每次 session 重複 MKCOL
-            this.client = new WebDAVClient(this.config, await this._loadKnownDirectories());
+            this.client = new SharedWebDAVClient(this.config, await this._loadKnownDirectories());
         } catch (error) {
             console.error('加载 WebDAV 配置失败:', error);
         }
@@ -1106,7 +601,7 @@ class WebDAVSyncManager {
         if (this.client) {
             this.client.updateConfig(this.config);
         } else {
-            this.client = new WebDAVClient(this.config);
+            this.client = new SharedWebDAVClient(this.config);
         }
 
         // 路徑變更時清除持久化的目錄快取
@@ -1130,7 +625,7 @@ class WebDAVSyncManager {
      */
     async testConnection() {
         if (!this.client) {
-            this.client = new WebDAVClient(this.config);
+            this.client = new SharedWebDAVClient(this.config);
         }
         return await this.client.testConnection();
     }
@@ -1176,16 +671,18 @@ class WebDAVSyncManager {
 
             // 保留遠端已有但本地尚未下載的聊天索引
             const remoteOnlyEntries = (previousManifest?.chatIndex || [])
-                .filter(entry => chats.some(c => c.id === entry.id && c._remoteOnly));
+                .filter(entry => chats.some(c => c.id === entry.id && isRemoteCacheChat(c)));
 
             // 直接使用 getLocalSyncData 已建立的 chatIndex（消除重複計算）
             const chatIndex = [...prebuiltChatIndex];
-            const changedChats = [];
+            const uploadItems = [];
 
             for (const entry of prebuiltChatIndex) {
                 if (entry.hash !== previousChatHashes.get(entry.id)) {
                     const chat = chats.find(c => c.id === entry.id);
-                    if (chat) changedChats.push(chat);
+                    if (chat && !isRemoteCacheChat(chat)) {
+                        uploadItems.push({ chat, entry });
+                    }
                 }
             }
 
@@ -1197,10 +694,10 @@ class WebDAVSyncManager {
             }
 
             // 處理刪除的聊天
-            const tombstones = cleanTombstones(await this.loadDeletedChatIds());
+            const tombstones = sharedCleanTombstones(await this.loadDeletedChatIds(), TOMBSTONE_MAX_AGE_MS);
 
             // 短路：無變更的聊天、無 tombstone、且 overall hash 未改變 → 跳過上傳
-            if (changedChats.length === 0 && tombstones.length === 0) {
+            if (uploadItems.length === 0 && tombstones.length === 0) {
                 const hashResult = await syncStorageAdapter.get(WEBDAV_LOCAL_HASH_KEY);
                 const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];
                 if (localHash === lastLocalHash) {
@@ -1221,55 +718,14 @@ class WebDAVSyncManager {
                 }
             }
 
-            // 確保 chats/ 目錄存在
-            if (changedChats.length > 0) {
-                const dirResult = await this.client.createDirectoryAtPath(CHAT_DIRECTORY);
-                if (dirResult?.error) {
-                    throw new Error(t('webdav.createChatDirFailed', { error: dirResult.error }));
-                }
-            }
-
-            // 並行上傳變動的聊天
-            if (changedChats.length > 0) {
-                const uploadTasks = changedChats.map(chat => async () => {
-                    await this.client.uploadData(`${CHAT_DIRECTORY}/${chat.id}.json`, chat);
-                });
-                await runWithConcurrency(uploadTasks, UPLOAD_CONCURRENCY);
-            }
-
-            // 處理刪除的聊天（並行刪除）
-            const failedTombstones = new Set();
-            if (tombstones.length > 0) {
-                const deleteTasks = tombstones.map(tombstone => async () => {
-                    try {
-                        await this.client.deleteFile(`${CHAT_DIRECTORY}/${tombstone.id}.json`);
-                    } catch (e) {
-                        failedTombstones.add(tombstone.id);
-                        console.warn(`[WebDAV] 刪除聊天檔案 ${tombstone.id} 失敗:`, e);
-                    }
-                });
-                await runWithConcurrency(deleteTasks, UPLOAD_CONCURRENCY);
-            }
-
-            // 只保留刪除失敗的 tombstone，成功刪除（含 404）的不再保留
-            const remainingTombstones = tombstones.filter(t => failedTombstones.has(t.id));
-
-            // 建立 manifest
-            const manifest = {
-                version: 2,
-                timestamp: new Date().toISOString(),
-                chatIndex,
-                deletedChatIds: remainingTombstones,
-                quickChatOptions: localData.quickChatOptions || []
-            };
-
-            // API 設置加密
+            let manifestApiSettings;
+            let manifestApiSettingsEncrypted = false;
             if (this.config.syncApiConfig && localData.apiSettings) {
-                manifest.apiSettings = localData.apiSettings;
+                manifestApiSettings = localData.apiSettings;
                 if (this.config.encryptApiKeys && this.config.encryptionPassword) {
                     try {
-                        manifest.apiSettings = await encrypt(localData.apiSettings, this.config.encryptionPassword);
-                        manifest.apiSettingsEncrypted = true;
+                        manifestApiSettings = await encrypt(localData.apiSettings, this.config.encryptionPassword);
+                        manifestApiSettingsEncrypted = true;
                         console.log('[WebDAV] API 配置已加密');
                     } catch (encryptError) {
                         console.error('[WebDAV] 加密 API 配置失败:', encryptError);
@@ -1278,8 +734,16 @@ class WebDAVSyncManager {
                 }
             }
 
-            // 上傳 manifest
-            const uploadResult = await this.client.uploadData('cerebr.json', manifest);
+            const { manifest, uploadResult, remainingTombstones } = await uploadManifestSnapshot({
+                client: this.client,
+                initialChatIndex: chatIndex,
+                uploadItems,
+                tombstones,
+                quickChatOptions: localData.quickChatOptions || [],
+                apiSettings: manifestApiSettings,
+                apiSettingsEncrypted: manifestApiSettingsEncrypted,
+                uploadConcurrency: SHARED_UPLOAD_CONCURRENCY
+            });
 
             // 清除同步開始時快照的 dirty flags（保留同步期間新增的，fire-and-forget）
             chatManager.clearDirtyChatIds(dirtySnapshot);
@@ -1302,14 +766,14 @@ class WebDAVSyncManager {
             this.notifyListeners('sync-complete', {
                 direction: 'upload',
                 timestamp: lastSync,
-                chatCount: chatIndex.length,
-                changedChatCount: changedChats.length,
+                chatCount: manifest.chatIndex.length,
+                changedChatCount: uploadItems.length,
                 includesApiConfig: this.config.syncApiConfig
             });
 
-            let message = `已上传 ${chatIndex.length} 个对话`;
-            if (changedChats.length < chatIndex.length) {
-                message += `（${changedChats.length} 个有变更）`;
+            let message = `已上传 ${manifest.chatIndex.length} 个对话`;
+            if (uploadItems.length < manifest.chatIndex.length) {
+                message += `（${uploadItems.length} 个有变更）`;
             }
             if (this.config.syncApiConfig) {
                 message += '<br>（含 API 配置）';
@@ -1359,7 +823,10 @@ class WebDAVSyncManager {
             ];
             if (currentChatId) {
                 downloadPromises.push(
-                    this.client.downloadData(`${CHAT_DIRECTORY}/${currentChatId}.json`).catch(() => null)
+                    this.client.downloadData(`${SHARED_CHAT_DIRECTORY}/${currentChatId}.json`).catch((error) => {
+                        console.warn(`[WebDAV] 当前聊天 ${currentChatId} 預先下載失敗:`, error);
+                        return null;
+                    })
                 );
             } else {
                 downloadPromises.push(Promise.resolve(null));
@@ -1404,10 +871,17 @@ class WebDAVSyncManager {
 
                 const localChat = localChatMap.get(entry.id);
                 const hasLocalFull = localChat && !localChat._remoteOnly;
+                const hydratedState = localChat?._webdavHydrated
+                    ? getHydratedChatSyncState(localChat)
+                    : null;
                 // 用 stored hash 比對（不重新計算），比原來更正確：
                 // stored hash 代表上次同步狀態，若 remote hash 相同代表遠端沒變，保留本地版本
                 const storedHash = localChatHashes.get(entry.id);
-                const hashMatch = hasLocalFull && storedHash && storedHash === entry.hash;
+                const hashMatch = hasLocalFull && (
+                    hydratedState
+                        ? hydratedState.isRemoteCache && hydratedState.hash === entry.hash
+                        : (storedHash && storedHash === entry.hash)
+                );
 
                 // hash 相同，保留本地版本
                 if (hashMatch) {
@@ -1420,28 +894,30 @@ class WebDAVSyncManager {
                 if (entry.id === currentChatId) {
                     const prefetchedData = prefetchedCurrentChat?.data;
                     if (prefetchedData) {
-                        mergedChats.push(prefetchedData);
+                        mergedChats.push(buildHydratedRemoteChat(prefetchedData, entry));
                         dirtyIds.add(entry.id);
                         updatedHashes.set(entry.id, entry.hash);
                         continue;
                     }
-                    // 預先下載失敗 fallback：有本地資料用本地，否則空殼
+                    console.warn(`[WebDAV] 当前聊天 ${entry.id} 預先下載失敗，回退到本地/空殼版本並繼續同步`);
                     if (hasLocalFull) {
-                        mergedChats.push(localChat);
-                        updatedHashes.set(entry.id, computeChatHash(localChat));
-                    } else {
-                        mergedChats.push(buildRemoteOnlyStub(entry));
-                        updatedHashes.set(entry.id, entry.hash);
+                        const fallbackChat = promoteHydratedChatToLocal(localChat);
+                        mergedChats.push(fallbackChat);
+                        if (localChat._webdavHydrated) {
+                            dirtyIds.add(entry.id);
+                        }
+                        updatedHashes.set(entry.id, computeChatHash(fallbackChat));
+                        continue;
                     }
-                } else {
-                    mergedChats.push(buildRemoteOnlyStub(entry));
-                    updatedHashes.set(entry.id, entry.hash);
                 }
+
+                mergedChats.push(buildRemoteOnlyStub(entry));
+                updatedHashes.set(entry.id, entry.hash);
             }
 
             // 保留本地獨有的聊天（遠端 chatIndex 中不存在且未被刪除）
             for (const localChat of localChats) {
-                if (!remoteEntryIds.has(localChat.id) && !deletedIds.has(localChat.id) && !localChat._remoteOnly) {
+                if (!remoteEntryIds.has(localChat.id) && !deletedIds.has(localChat.id) && !isRemoteCacheChat(localChat)) {
                     mergedChats.push(localChat);
                 }
             }
@@ -1453,17 +929,19 @@ class WebDAVSyncManager {
 
             // 構建合併後的 chatIndex（供 overall hash 計算，排除 _remoteOnly 空殼）
             const mergedChatIndex = mergedChats
-                .filter(c => !c._remoteOnly)
+                .filter(c => !isRemoteCacheChat(c))
                 .map(c => buildChatIndexEntry(c, updatedHashes.get(c.id)));
 
             // 儲存合併後的聊天到本地（per-chat key-value 格式）
             await chatManager.replaceAllChats(mergedChats, dirtyIds);
 
             // 恢復快速選項
-            const effectiveQuickChatOptions = (syncData.quickChatOptions && Array.isArray(syncData.quickChatOptions))
-                ? syncData.quickChatOptions : [];
+            const hasRemoteQuickChatOptions = Array.isArray(syncData.quickChatOptions);
+            const effectiveQuickChatOptions = hasRemoteQuickChatOptions
+                ? syncData.quickChatOptions
+                : [];
             let quickChatOptionsSynced = false;
-            if (effectiveQuickChatOptions.length > 0) {
+            if (hasRemoteQuickChatOptions) {
                 await syncStorageAdapter.set({ quickChatOptions: effectiveQuickChatOptions });
                 quickChatOptionsSynced = true;
             }
@@ -1578,7 +1056,10 @@ class WebDAVSyncManager {
             const [downloadResult, prefetchedCurrentChat] = await Promise.all([
                 this.client.downloadData('cerebr.json'),
                 currentChatId
-                    ? this.client.downloadData(`${CHAT_DIRECTORY}/${currentChatId}.json`).catch(() => null)
+                    ? this.client.downloadData(`${SHARED_CHAT_DIRECTORY}/${currentChatId}.json`).catch((error) => {
+                        console.warn(`[WebDAV] 当前聊天 ${currentChatId} 預先下載失敗:`, error);
+                        return null;
+                    })
                     : Promise.resolve(null)
             ]);
             const remoteManifest = downloadResult.data;
@@ -1604,8 +1085,8 @@ class WebDAVSyncManager {
             const baseHashes = await this.loadLocalChatHashes();
 
             // 5. 合併 tombstones（本地 + 遠端取聯集，by id 去重保留較新的 deletedAt）
-            const localTombstones = cleanTombstones(await this.loadDeletedChatIds());
-            const remoteTombstones = cleanTombstones(remoteManifest.deletedChatIds || []);
+            const localTombstones = sharedCleanTombstones(await this.loadDeletedChatIds(), TOMBSTONE_MAX_AGE_MS);
+            const remoteTombstones = sharedCleanTombstones(remoteManifest.deletedChatIds || [], TOMBSTONE_MAX_AGE_MS);
             const tombstoneMap = new Map();
             for (const t of localTombstones) {
                 tombstoneMap.set(t.id, t);
@@ -1629,19 +1110,40 @@ class WebDAVSyncManager {
             ]);
 
             const mergedChats = [];
-            const mergedChatIndex = [];
-            const chatsToUpload = [];   // 需要上傳的本地聊天
+            const manifestChatIndex = [];
+            const uploadItems = [];
             let downloadCount = 0;
             let conflictCount = 0;
 
             // 取得遠端聊天（優先用 prefetch，否則建 stub）並追蹤需寫入的 ID
             const dirtyIds = new Set();
-            const pickRemoteChat = (entry) => {
+            const pickRemoteChat = (entry, fallbackLocalChat = null) => {
                 if (entry.id === currentChatId && prefetchedCurrentChat?.data) {
                     dirtyIds.add(entry.id);
-                    return prefetchedCurrentChat.data;
+                    return {
+                        chat: buildHydratedRemoteChat(prefetchedCurrentChat.data, entry),
+                        manifestEntry: entry,
+                        downloaded: true,
+                        persistLocally: false
+                    };
                 }
-                return buildRemoteOnlyStub(entry);
+                if (entry.id === currentChatId) {
+                    console.warn(`[WebDAV] 当前聊天 ${entry.id} 預先下載失敗，保留本地版本並延後收斂`);
+                    if (fallbackLocalChat && !fallbackLocalChat._remoteOnly) {
+                        return {
+                            chat: promoteHydratedChatToLocal(fallbackLocalChat),
+                            manifestEntry: entry,
+                            downloaded: false,
+                            persistLocally: Boolean(fallbackLocalChat._webdavHydrated)
+                        };
+                    }
+                }
+                return {
+                    chat: buildRemoteOnlyStub(entry),
+                    manifestEntry: entry,
+                    downloaded: entry.id !== currentChatId,
+                    persistLocally: false
+                };
             };
 
             for (const chatId of allChatIds) {
@@ -1660,14 +1162,20 @@ class WebDAVSyncManager {
                     // 僅本地有 → 上傳
                     if (hasLocalFull) {
                         mergedChats.push(localChat);
-                        mergedChatIndex.push(localEntry);
-                        chatsToUpload.push(localChat);
+                        manifestChatIndex.push(localEntry);
+                        uploadItems.push({ chat: localChat, entry: localEntry });
                     }
                 } else if (!localEntry && remoteEntry) {
                     // 僅遠端有 → 下載 stub（currentChat 用 prefetch）
-                    mergedChats.push(pickRemoteChat(remoteEntry));
-                    mergedChatIndex.push(remoteEntry);
-                    downloadCount++;
+                    const remoteSelection = pickRemoteChat(remoteEntry);
+                    mergedChats.push(remoteSelection.chat);
+                    manifestChatIndex.push(remoteSelection.manifestEntry);
+                    if (remoteSelection.persistLocally) {
+                        dirtyIds.add(remoteEntry.id);
+                    }
+                    if (remoteSelection.downloaded) {
+                        downloadCount++;
+                    }
                 } else if (localEntry && remoteEntry) {
                     // 兩邊都有 → 三方比對
                     if (baseHash === localHash && baseHash === remoteHash) {
@@ -1677,22 +1185,28 @@ class WebDAVSyncManager {
                         } else {
                             mergedChats.push(buildRemoteOnlyStub(remoteEntry));
                         }
-                        mergedChatIndex.push(localEntry);
+                        manifestChatIndex.push(localEntry);
                     } else if (baseHash !== localHash && baseHash === remoteHash) {
                         // (b) 僅本地改 → 上傳
                         if (hasLocalFull) {
                             mergedChats.push(localChat);
-                            mergedChatIndex.push(localEntry);
-                            chatsToUpload.push(localChat);
+                            manifestChatIndex.push(localEntry);
+                            uploadItems.push({ chat: localChat, entry: localEntry });
                         } else {
                             mergedChats.push(buildRemoteOnlyStub(remoteEntry));
-                            mergedChatIndex.push(remoteEntry);
+                            manifestChatIndex.push(remoteEntry);
                         }
                     } else if (baseHash === localHash && baseHash !== remoteHash) {
                         // (c) 僅遠端改 → 下載 stub
-                        mergedChats.push(pickRemoteChat(remoteEntry));
-                        mergedChatIndex.push(remoteEntry);
-                        downloadCount++;
+                        const remoteSelection = pickRemoteChat(remoteEntry, localChat);
+                        mergedChats.push(remoteSelection.chat);
+                        manifestChatIndex.push(remoteSelection.manifestEntry);
+                        if (remoteSelection.persistLocally) {
+                            dirtyIds.add(remoteEntry.id);
+                        }
+                        if (remoteSelection.downloaded) {
+                            downloadCount++;
+                        }
                     } else {
                         // (d) 兩邊都改 或 (e) baseHash 不存在 → updatedAt 較新者勝出
                         const localUpdatedAt = localEntry.updatedAt || '';
@@ -1704,69 +1218,36 @@ class WebDAVSyncManager {
                             // 本地較新 → 上傳
                             if (hasLocalFull) {
                                 mergedChats.push(localChat);
-                                mergedChatIndex.push(localEntry);
-                                chatsToUpload.push(localChat);
+                                manifestChatIndex.push(localEntry);
+                                uploadItems.push({ chat: localChat, entry: localEntry });
                             } else {
                                 mergedChats.push(buildRemoteOnlyStub(remoteEntry));
-                                mergedChatIndex.push(remoteEntry);
+                                manifestChatIndex.push(remoteEntry);
                             }
                         } else {
                             // 遠端較新 → 下載 stub
-                            mergedChats.push(pickRemoteChat(remoteEntry));
-                            mergedChatIndex.push(remoteEntry);
-                            downloadCount++;
+                            const remoteSelection = pickRemoteChat(remoteEntry, localChat);
+                            mergedChats.push(remoteSelection.chat);
+                            manifestChatIndex.push(remoteSelection.manifestEntry);
+                            if (remoteSelection.persistLocally) {
+                                dirtyIds.add(remoteEntry.id);
+                            }
+                            if (remoteSelection.downloaded) {
+                                downloadCount++;
+                            }
                         }
                     }
                 }
             }
 
-            // 7. 確保 chats/ 目錄存在
-            if (chatsToUpload.length > 0) {
-                const dirResult = await this.client.createDirectoryAtPath(CHAT_DIRECTORY);
-                if (dirResult?.error) {
-                    throw new Error(t('webdav.createChatDirFailed', { error: dirResult.error }));
-                }
-            }
-
-            // 8. 並行上傳有變更的本地對話
-            if (chatsToUpload.length > 0) {
-                const uploadTasks = chatsToUpload.map(chat => async () => {
-                    await this.client.uploadData(`${CHAT_DIRECTORY}/${chat.id}.json`, chat);
-                });
-                await runWithConcurrency(uploadTasks, UPLOAD_CONCURRENCY);
-            }
-
-            // 9. 並行刪除本地 tombstone 對應的遠端檔案
-            const failedTombstones = new Set();
-            if (mergedTombstones.length > 0) {
-                const deleteTasks = mergedTombstones.map(tombstone => async () => {
-                    try {
-                        await this.client.deleteFile(`${CHAT_DIRECTORY}/${tombstone.id}.json`);
-                    } catch (e) {
-                        failedTombstones.add(tombstone.id);
-                        console.warn(`[WebDAV] 刪除聊天檔案 ${tombstone.id} 失敗:`, e);
-                    }
-                });
-                await runWithConcurrency(deleteTasks, UPLOAD_CONCURRENCY);
-            }
-            const remainingTombstones = mergedTombstones.filter(t => failedTombstones.has(t.id));
-
-            // 10. 建構合併後的 manifest
-            const manifest = {
-                version: 2,
-                timestamp: new Date().toISOString(),
-                chatIndex: mergedChatIndex,
-                deletedChatIds: remainingTombstones,
-                quickChatOptions: localData.quickChatOptions || []
-            };
-
-            // API 設置（使用本地版本）
+            let manifestApiSettings = undefined;
+            let manifestApiSettingsEncrypted = false;
             if (this.config.syncApiConfig && localData.apiSettings) {
-                manifest.apiSettings = localData.apiSettings;
+                manifestApiSettings = localData.apiSettings;
                 if (this.config.encryptApiKeys && this.config.encryptionPassword) {
                     try {
-                        manifest.apiSettings = await encrypt(localData.apiSettings, this.config.encryptionPassword);
-                        manifest.apiSettingsEncrypted = true;
+                        manifestApiSettings = await encrypt(localData.apiSettings, this.config.encryptionPassword);
+                        manifestApiSettingsEncrypted = true;
                     } catch (encryptError) {
                         console.error('[WebDAV] 加密 API 配置失败:', encryptError);
                         throw new Error(t('webdav.encryptApiConfigFailed', { error: encryptError.message }));
@@ -1774,8 +1255,16 @@ class WebDAVSyncManager {
                 }
             }
 
-            // 11. 上傳 manifest
-            const uploadResult = await this.client.uploadData('cerebr.json', manifest);
+            const { manifest, uploadResult, remainingTombstones } = await uploadManifestSnapshot({
+                client: this.client,
+                initialChatIndex: manifestChatIndex,
+                uploadItems,
+                tombstones: mergedTombstones,
+                quickChatOptions: localData.quickChatOptions || [],
+                apiSettings: manifestApiSettings,
+                apiSettingsEncrypted: manifestApiSettingsEncrypted,
+                uploadConcurrency: SHARED_UPLOAD_CONCURRENCY
+            });
 
             // 12. 更新本地狀態
             // 儲存合併後的聊天到本地（關鍵數據寫入，須先完成）
@@ -1790,13 +1279,17 @@ class WebDAVSyncManager {
 
             // 使用合併後的 index hash 建立 hash table
             const updatedHashes = new Map();
-            for (const entry of mergedChatIndex) {
+            for (const entry of manifest.chatIndex) {
                 updatedHashes.set(entry.id, entry.hash);
             }
 
-            // 直接計算 post-sync overall hash（零 I/O：使用記憶體中的 mergedChatIndex）
+            const localHashChatIndex = mergedChats
+                .filter((chat) => !isRemoteCacheChat(chat))
+                .map((chat) => buildChatIndexEntry(chat, updatedHashes.get(chat.id)));
+
+            // 直接計算 post-sync overall hash（零 I/O：使用記憶體中的 localHashChatIndex）
             const localHash = this._computeOverallHash(
-                mergedChatIndex,
+                localHashChatIndex,
                 localData.quickChatOptions || [],
                 localData.apiSettings
             );
@@ -1819,13 +1312,13 @@ class WebDAVSyncManager {
             this.notifyListeners('sync-complete', {
                 direction: 'merge',
                 timestamp: lastSync,
-                chatCount: mergedChatIndex.length,
-                uploadCount: chatsToUpload.length,
+                chatCount: manifest.chatIndex.length,
+                uploadCount: uploadItems.length,
                 downloadCount,
                 conflictCount
             });
 
-            const message = `智能合并：${chatsToUpload.length} 个上传，${downloadCount} 个下载` +
+            const message = `智能合并：${uploadItems.length} 个上传，${downloadCount} 个下载` +
                 (conflictCount > 0 ? `，${conflictCount} 个冲突自动解决` : '');
 
             return {
@@ -1833,7 +1326,7 @@ class WebDAVSyncManager {
                 message,
                 timestamp: lastSync,
                 needsReload: downloadCount > 0,
-                uploadCount: chatsToUpload.length,
+                uploadCount: uploadItems.length,
                 downloadCount,
                 conflictCount
             };
@@ -1913,6 +1406,22 @@ class WebDAVSyncManager {
             const chatIndexForHash = [];
             for (const chat of chats) {
                 if (chat._remoteOnly) continue;
+
+                if (chat._webdavHydrated) {
+                    const hydratedState = getHydratedChatSyncState(chat);
+                    if (hydratedState.isRemoteCache) {
+                        continue;
+                    }
+
+                    const previousHash = localChatHashes.get(chat.id);
+                    if (previousHash !== hydratedState.hash) {
+                        localChatHashes.set(chat.id, hydratedState.hash);
+                        hashTableDirty = true;
+                    }
+
+                    chatIndexForHash.push(buildChatIndexEntry(chat, hydratedState.hash));
+                    continue;
+                }
 
                 let hash;
                 if (dirtyChatIds.has(chat.id)) {
@@ -2102,53 +1611,6 @@ class WebDAVSyncManager {
             console.error('[WebDAV] 同步检查失败:', error);
             return { needsSync: true, direction: 'upload', reason: `检查失败: ${error.message}` };
         }
-    }
-
-    /**
-     * 获取冲突信息
-     */
-    async getConflictInfo() {
-        try {
-            const localResult = await syncStorageAdapter.get(WEBDAV_LAST_SYNC_TIMESTAMP_KEY);
-            const localTimestamp = localResult[WEBDAV_LAST_SYNC_TIMESTAMP_KEY];
-
-            const downloadResult = await this.client.downloadData('cerebr.json');
-            const remoteData = downloadResult.data;
-            const remoteTimestamp = remoteData?.timestamp;
-            const remoteEncrypted = remoteData?.apiSettingsEncrypted || false;
-
-            let recommendation = 'upload';
-            if (!localTimestamp && remoteTimestamp) {
-                recommendation = 'download';
-            } else if (localTimestamp && remoteTimestamp) {
-                const localTime = new Date(localTimestamp).getTime();
-                const remoteTime = new Date(remoteTimestamp).getTime();
-                recommendation = localTime >= remoteTime ? 'upload' : 'download';
-            }
-
-            return {
-                localTimestamp,
-                remoteTimestamp,
-                recommendation,
-                remoteEncrypted
-            };
-        } catch (error) {
-            console.error('[WebDAV] 获取冲突信息失败:', error);
-            return {
-                localTimestamp: null,
-                remoteTimestamp: null,
-                recommendation: 'upload',
-                remoteEncrypted: false
-            };
-        }
-    }
-
-    /**
-     * 解决冲突
-     */
-    async resolveConflict() {
-        const conflictInfo = await this.getConflictInfo();
-        return conflictInfo.recommendation;
     }
 
     /**

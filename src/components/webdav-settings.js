@@ -50,55 +50,6 @@ function formatTimestamp(timestamp) {
 }
 
 /**
- * 显示冲突解决对话框
- * @param {Object} conflictInfo - 冲突信息
- * @returns {Promise<'upload'|'download'>} 用户选择的方向
- */
-function showConflictDialog(conflictInfo) {
-    return new Promise((resolve) => {
-        const modal = document.getElementById('webdav-conflict-modal');
-        const localTimeEl = document.getElementById('conflict-local-time');
-        const remoteTimeEl = document.getElementById('conflict-remote-time');
-        const useLocalBtn = document.getElementById('conflict-use-local');
-        const useRemoteBtn = document.getElementById('conflict-use-remote');
-
-        if (!modal || !useLocalBtn || !useRemoteBtn) {
-            console.warn(`[WebDAV] ${t('webdav.conflictDialogMissing')}`);
-            resolve(conflictInfo.recommendation);
-            return;
-        }
-
-        // 更新时间显示
-        if (localTimeEl) {
-            localTimeEl.textContent = formatTimestamp(conflictInfo.localTimestamp);
-        }
-        if (remoteTimeEl) {
-            remoteTimeEl.textContent = formatTimestamp(conflictInfo.remoteTimestamp);
-        }
-
-        // 清理旧的事件监听器
-        const newUseLocalBtn = useLocalBtn.cloneNode(true);
-        const newUseRemoteBtn = useRemoteBtn.cloneNode(true);
-        useLocalBtn.parentNode.replaceChild(newUseLocalBtn, useLocalBtn);
-        useRemoteBtn.parentNode.replaceChild(newUseRemoteBtn, useRemoteBtn);
-
-        // 绑定新的事件监听器
-        newUseLocalBtn.addEventListener('click', () => {
-            modal.style.display = 'none';
-            resolve('upload');
-        });
-
-        newUseRemoteBtn.addEventListener('click', () => {
-            modal.style.display = 'none';
-            resolve('download');
-        });
-
-        // 显示对话框
-        modal.style.display = 'flex';
-    });
-}
-
-/**
  * WebDAV 设置控制器
  */
 class WebDAVSettingsController {
