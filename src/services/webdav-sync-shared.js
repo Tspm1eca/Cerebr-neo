@@ -83,6 +83,28 @@ function upsertChatIndexEntry(chatIndex, entry) {
     }
 }
 
+function compareChatIndexEntries(left, right) {
+    const leftCreatedMs = Date.parse(left?.createdAt || '');
+    const rightCreatedMs = Date.parse(right?.createdAt || '');
+    const leftHasCreatedAt = Number.isFinite(leftCreatedMs);
+    const rightHasCreatedAt = Number.isFinite(rightCreatedMs);
+
+    if (leftHasCreatedAt && rightHasCreatedAt && leftCreatedMs !== rightCreatedMs) {
+        return leftCreatedMs - rightCreatedMs;
+    }
+    if (leftHasCreatedAt !== rightHasCreatedAt) {
+        return leftHasCreatedAt ? -1 : 1;
+    }
+
+    return String(left?.id || '').localeCompare(String(right?.id || ''));
+}
+
+export function sortChatIndexEntries(chatIndex) {
+    return (Array.isArray(chatIndex) ? [...chatIndex] : [])
+        .filter(entry => entry?.id)
+        .sort(compareChatIndexEntries);
+}
+
 export function stripWebDAVMetadata(chat) {
     if (!chat) return chat;
     const sanitizedChat = { ...chat };
@@ -239,15 +261,62 @@ export function buildHashedChatIndexEntry(source, hash) {
 }
 
 export function buildLocalHashChatIndex(storedChatIndex, hashTable) {
-    return (Array.isArray(storedChatIndex) ? storedChatIndex : [])
+    const entries = (Array.isArray(storedChatIndex) ? storedChatIndex : [])
         .filter(entry => entry?.id && !entry._remoteOnly && !entry._webdavHydrated)
         .map(entry => buildHashedChatIndexEntry(entry, hashTable.get(entry.id)))
         .filter(Boolean);
+    return sortChatIndexEntries(entries);
+}
+
+export function buildManifestUploadPlan({
+    initialChatIndex = [],
+    candidateChatIndex = [],
+    previousManifest = null,
+    tombstones = [],
+    tombstoneMaxAgeMs = Number.POSITIVE_INFINITY,
+    localHash = null,
+    lastLocalHash = null,
+    getChatById = null
+}) {
+    const plannedChatIndex = [];
+    for (const entry of initialChatIndex) {
+        upsertChatIndexEntry(plannedChatIndex, entry);
+    }
+
+    const previousChatHashes = new Map(
+        (previousManifest?.chatIndex || []).map(entry => [entry.id, entry.hash])
+    );
+    const uploadItems = [];
+    for (const entry of candidateChatIndex) {
+        if (!entry?.id) continue;
+        if (entry.hash === previousChatHashes.get(entry.id)) continue;
+
+        const chat = typeof getChatById === 'function'
+            ? getChatById(entry.id)
+            : null;
+        if (!chat) continue;
+
+        uploadItems.push({ chat, entry });
+    }
+
+    const normalizedTombstones = cleanTombstones(tombstones, tombstoneMaxAgeMs);
+    const previousTombstones = cleanTombstones(previousManifest?.deletedChatIds || [], tombstoneMaxAgeMs);
+    const tombstonesChanged =
+        computeTombstoneHash(normalizedTombstones) !== computeTombstoneHash(previousTombstones);
+    const hashesMatch = localHash !== null && localHash === lastLocalHash;
+
+    return {
+        initialChatIndex: sortChatIndexEntries(plannedChatIndex),
+        uploadItems,
+        tombstones: normalizedTombstones,
+        tombstonesChanged,
+        noChanges: uploadItems.length === 0 && hashesMatch && !tombstonesChanged
+    };
 }
 
 export function computeOverallHash(chatIndex, quickChatOptions, apiSettings) {
     return computeStructuredHash({
-        chatIndex,
+        chatIndex: sortChatIndexEntries(chatIndex),
         quickChatOptions,
         apiSettings
     });
@@ -596,45 +665,28 @@ export class WebDAVClient {
 
     async downloadData(filename) {
         const url = this.getFullUrl(filename);
+        const response = await this.fetchWithTimeout(url, {
+            method: 'GET',
+            headers: this.getAuthHeaders()
+        });
 
-        const doDownload = async () => {
-            const response = await this.fetchWithTimeout(url, {
-                method: 'GET',
-                headers: this.getAuthHeaders()
-            });
+        if (response.status === HTTP_STATUS.NOT_FOUND ||
+            response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
+            return { data: null, etag: null };
+        }
 
-            if (response.status === HTTP_STATUS.NOT_FOUND) {
-                return { data: null, etag: null };
-            }
-
-            if (response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                const error = new Error(t('webdav.downloadFailedStatus', { status: response.status }));
-                error.status = response.status;
-                throw error;
-            }
-
-            if (!response.ok) {
-                const error = new Error(t('webdav.downloadFailedStatus', { status: response.status }));
-                error.status = response.status;
-                throw error;
-            }
-
-            const etag = response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
-            const text = await response.text();
-            try {
-                return { data: JSON.parse(text), etag };
-            } catch {
-                throw new Error(t('webdav.dataFormatError'));
-            }
-        };
-
-        try {
-            return await this.withDirectoryRetry(doDownload, '下载数据', filename);
-        } catch (error) {
-            if (error.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                return { data: null, etag: null };
-            }
+        if (!response.ok) {
+            const error = new Error(t('webdav.downloadFailedStatus', { status: response.status }));
+            error.status = response.status;
             throw error;
+        }
+
+        const etag = response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
+        const text = await response.text();
+        try {
+            return { data: JSON.parse(text), etag };
+        } catch {
+            throw new Error(t('webdav.dataFormatError'));
         }
     }
 
@@ -717,40 +769,23 @@ export class WebDAVClient {
 
     async getRemoteETag(filename) {
         const url = this.getFullUrl(filename);
+        const response = await this.fetchWithTimeout(url, {
+            method: 'HEAD',
+            headers: this.getAuthHeaders()
+        });
 
-        const doGetETag = async () => {
-            const response = await this.fetchWithTimeout(url, {
-                method: 'HEAD',
-                headers: this.getAuthHeaders()
-            });
+        if (response.status === HTTP_STATUS.NOT_FOUND ||
+            response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
+            return null;
+        }
 
-            if (response.status === HTTP_STATUS.NOT_FOUND) {
-                return null;
-            }
-
-            if (response.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                const error = new Error(t('webdav.etagFailedStatus', { status: response.status }));
-                error.status = response.status;
-                throw error;
-            }
-
-            if (!response.ok) {
-                const error = new Error(t('webdav.etagFailedStatus', { status: response.status }));
-                error.status = response.status;
-                throw error;
-            }
-
-            return response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
-        };
-
-        try {
-            return await this.withDirectoryRetry(doGetETag, '获取 ETag', filename);
-        } catch (error) {
-            if (error.status === HTTP_STATUS.FAILED_DEPENDENCY) {
-                return null;
-            }
+        if (!response.ok) {
+            const error = new Error(t('webdav.etagFailedStatus', { status: response.status }));
+            error.status = response.status;
             throw error;
         }
+
+        return response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
     }
 }
 
@@ -768,7 +803,7 @@ export async function uploadManifestSnapshot({
     timestamp = new Date().toISOString()
 }) {
     const chatIndex = [];
-    for (const entry of initialChatIndex) {
+    for (const entry of sortChatIndexEntries(initialChatIndex)) {
         upsertChatIndexEntry(chatIndex, entry);
     }
 
@@ -812,7 +847,9 @@ export async function uploadManifestSnapshot({
     });
 
     const deletedIds = new Set(persistedTombstones.map((tombstone) => tombstone.id));
-    const manifestChatIndex = chatIndex.filter((entry) => entry?.id && !deletedIds.has(entry.id));
+    const manifestChatIndex = sortChatIndexEntries(
+        chatIndex.filter((entry) => entry?.id && !deletedIds.has(entry.id))
+    );
 
     const manifest = {
         version: 2,
@@ -946,21 +983,6 @@ export async function performStorageBackedCloseSyncUpload({
         }
     }
 
-    const initialChatIndex = Array.isArray(cachedManifest?.chatIndex) && cachedManifest.chatIndex.length > 0
-        ? [...cachedManifest.chatIndex]
-        : buildLocalHashChatIndex(storedChatIndex, hashTable);
-    const tombstonesForUpload = tombstones.length > 0
-        ? cleanTombstones(tombstones, tombstoneMaxAgeMs)
-        : cleanTombstones(cachedManifest?.deletedChatIds || [], tombstoneMaxAgeMs);
-    const previousTombstones = cleanTombstones(cachedManifest?.deletedChatIds || [], tombstoneMaxAgeMs);
-    const pendingTombstones = tombstonesForUpload.filter(tombstone => !tombstone.fileDeletedAt);
-    const tombstonesChanged =
-        computeTombstoneHash(tombstonesForUpload) !== computeTombstoneHash(previousTombstones);
-
-    if (dirtyIds.length === 0 && pendingTombstones.length === 0 && !localDataDirty && !tombstonesChanged) {
-        return { skipped: true, reason: 'no-changes' };
-    }
-
     const syncMetadata = await syncStorageArea.get([
         'quickChatOptions',
         'apiConfigs',
@@ -983,59 +1005,81 @@ export async function performStorageBackedCloseSyncUpload({
     const client = providedClient || new WebDAVClient(config, knownDirectories);
     client.updateConfig(config);
 
-    const uploadItems = [];
+    const candidateChatIndex = [];
     for (const id of dirtyIds) {
         const chat = localSnapshot[`${CHAT_KEY_PREFIX}${id}`];
         if (!chat || chat._remoteOnly || chat._webdavHydrated) continue;
 
         const hash = computeChatHash(chat);
         hashTable.set(id, hash);
-        uploadItems.push({
-            chat,
-            entry: buildHashedChatIndexEntry(chat, hash)
-        });
+        const entry = buildHashedChatIndexEntry(chat, hash);
+        if (!entry) continue;
+        candidateChatIndex.push(entry);
     }
 
     const localHashChatIndex = buildLocalHashChatIndex(storedChatIndex, hashTable);
     const localHash = computeOverallHash(localHashChatIndex, quickChatOptionsForHash, apiSettingsForHash);
-
-    if (uploadItems.length === 0 && !tombstonesChanged) {
-        const hashResult = await syncStorageArea.get(WEBDAV_LOCAL_HASH_KEY);
-        const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];
-        if (localHash === lastLocalHash) {
-            const currentDirtyResult = await localStorageArea.get(DIRTY_CHAT_IDS_KEY);
-            const currentDirty = Array.isArray(currentDirtyResult[DIRTY_CHAT_IDS_KEY])
-                ? currentDirtyResult[DIRTY_CHAT_IDS_KEY]
-                : [];
-            const processedDirtyIds = new Set(dirtyIds);
-            const clearedDirtyIds = currentDirty.filter(id => processedDirtyIds.has(id));
-            const remainingDirtyIds = currentDirty.filter(id => !processedDirtyIds.has(id));
-            const lastSync = new Date().toISOString();
-
-            await Promise.all([
-                localStorageArea.set({
-                    [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
-                    [WEBDAV_LOCAL_DATA_DIRTY_KEY]: null
-                }),
-                syncStorageArea.set({
-                    [WEBDAV_LAST_SYNC_KEY]: lastSync
-                })
-            ]);
-
-            return {
-                skipped: false,
-                noChanges: true,
-                client,
-                uploadedIds: [],
-                clearedDirtyIds,
-                persistedTombstones: tombstonesForUpload,
-                localDataDirty,
-                lastSync,
-                chatCount: Array.isArray(cachedManifest?.chatIndex)
-                    ? cachedManifest.chatIndex.length
-                    : initialChatIndex.length
-            };
+    const hashResult = await syncStorageArea.get(WEBDAV_LOCAL_HASH_KEY);
+    const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];
+    const baseChatIndex = Array.isArray(cachedManifest?.chatIndex) && cachedManifest.chatIndex.length > 0
+        ? cachedManifest.chatIndex
+        : localHashChatIndex;
+    const {
+        initialChatIndex,
+        uploadItems: plannedUploadItems,
+        tombstones: tombstonesForUpload,
+        tombstonesChanged,
+        noChanges
+    } = buildManifestUploadPlan({
+        initialChatIndex: baseChatIndex,
+        candidateChatIndex,
+        previousManifest: cachedManifest,
+        tombstones,
+        tombstoneMaxAgeMs,
+        localHash,
+        lastLocalHash,
+        getChatById: (chatId) => {
+            const chat = localSnapshot[`${CHAT_KEY_PREFIX}${chatId}`];
+            return (!chat || chat._remoteOnly || chat._webdavHydrated) ? null : chat;
         }
+    });
+    const pendingTombstones = tombstonesForUpload.filter(tombstone => !tombstone.fileDeletedAt);
+
+    if (dirtyIds.length === 0 && pendingTombstones.length === 0 && !localDataDirty && !tombstonesChanged) {
+        return { skipped: true, reason: 'no-changes' };
+    }
+
+    if (noChanges) {
+        const currentDirtyResult = await localStorageArea.get(DIRTY_CHAT_IDS_KEY);
+        const currentDirty = Array.isArray(currentDirtyResult[DIRTY_CHAT_IDS_KEY])
+            ? currentDirtyResult[DIRTY_CHAT_IDS_KEY]
+            : [];
+        const processedDirtyIds = new Set(dirtyIds);
+        const clearedDirtyIds = currentDirty.filter(id => processedDirtyIds.has(id));
+        const remainingDirtyIds = currentDirty.filter(id => !processedDirtyIds.has(id));
+        const lastSync = new Date().toISOString();
+
+        await Promise.all([
+            localStorageArea.set({
+                [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
+                [WEBDAV_LOCAL_DATA_DIRTY_KEY]: null
+            }),
+            syncStorageArea.set({
+                [WEBDAV_LAST_SYNC_KEY]: lastSync
+            })
+        ]);
+
+        return {
+            skipped: false,
+            noChanges: true,
+            client,
+            uploadedIds: [],
+            clearedDirtyIds,
+            persistedTombstones: tombstonesForUpload,
+            localDataDirty,
+            lastSync,
+            chatCount: initialChatIndex.length
+        };
     }
 
     let quickChatOptionsForManifest;
@@ -1071,7 +1115,7 @@ export async function performStorageBackedCloseSyncUpload({
     const { manifest, uploadResult, persistedTombstones, uploadedIds } = await uploadManifestSnapshot({
         client,
         initialChatIndex,
-        uploadItems,
+        uploadItems: plannedUploadItems,
         tombstones: tombstonesForUpload,
         quickChatOptions: quickChatOptionsForManifest,
         quickChatOptionsUpdatedAt,

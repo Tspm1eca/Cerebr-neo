@@ -91,7 +91,7 @@ export class ChatManager {
 
     /**
      * 設定按需下載回調（由 main.js 在 WebDAV 啟用時設定）
-     * @param {Function} loader - async (chatId) => chatData | null
+     * @param {Function} loader - async (chatId) => { ok, data, error }
      */
     setOnDemandLoader(loader) {
         this.onDemandLoader = loader;
@@ -325,13 +325,16 @@ export class ChatManager {
         const dataToWrite = {};
         const indexEntries = [];
         const newChatIds = new Set();
+        const keysToRemove = new Set();
         const writeAll = !dirtyIds;
 
         for (const chat of chatsArray) {
             this.chats.set(chat.id, chat);
             newChatIds.add(chat.id);
             if (!chat.isNew) {
-                if (!chat._remoteOnly && (writeAll || dirtyIds.has(chat.id))) {
+                if (chat._remoteOnly) {
+                    keysToRemove.add(this._chatKey(chat.id));
+                } else if (writeAll || dirtyIds.has(chat.id)) {
                     dataToWrite[this._chatKey(chat.id)] = chat;
                 }
                 indexEntries.push(this._buildIndexEntry(chat));
@@ -344,14 +347,13 @@ export class ChatManager {
         await this.storage.set(dataToWrite);
 
         // 清理孤兒 keys（舊的 chat 不在新列表中）
-        const orphanedKeys = [];
         for (const oldId of oldChatIds) {
             if (!newChatIds.has(oldId)) {
-                orphanedKeys.push(this._chatKey(oldId));
+                keysToRemove.add(this._chatKey(oldId));
             }
         }
-        if (orphanedKeys.length > 0) {
-            await this.storage.remove(orphanedKeys);
+        if (keysToRemove.size > 0) {
+            await this.storage.remove([...keysToRemove]);
         }
     }
 
@@ -371,16 +373,26 @@ export class ChatManager {
         return chat;
     }
 
-    async switchChat(chatId) {
+    async switchChat(chatId, options = {}) {
         if (!this.chats.has(chatId)) {
             throw new Error(t('chat.notFound'));
         }
 
+        const { allowRemoteOnlyFallback = false } = options;
         const chat = this.chats.get(chatId);
 
         // 按需載入：如果聊天標記為 _remoteOnly，從 WebDAV 下載完整內容
         if (chat._remoteOnly && this.onDemandLoader) {
-            const fullChat = await this.onDemandLoader(chatId);
+            let loadResult;
+            try {
+                loadResult = await this.onDemandLoader(chatId);
+            } catch (error) {
+                loadResult = { ok: false, data: null, error };
+            }
+
+            const fullChat = loadResult && typeof loadResult === 'object' && Object.prototype.hasOwnProperty.call(loadResult, 'ok')
+                ? loadResult.data
+                : loadResult;
             if (fullChat) {
                 delete fullChat._remoteOnly;
                 fullChat._webdavHydrated = true;
@@ -391,8 +403,13 @@ export class ChatManager {
                 this.chats.set(chatId, fullChat);
                 await this.saveChat(chatId);
             } else {
-                // 下載失敗，保持空殼狀態
-                console.warn(`[ChatManager] 按需下載聊天 ${chatId} 失敗`);
+                const loadError = loadResult?.error instanceof Error
+                    ? loadResult.error
+                    : new Error(t('chat.remoteLoadFailed', { error: t('common.unknown') }));
+                console.warn(`[ChatManager] 按需下載聊天 ${chatId} 失敗:`, loadError);
+                if (!allowRemoteOnlyFallback) {
+                    throw loadError;
+                }
             }
         }
 
@@ -417,11 +434,21 @@ export class ChatManager {
 
         // 如果删除的是当前对话，切换到其他对话
         if (chatId === this.currentChatId) {
-            const nextChat = Array.from(this.chats.values()).pop();
-            if (nextChat) {
-                await this.switchChat(nextChat.id);
-                this.currentChatId = nextChat.id;
-            } else {
+            const remainingChats = Array.from(this.chats.values()).reverse();
+            let switched = false;
+
+            for (const nextChat of remainingChats) {
+                try {
+                    await this.switchChat(nextChat.id);
+                    this.currentChatId = nextChat.id;
+                    switched = true;
+                    break;
+                } catch (error) {
+                    console.warn(`[ChatManager] 刪除後切換聊天 ${nextChat.id} 失敗:`, error);
+                }
+            }
+
+            if (!switched) {
                 const newChat = this.createNewChat('默认对话');
                 await this.switchChat(newChat.id);
                 this.currentChatId = newChat.id;

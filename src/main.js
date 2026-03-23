@@ -2135,23 +2135,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         });
     }
 
-    // WebDAV 同步函數 - 當程序關閉時調用
-    async function performWebDAVSyncOnClose() {
-        await webdavSettingsController.performSyncOnClose();
-    }
-
-    // 監聽頁面關閉事件，執行 WebDAV 同步
-    window.addEventListener('beforeunload', (event) => {
-        // 使用 navigator.sendBeacon 或同步方式確保數據能夠發送
-        // 由於 beforeunload 中無法可靠地執行異步操作，
-        // 我們使用 visibilitychange 事件作為主要的關閉檢測方式
-    });
-
-    // 使用 visibilitychange 事件來檢測頁面即將關閉
-    // 這比 beforeunload 更可靠，因為它在頁面隱藏時觸發
-    // 加入防抖機制，避免快速切換標籤頁時產生不必要的網路請求
-    let syncOnCloseDebounceTimer = null;
-    let syncOnCloseExecuted = false; // 去重標記，防止 visibilitychange 和 pagehide 重複觸發
+    // visibilitychange 只做本地 flush，避免把普通切標籤誤判為關閉同步
     document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'hidden') {
             // 頁面被隱藏時，立即寫入當前對話（防止串流中途丟失資料）
@@ -2159,36 +2143,22 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             if (currentChatId) {
                 await chatManager.flushSaveChat(currentChatId);
             }
-            // 頁面被隱藏（可能是關閉、切換標籤頁或最小化）
-            // 使用 5 秒防抖，過濾快速切換標籤頁的情況
-            syncOnCloseExecuted = false;
-            clearTimeout(syncOnCloseDebounceTimer);
-            syncOnCloseDebounceTimer = setTimeout(async () => {
-                syncOnCloseExecuted = true;
-                await performWebDAVSyncOnClose();
-            }, 5000);
-        } else if (document.visibilityState === 'visible') {
-            // 頁面重新可見時，取消待執行的同步（用戶快速切回來了）
-            clearTimeout(syncOnCloseDebounceTimer);
-            syncOnCloseExecuted = false;
         }
     });
 
-    // 監聯頁面卸載事件（作為備用方案，僅在真正卸載時觸發）
-    // 委託給 background service worker 執行同步，因為 SW 不受頁面生命週期影響
+    // 僅在真正卸載時才委託 background service worker 執行關閉同步
     window.addEventListener('pagehide', (event) => {
         // pagehide 事件在頁面被卸載時觸發
         // persisted 為 true 表示頁面可能被緩存（bfcache）
         if (!event.persisted) {
+            const currentChatId = chatManager.getCurrentChat()?.id;
+            if (currentChatId) {
+                chatManager.flushSaveChat(currentChatId).catch(() => {});
+            }
             // 標記面板已關閉，讓 SW 知道可以接手同步
             chrome.storage.local.set({ webdav_panel_active: false }).catch(() => {});
-            // 取消防抖計時器，避免重複執行
-            clearTimeout(syncOnCloseDebounceTimer);
-            // 如果 visibilitychange 已經執行過同步，則跳過
-            if (!syncOnCloseExecuted) {
-                // 委託給 service worker（訊息傳遞幾乎瞬間完成，SW 可在頁面關閉後繼續執行）
-                chrome.runtime.sendMessage({ type: 'WEBDAV_SYNC_UPLOAD' }).catch(() => {});
-            }
+            // 委託給 service worker（訊息傳遞幾乎瞬間完成，SW 可在頁面關閉後繼續執行）
+            chrome.runtime.sendMessage({ type: 'WEBDAV_SYNC_UPLOAD' }).catch(() => {});
         }
     });
 

@@ -518,6 +518,10 @@ class WebDAVSettingsController {
         try {
             const status = await webdavSyncManager.checkSyncStatus({ forceFresh: true });
 
+            if (status.direction === 'unknown') {
+                throw new Error(status.reason || t('webdav.syncStatusUnknown'));
+            }
+
             if (!status.needsSync) {
                 // 没有检测到差异，强制上传本地数据
                 const result = await webdavSyncManager.syncToRemote();
@@ -588,26 +592,6 @@ class WebDAVSettingsController {
         } catch (error) {
             showToast(`${t('webdav.webdavSyncFailed')}<br>${error.message}`, 'error');
             return { synced: false, direction: null, result: null, error: error.message };
-        }
-    }
-
-    /**
-     * 执行关闭时同步（仅上传本地变更）
-     * @returns {Promise<Object>} 同步结果
-     */
-    async performSyncOnClose() {
-        try {
-            const syncResult = await webdavSyncManager.syncOnClose();
-
-            if (syncResult.error) {
-                console.error('[WebDAV] 关闭同步失败:', syncResult.error);
-                // 关闭时不显示 Toast，因为页面可能已经关闭
-            }
-
-            return syncResult;
-        } catch (error) {
-            console.error('[WebDAV] 关闭同步失败:', error);
-            return { synced: false, result: null, error: error.message };
         }
     }
 }

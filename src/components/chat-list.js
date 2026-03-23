@@ -5,6 +5,21 @@ import { t } from '../utils/i18n.js';
 import { HISTORY_LIMIT_THRESHOLD } from '../constants/history.js';
 import { hideMenuWithAnimation } from '../utils/menu-animation.js';
 
+function showToast(message, type = 'success') {
+    const toast = document.createElement('div');
+    toast.className = type === 'success' ? 'success-toast' : 'error-toast';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+    }, 2700);
+
+    setTimeout(() => {
+        toast.remove();
+    }, 3000);
+}
+
 function updateHistoryCountDisplay(totalCount) {
     const historyCountElement = document.getElementById('chat-history-count');
     if (!historyCountElement) return;
@@ -203,6 +218,9 @@ export function initChatListEvents({
             try {
                 await switchToChat(targetChatId, chatManager, loadChatContentFn);
                 if (onHide) onHide();
+            } catch (error) {
+                console.error(`切換對話 ${targetChatId} 失敗:`, error);
+                showToast(error.message, 'error');
             } finally {
                 card.classList.remove('loading');
                 switchingChatId = null;
@@ -360,38 +378,11 @@ export function initializeChatList({
                 // 隱藏對話列表頁面
                 hideChatList(chatListPage);
 
-                // 顯示成功提示
-                const successMessage = document.createElement('div');
-                successMessage.className = 'success-toast';
-                successMessage.textContent = t('chatList.allCleared');
-                document.body.appendChild(successMessage);
-
-                // 2.7秒後開始淡出動畫，3秒後移除提示
-                setTimeout(() => {
-                    successMessage.classList.add('fade-out');
-                }, 2700);
-
-                setTimeout(() => {
-                    successMessage.remove();
-                }, 3000);
+                showToast(t('chatList.allCleared'), 'success');
 
             } catch (error) {
                 console.error('清除对话失败:', error);
-
-                // 顯示錯誤提示
-                const errorMessage = document.createElement('div');
-                errorMessage.className = 'error-toast';
-                errorMessage.textContent = t('chatList.clearFailed') + error.message;
-                document.body.appendChild(errorMessage);
-
-                // 2.7秒後開始淡出動畫，3秒後移除提示
-                setTimeout(() => {
-                    errorMessage.classList.add('fade-out');
-                }, 2700);
-
-                setTimeout(() => {
-                    errorMessage.remove();
-                }, 3000);
+                showToast(t('chatList.clearFailed') + error.message, 'error');
             }
         });
     }
