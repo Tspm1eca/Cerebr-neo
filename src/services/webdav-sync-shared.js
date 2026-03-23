@@ -1,3 +1,4 @@
+import { computeChatHash } from '../utils/chat-hash.js';
 import { t } from '../utils/i18n.js';
 
 export const HTTP_STATUS = {
@@ -30,6 +31,20 @@ export const DEFAULT_METADATA_SYNC_STATE = Object.freeze({
         modifiedAt: null
     })
 });
+
+const DIRTY_CHAT_IDS_KEY = 'cerebr_dirty_chat_ids';
+const CHAT_INDEX_KEY = 'cerebr_chat_index';
+const CHAT_KEY_PREFIX = 'cerebr_chat_';
+const WEBDAV_DELETED_CHAT_IDS_KEY = 'webdav_deleted_chat_ids';
+const WEBDAV_CACHED_MANIFEST_KEY = 'webdav_cached_manifest';
+const WEBDAV_LOCAL_CHAT_HASHES_KEY = 'webdav_local_chat_hashes';
+const WEBDAV_LOCAL_DATA_DIRTY_KEY = 'webdav_local_data_dirty';
+const WEBDAV_KNOWN_DIRS_KEY = 'webdav_known_directories';
+const WEBDAV_METADATA_SYNC_STATE_KEY = 'webdav_metadata_sync_state';
+const WEBDAV_REMOTE_ETAG_KEY = 'webdav_remote_etag';
+const WEBDAV_LOCAL_HASH_KEY = 'webdav_local_hash';
+const WEBDAV_LAST_SYNC_KEY = 'webdav_last_sync';
+const WEBDAV_LAST_SYNC_TIMESTAMP_KEY = 'webdav_last_sync_timestamp';
 
 const DEFAULT_CLIENT_CONFIG = {
     serverUrl: '',
@@ -194,6 +209,52 @@ export function computeStructuredHash(value) {
         hash = hash & hash;
     }
     return Math.abs(hash).toString(16);
+}
+
+export function normalizeApiSettings(raw = {}) {
+    return {
+        apiConfigs: raw.apiConfigs || [],
+        selectedConfigIndex: raw.selectedConfigIndex ?? 0,
+        searchProvider: raw.searchProvider || 'tavily',
+        tavilyApiKey: raw.tavilyApiKey || '',
+        tavilyApiUrl: raw.tavilyApiUrl || '',
+        exaApiKey: raw.exaApiKey || '',
+        exaApiUrl: raw.exaApiUrl || ''
+    };
+}
+
+export function buildHashedChatIndexEntry(source, hash) {
+    if (!source?.id || hash == null) return null;
+    return {
+        id: source.id,
+        title: source.title,
+        createdAt: source.createdAt,
+        updatedAt: source.updatedAt || source.createdAt || new Date().toISOString(),
+        webpageUrls: source.webpageUrls || [],
+        messageCount: Number.isFinite(source.messageCount)
+            ? source.messageCount
+            : (Array.isArray(source.messages) ? source.messages.length : 0),
+        hash
+    };
+}
+
+export function buildLocalHashChatIndex(storedChatIndex, hashTable) {
+    return (Array.isArray(storedChatIndex) ? storedChatIndex : [])
+        .filter(entry => entry?.id && !entry._remoteOnly && !entry._webdavHydrated)
+        .map(entry => buildHashedChatIndexEntry(entry, hashTable.get(entry.id)))
+        .filter(Boolean);
+}
+
+export function computeOverallHash(chatIndex, quickChatOptions, apiSettings) {
+    return computeStructuredHash({
+        chatIndex,
+        quickChatOptions,
+        apiSettings
+    });
+}
+
+export function computeTombstoneHash(tombstones) {
+    return computeStructuredHash(cleanTombstones(tombstones, Number.POSITIVE_INFINITY));
 }
 
 export function buildSyncedMetadataSyncState({
@@ -783,5 +844,286 @@ export async function uploadManifestSnapshot({
         uploadResult,
         persistedTombstones,
         uploadedIds: uploadItems.map(({ chat }) => chat.id)
+    };
+}
+
+export async function persistStorageBackedSyncState({
+    localStorageArea,
+    syncStorageArea,
+    manifest,
+    localChatHashes,
+    tombstones = null,
+    etag,
+    localHash,
+    lastSync,
+    remoteTimestamp,
+    metadataSyncState = null,
+    syncStorageData = null,
+    knownDirectories = null
+}) {
+    const localData = {
+        [WEBDAV_CACHED_MANIFEST_KEY]: manifest,
+        [WEBDAV_LOCAL_CHAT_HASHES_KEY]: Object.fromEntries(localChatHashes)
+    };
+    if (tombstones !== null) {
+        localData[WEBDAV_DELETED_CHAT_IDS_KEY] = tombstones;
+    }
+    if (metadataSyncState !== null) {
+        localData[WEBDAV_METADATA_SYNC_STATE_KEY] = metadataSyncState;
+    }
+    if (knownDirectories !== null) {
+        localData[WEBDAV_KNOWN_DIRS_KEY] = knownDirectories;
+    }
+
+    const syncData = {
+        [WEBDAV_REMOTE_ETAG_KEY]: etag,
+        [WEBDAV_LOCAL_HASH_KEY]: localHash,
+        [WEBDAV_LAST_SYNC_KEY]: lastSync,
+        [WEBDAV_LAST_SYNC_TIMESTAMP_KEY]: remoteTimestamp
+    };
+    if (syncStorageData && typeof syncStorageData === 'object') {
+        Object.assign(syncData, syncStorageData);
+    }
+
+    await Promise.all([
+        localStorageArea.set(localData),
+        syncStorageArea.set(syncData)
+    ]);
+}
+
+export async function performStorageBackedCloseSyncUpload({
+    config,
+    client: providedClient = null,
+    localStorageArea,
+    syncStorageArea,
+    encryptValue = null,
+    tombstoneMaxAgeMs = Number.POSITIVE_INFINITY,
+    uploadConcurrency = UPLOAD_CONCURRENCY
+}) {
+    if (!config?.enabled) {
+        return { skipped: true, reason: 'disabled' };
+    }
+
+    const dirtyState = await localStorageArea.get([
+        DIRTY_CHAT_IDS_KEY,
+        WEBDAV_DELETED_CHAT_IDS_KEY,
+        WEBDAV_LOCAL_DATA_DIRTY_KEY
+    ]);
+    const dirtyIds = Array.isArray(dirtyState[DIRTY_CHAT_IDS_KEY])
+        ? dirtyState[DIRTY_CHAT_IDS_KEY]
+        : [];
+    const tombstones = Array.isArray(dirtyState[WEBDAV_DELETED_CHAT_IDS_KEY])
+        ? dirtyState[WEBDAV_DELETED_CHAT_IDS_KEY]
+        : [];
+    const localDataDirty = Boolean(dirtyState[WEBDAV_LOCAL_DATA_DIRTY_KEY]);
+
+    const chatKeys = dirtyIds.map(id => `${CHAT_KEY_PREFIX}${id}`);
+    const localSnapshot = await localStorageArea.get([
+        ...chatKeys,
+        CHAT_INDEX_KEY,
+        WEBDAV_CACHED_MANIFEST_KEY,
+        WEBDAV_LOCAL_CHAT_HASHES_KEY,
+        WEBDAV_KNOWN_DIRS_KEY,
+        WEBDAV_METADATA_SYNC_STATE_KEY
+    ]);
+
+    const cachedManifest = localSnapshot[WEBDAV_CACHED_MANIFEST_KEY];
+    const metadataSyncState = normalizeMetadataSyncState(localSnapshot[WEBDAV_METADATA_SYNC_STATE_KEY]);
+    const hashTable = new Map(Object.entries(localSnapshot[WEBDAV_LOCAL_CHAT_HASHES_KEY] || {}));
+    const storedChatIndex = Array.isArray(localSnapshot[CHAT_INDEX_KEY])
+        ? localSnapshot[CHAT_INDEX_KEY]
+        : [];
+    const missingHashIds = storedChatIndex
+        .filter(entry => entry?.id && !entry._remoteOnly && !entry._webdavHydrated && !hashTable.has(entry.id))
+        .map(entry => entry.id);
+
+    if (missingHashIds.length > 0) {
+        const missingChats = await localStorageArea.get(missingHashIds.map(id => `${CHAT_KEY_PREFIX}${id}`));
+        for (const id of missingHashIds) {
+            const chat = missingChats[`${CHAT_KEY_PREFIX}${id}`];
+            if (!chat || chat._remoteOnly || chat._webdavHydrated) continue;
+            hashTable.set(id, computeChatHash(chat));
+        }
+    }
+
+    const initialChatIndex = Array.isArray(cachedManifest?.chatIndex) && cachedManifest.chatIndex.length > 0
+        ? [...cachedManifest.chatIndex]
+        : buildLocalHashChatIndex(storedChatIndex, hashTable);
+    const tombstonesForUpload = tombstones.length > 0
+        ? cleanTombstones(tombstones, tombstoneMaxAgeMs)
+        : cleanTombstones(cachedManifest?.deletedChatIds || [], tombstoneMaxAgeMs);
+    const previousTombstones = cleanTombstones(cachedManifest?.deletedChatIds || [], tombstoneMaxAgeMs);
+    const pendingTombstones = tombstonesForUpload.filter(tombstone => !tombstone.fileDeletedAt);
+    const tombstonesChanged =
+        computeTombstoneHash(tombstonesForUpload) !== computeTombstoneHash(previousTombstones);
+
+    if (dirtyIds.length === 0 && pendingTombstones.length === 0 && !localDataDirty && !tombstonesChanged) {
+        return { skipped: true, reason: 'no-changes' };
+    }
+
+    const syncMetadata = await syncStorageArea.get([
+        'quickChatOptions',
+        'apiConfigs',
+        'selectedConfigIndex',
+        'searchProvider',
+        'tavilyApiKey',
+        'tavilyApiUrl',
+        'exaApiKey',
+        'exaApiUrl'
+    ]);
+    const quickChatOptions = Array.isArray(syncMetadata.quickChatOptions)
+        ? syncMetadata.quickChatOptions
+        : undefined;
+    const quickChatOptionsForHash = Array.isArray(quickChatOptions) ? quickChatOptions : [];
+    const apiSettingsForHash = config.syncApiConfig ? normalizeApiSettings(syncMetadata) : undefined;
+
+    const knownDirectories = Array.isArray(localSnapshot[WEBDAV_KNOWN_DIRS_KEY])
+        ? localSnapshot[WEBDAV_KNOWN_DIRS_KEY]
+        : [];
+    const client = providedClient || new WebDAVClient(config, knownDirectories);
+    client.updateConfig(config);
+
+    const uploadItems = [];
+    for (const id of dirtyIds) {
+        const chat = localSnapshot[`${CHAT_KEY_PREFIX}${id}`];
+        if (!chat || chat._remoteOnly || chat._webdavHydrated) continue;
+
+        const hash = computeChatHash(chat);
+        hashTable.set(id, hash);
+        uploadItems.push({
+            chat,
+            entry: buildHashedChatIndexEntry(chat, hash)
+        });
+    }
+
+    const localHashChatIndex = buildLocalHashChatIndex(storedChatIndex, hashTable);
+    const localHash = computeOverallHash(localHashChatIndex, quickChatOptionsForHash, apiSettingsForHash);
+
+    if (uploadItems.length === 0 && !tombstonesChanged) {
+        const hashResult = await syncStorageArea.get(WEBDAV_LOCAL_HASH_KEY);
+        const lastLocalHash = hashResult[WEBDAV_LOCAL_HASH_KEY];
+        if (localHash === lastLocalHash) {
+            const currentDirtyResult = await localStorageArea.get(DIRTY_CHAT_IDS_KEY);
+            const currentDirty = Array.isArray(currentDirtyResult[DIRTY_CHAT_IDS_KEY])
+                ? currentDirtyResult[DIRTY_CHAT_IDS_KEY]
+                : [];
+            const processedDirtyIds = new Set(dirtyIds);
+            const clearedDirtyIds = currentDirty.filter(id => processedDirtyIds.has(id));
+            const remainingDirtyIds = currentDirty.filter(id => !processedDirtyIds.has(id));
+            const lastSync = new Date().toISOString();
+
+            await Promise.all([
+                localStorageArea.set({
+                    [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
+                    [WEBDAV_LOCAL_DATA_DIRTY_KEY]: null
+                }),
+                syncStorageArea.set({
+                    [WEBDAV_LAST_SYNC_KEY]: lastSync
+                })
+            ]);
+
+            return {
+                skipped: false,
+                noChanges: true,
+                client,
+                uploadedIds: [],
+                clearedDirtyIds,
+                persistedTombstones: tombstonesForUpload,
+                localDataDirty,
+                lastSync,
+                chatCount: Array.isArray(cachedManifest?.chatIndex)
+                    ? cachedManifest.chatIndex.length
+                    : initialChatIndex.length
+            };
+        }
+    }
+
+    let quickChatOptionsForManifest;
+    let quickChatOptionsUpdatedAt;
+    let manifestApiSettings;
+    let manifestApiSettingsEncrypted = false;
+    let apiSettingsUpdatedAt = null;
+
+    try {
+        ({
+            quickChatOptionsForManifest,
+            quickChatOptionsUpdatedAt,
+            manifestApiSettings,
+            manifestApiSettingsEncrypted,
+            apiSettingsUpdatedAt
+        } = await buildUploadMetadataPayload({
+            metadataSyncState,
+            previousManifest: cachedManifest,
+            quickChatOptions,
+            apiSettings: apiSettingsForHash,
+            syncApiConfig: config.syncApiConfig,
+            encryptApiKeys: config.encryptApiKeys,
+            encryptionPassword: config.encryptionPassword,
+            encryptValue
+        }));
+    } catch (encryptError) {
+        if (config.syncApiConfig && apiSettingsForHash && config.encryptApiKeys) {
+            throw new Error(t('webdav.encryptApiConfigFailed', { error: encryptError.message }));
+        }
+        throw encryptError;
+    }
+
+    const { manifest, uploadResult, persistedTombstones, uploadedIds } = await uploadManifestSnapshot({
+        client,
+        initialChatIndex,
+        uploadItems,
+        tombstones: tombstonesForUpload,
+        quickChatOptions: quickChatOptionsForManifest,
+        quickChatOptionsUpdatedAt,
+        apiSettings: manifestApiSettings,
+        apiSettingsEncrypted: manifestApiSettingsEncrypted,
+        apiSettingsUpdatedAt,
+        uploadConcurrency
+    });
+
+    const currentDirtyResult = await localStorageArea.get(DIRTY_CHAT_IDS_KEY);
+    const currentDirty = Array.isArray(currentDirtyResult[DIRTY_CHAT_IDS_KEY])
+        ? currentDirtyResult[DIRTY_CHAT_IDS_KEY]
+        : [];
+    const uploadedSet = new Set(uploadedIds);
+    const clearedDirtyIds = currentDirty.filter(id => uploadedSet.has(id));
+    const remainingDirtyIds = currentDirty.filter(id => !uploadedSet.has(id));
+    const nextMetadataSyncState = buildSyncedMetadataSyncState({
+        quickChatOptions: quickChatOptionsForHash,
+        quickChatOptionsUpdatedAt: manifest.quickChatOptionsUpdatedAt || quickChatOptionsUpdatedAt || manifest.timestamp,
+        apiSettings: config.syncApiConfig ? apiSettingsForHash : undefined,
+        apiSettingsUpdatedAt: config.syncApiConfig
+            ? (manifest.apiSettingsUpdatedAt || apiSettingsUpdatedAt || manifest.timestamp)
+            : null
+    });
+
+    await persistStorageBackedSyncState({
+        localStorageArea,
+        syncStorageArea,
+        manifest,
+        localChatHashes: hashTable,
+        tombstones: persistedTombstones,
+        etag: uploadResult.etag || `__needs_refresh_${Date.now()}`,
+        localHash,
+        lastSync: manifest.timestamp,
+        remoteTimestamp: manifest.timestamp,
+        metadataSyncState: nextMetadataSyncState,
+        knownDirectories: [...client._knownDirectories]
+    });
+    await localStorageArea.set({
+        [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
+        [WEBDAV_LOCAL_DATA_DIRTY_KEY]: null
+    });
+
+    return {
+        skipped: false,
+        noChanges: false,
+        client,
+        manifest,
+        uploadResult,
+        uploadedIds,
+        clearedDirtyIds,
+        persistedTombstones,
+        localDataDirty
     };
 }

@@ -3,79 +3,17 @@ import {
   decryptPasswordFromStorage,
   isEncryptedPassword
 } from './src/utils/crypto.js';
-import { computeChatHash } from './src/utils/chat-hash.js';
 import { SYNC_MODE_FLAG_KEY } from './src/utils/storage-adapter.js';
 import {
-  buildUploadMetadataPayload,
-  WebDAVClient,
-  buildSyncedMetadataSyncState,
-  cleanTombstones,
-  computeStructuredHash,
-  normalizeMetadataSyncState,
-  uploadManifestSnapshot
+  performStorageBackedCloseSyncUpload
 } from './src/services/webdav-sync-shared.js';
 
-const WEBDAV_LOCAL_DATA_DIRTY_KEY = 'webdav_local_data_dirty';
-const WEBDAV_KNOWN_DIRS_KEY = 'webdav_known_directories';
-const WEBDAV_METADATA_SYNC_STATE_KEY = 'webdav_metadata_sync_state';
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 // Helper: 根據 sync 模式 flag 取得正確的 storage area（Service Worker 可能隨時重啟）
 async function getSyncStorage() {
     const result = await chrome.storage.local.get(SYNC_MODE_FLAG_KEY);
     return result[SYNC_MODE_FLAG_KEY] ? chrome.storage.local : chrome.storage.sync;
-}
-
-function normalizeApiSettings(raw = {}) {
-    return {
-        apiConfigs: raw.apiConfigs || [],
-        selectedConfigIndex: raw.selectedConfigIndex ?? 0,
-        searchProvider: raw.searchProvider || 'tavily',
-        tavilyApiKey: raw.tavilyApiKey || '',
-        tavilyApiUrl: raw.tavilyApiUrl || '',
-        exaApiKey: raw.exaApiKey || '',
-        exaApiUrl: raw.exaApiUrl || ''
-    };
-}
-
-function buildHashedChatIndexEntry(source, hash) {
-    if (!source?.id || hash == null) return null;
-    return {
-        id: source.id,
-        title: source.title,
-        createdAt: source.createdAt,
-        updatedAt: source.updatedAt || source.createdAt || new Date().toISOString(),
-        webpageUrls: source.webpageUrls || [],
-        messageCount: Number.isFinite(source.messageCount)
-            ? source.messageCount
-            : (Array.isArray(source.messages) ? source.messages.length : 0),
-        hash
-    };
-}
-
-function buildLocalHashChatIndex(storedChatIndex, hashTable) {
-  return storedChatIndex
-        .filter(entry => entry?.id && !entry._remoteOnly && !entry._webdavHydrated)
-        .map(entry => buildHashedChatIndexEntry(entry, hashTable.get(entry.id)))
-        .filter(Boolean);
-}
-
-function computeOverallHash(chatIndex, quickChatOptions, apiSettings) {
-    const hashSource = JSON.stringify({
-        chatIndex,
-        quickChatOptions,
-        apiSettings
-    });
-    let hash = 5381;
-    for (let i = 0; i < hashSource.length; i++) {
-        hash = ((hash << 5) + hash) + hashSource.charCodeAt(i);
-        hash = hash & hash;
-    }
-    return Math.abs(hash).toString(16);
-}
-
-function computeTombstoneHash(tombstones) {
-    return computeStructuredHash(cleanTombstones(tombstones, Number.POSITIVE_INFINITY));
 }
 
 // 确保 Service Worker 立即激活
@@ -629,157 +567,17 @@ async function performWebDAVSyncUpload() {
             return;
         }
 
-        // 2. 讀取 dirty chat IDs + tombstone（重新讀取，可能已被面板更新）
-        const {
-            cerebr_dirty_chat_ids: dirtyIdsRaw,
-            webdav_deleted_chat_ids: tombstonesRaw,
-            [WEBDAV_LOCAL_DATA_DIRTY_KEY]: localDataDirtyRaw
-        } = await chrome.storage.local.get(['cerebr_dirty_chat_ids', 'webdav_deleted_chat_ids', WEBDAV_LOCAL_DATA_DIRTY_KEY]);
-        const dirtyIds = Array.isArray(dirtyIdsRaw) ? dirtyIdsRaw : [];
-        const tombstones = Array.isArray(tombstonesRaw) ? tombstonesRaw : [];
-        const localDataDirty = Boolean(localDataDirtyRaw);
-
-        // 3. 讀取 dirty chats + 同步狀態
-        const chatKeys = dirtyIds.map(id => `cerebr_chat_${id}`);
-        const localData = await chrome.storage.local.get([
-            ...chatKeys,
-            'cerebr_chat_index',
-            'webdav_cached_manifest',
-            'webdav_local_chat_hashes',
-            WEBDAV_KNOWN_DIRS_KEY,
-            WEBDAV_METADATA_SYNC_STATE_KEY
-        ]);
-
-        const cachedManifest = localData.webdav_cached_manifest;
-        const metadataSyncState = normalizeMetadataSyncState(localData[WEBDAV_METADATA_SYNC_STATE_KEY]);
-        const hashTable = new Map(Object.entries(localData.webdav_local_chat_hashes || {}));
-        const storedChatIndex = Array.isArray(localData.cerebr_chat_index) ? localData.cerebr_chat_index : [];
-        const missingHashIds = storedChatIndex
-            .filter(entry => entry?.id && !entry._remoteOnly && !entry._webdavHydrated && !hashTable.has(entry.id))
-            .map(entry => entry.id);
-        if (missingHashIds.length > 0) {
-            const missingChats = await chrome.storage.local.get(missingHashIds.map(id => `cerebr_chat_${id}`));
-            for (const id of missingHashIds) {
-                const chat = missingChats[`cerebr_chat_${id}`];
-                if (!chat || chat._remoteOnly || chat._webdavHydrated) continue;
-                hashTable.set(id, computeChatHash(chat));
-            }
-        }
-        const initialChatIndex = Array.isArray(cachedManifest?.chatIndex) && cachedManifest.chatIndex.length > 0
-            ? [...cachedManifest.chatIndex]
-            : buildLocalHashChatIndex(storedChatIndex, hashTable);
-        const tombstonesForUpload = tombstones.length > 0
-            ? cleanTombstones(tombstones, TOMBSTONE_MAX_AGE_MS)
-            : cleanTombstones(cachedManifest?.deletedChatIds || [], TOMBSTONE_MAX_AGE_MS);
-        const previousTombstones = cleanTombstones(cachedManifest?.deletedChatIds || [], TOMBSTONE_MAX_AGE_MS);
-        const pendingTombstones = tombstonesForUpload.filter((tombstone) => !tombstone.fileDeletedAt);
-        const tombstonesChanged = computeTombstoneHash(tombstonesForUpload) !== computeTombstoneHash(previousTombstones);
-        if (dirtyIds.length === 0 && pendingTombstones.length === 0 && !localDataDirty && !tombstonesChanged) return;
-
-        const syncMetadata = await syncStorage.get([
-            'quickChatOptions',
-            'apiConfigs',
-            'selectedConfigIndex',
-            'searchProvider',
-            'tavilyApiKey',
-            'tavilyApiUrl',
-            'exaApiKey',
-            'exaApiUrl'
-        ]);
-        const quickChatOptions = Array.isArray(syncMetadata.quickChatOptions) ? syncMetadata.quickChatOptions : undefined;
-        const quickChatOptionsForHash = Array.isArray(quickChatOptions) ? quickChatOptions : [];
-        const apiSettingsForHash = config.syncApiConfig ? normalizeApiSettings(syncMetadata) : undefined;
-        let quickChatOptionsForManifest;
-        let quickChatOptionsUpdatedAt;
-        let manifestApiSettings;
-        let manifestApiSettingsEncrypted = false;
-        let apiSettingsUpdatedAt = null;
-        try {
-            ({
-                quickChatOptionsForManifest,
-                quickChatOptionsUpdatedAt,
-                manifestApiSettings,
-                manifestApiSettingsEncrypted,
-                apiSettingsUpdatedAt
-            } = await buildUploadMetadataPayload({
-                metadataSyncState,
-                previousManifest: cachedManifest,
-                quickChatOptions,
-                apiSettings: apiSettingsForHash,
-                syncApiConfig: config.syncApiConfig,
-                encryptApiKeys: config.encryptApiKeys,
-                encryptionPassword: config.encryptionPassword,
-                encryptValue: encrypt
-            }));
-        } catch (encryptError) {
-            if (config.syncApiConfig && apiSettingsForHash && config.encryptApiKeys) {
-                throw new Error(`WebDAV API 配置加密失败: ${encryptError.message}`);
-            }
-            throw encryptError;
-        }
-
-        const client = new WebDAVClient(config, localData[WEBDAV_KNOWN_DIRS_KEY] || []);
-        const uploadItems = [];
-        for (const id of dirtyIds) {
-            const chat = localData[`cerebr_chat_${id}`];
-            if (!chat || chat._remoteOnly || chat._webdavHydrated) continue;
-
-            const hash = computeChatHash(chat);
-            hashTable.set(id, hash);
-            uploadItems.push({
-                chat,
-                entry: buildHashedChatIndexEntry(chat, hash)
-            });
-        }
-
-        const { manifest, uploadResult, persistedTombstones, uploadedIds } = await uploadManifestSnapshot({
-            client,
-            initialChatIndex,
-            uploadItems,
-            tombstones: tombstonesForUpload,
-            quickChatOptions: quickChatOptionsForManifest,
-            quickChatOptionsUpdatedAt,
-            apiSettings: manifestApiSettings,
-            apiSettingsEncrypted: manifestApiSettingsEncrypted,
-            apiSettingsUpdatedAt
+        const result = await performStorageBackedCloseSyncUpload({
+            config,
+            localStorageArea: chrome.storage.local,
+            syncStorageArea: syncStorage,
+            encryptValue: encrypt,
+            tombstoneMaxAgeMs: TOMBSTONE_MAX_AGE_MS
         });
-
-        // 8. 更新同步狀態
-        const localHashChatIndex = buildLocalHashChatIndex(storedChatIndex, hashTable);
-
-        const syncUpdates = {
-            webdav_remote_etag: uploadResult.etag || `__needs_refresh_${Date.now()}`
-        };
-        syncUpdates.webdav_last_sync = manifest.timestamp;
-        syncUpdates.webdav_last_sync_timestamp = manifest.timestamp;
-        syncUpdates.webdav_local_hash = computeOverallHash(localHashChatIndex, quickChatOptionsForHash, apiSettingsForHash);
-        await syncStorage.set(syncUpdates);
-
-        // 清除已上傳的 dirty IDs，儲存更新後的狀態
-        const { cerebr_dirty_chat_ids: currentDirty } = await chrome.storage.local.get('cerebr_dirty_chat_ids');
-        const uploadedSet = new Set(uploadedIds);
-        const remaining = (currentDirty || []).filter(id => !uploadedSet.has(id));
-        const nextMetadataSyncState = buildSyncedMetadataSyncState({
-            quickChatOptions: quickChatOptionsForHash,
-            quickChatOptionsUpdatedAt: manifest.quickChatOptionsUpdatedAt || quickChatOptionsUpdatedAt || manifest.timestamp,
-            apiSettings: config.syncApiConfig ? apiSettingsForHash : undefined,
-            apiSettingsUpdatedAt: config.syncApiConfig
-                ? (manifest.apiSettingsUpdatedAt || apiSettingsUpdatedAt || manifest.timestamp)
-                : null
-        });
-
-        await chrome.storage.local.set({
-            cerebr_dirty_chat_ids: remaining,
-            webdav_deleted_chat_ids: persistedTombstones,
-            webdav_cached_manifest: manifest,
-            webdav_local_chat_hashes: Object.fromEntries(hashTable),
-            [WEBDAV_METADATA_SYNC_STATE_KEY]: nextMetadataSyncState,
-            [WEBDAV_KNOWN_DIRS_KEY]: [...client._knownDirectories],
-            [WEBDAV_LOCAL_DATA_DIRTY_KEY]: null
-        });
+        if (result.skipped) return;
 
         console.log(
-            `[WebDAV SW] 關閉同步完成：已上傳 ${uploadedIds.length} 個聊天，已同步 ${persistedTombstones.length} 個 tombstone，metadataDirty=${localDataDirty}`
+            `[WebDAV SW] 關閉同步完成：已上傳 ${result.uploadedIds.length} 個聊天，已同步 ${result.persistedTombstones.length} 個 tombstone，metadataDirty=${result.localDataDirty}`
         );
     } catch (e) {
         console.error('[WebDAV SW] 同步上傳失敗:', e);
