@@ -22,6 +22,7 @@ import {
     CHAT_DIRECTORY as SHARED_CHAT_DIRECTORY,
     UPLOAD_CONCURRENCY as SHARED_UPLOAD_CONCURRENCY,
     buildManifestUploadPlan,
+    buildManifestSnapshotUploadOptions,
     buildHashedChatIndexEntry,
     buildUploadMetadataPayload,
     WebDAVClient as SharedWebDAVClient,
@@ -30,6 +31,7 @@ import {
     computeOverallHash as computeSharedOverallHash,
     computeStructuredHash,
     createDefaultMetadataSyncState,
+    getManifestDeletedChatIds,
     normalizeMetadataSyncState,
     normalizeApiSettings as normalizeSharedApiSettings,
     persistStorageBackedSyncState,
@@ -435,14 +437,16 @@ class WebDAVSyncManager {
     async loadDeletedChatIds() {
         try {
             const result = await storageAdapter.get(WEBDAV_DELETED_CHAT_IDS_KEY);
-            return result[WEBDAV_DELETED_CHAT_IDS_KEY] || [];
+            return sharedCleanTombstones(result[WEBDAV_DELETED_CHAT_IDS_KEY] || [], Number.POSITIVE_INFINITY);
         } catch {
             return [];
         }
     }
 
     async saveDeletedChatIds(tombstones) {
-        await storageAdapter.set({ [WEBDAV_DELETED_CHAT_IDS_KEY]: tombstones });
+        await storageAdapter.set({
+            [WEBDAV_DELETED_CHAT_IDS_KEY]: sharedCleanTombstones(tombstones, Number.POSITIVE_INFINITY)
+        });
     }
 
     async addDeletedChatId(chatId) {
@@ -569,7 +573,8 @@ class WebDAVSyncManager {
             }
 
             const keepSet = new Set(manifest.chatIndex.map(entry => entry.id));
-            for (const tombstone of (manifest.deletedChatIds || [])) {
+            const manifestTombstones = sharedCleanTombstones(getManifestDeletedChatIds(manifest), TOMBSTONE_MAX_AGE_MS);
+            for (const tombstone of manifestTombstones) {
                 keepSet.add(tombstone.id);
             }
 
@@ -912,18 +917,21 @@ class WebDAVSyncManager {
                 throw encryptError;
             }
 
-            const { manifest, uploadResult, persistedTombstones } = await uploadManifestSnapshot({
-                client: this.client,
-                initialChatIndex,
-                uploadItems,
-                tombstones,
-                quickChatOptions: quickChatOptionsForManifest,
-                quickChatOptionsUpdatedAt,
-                apiSettings: manifestApiSettings,
-                apiSettingsEncrypted: manifestApiSettingsEncrypted,
-                apiSettingsUpdatedAt,
-                uploadConcurrency: SHARED_UPLOAD_CONCURRENCY
-            });
+            const { manifest, uploadResult, persistedTombstones } = await uploadManifestSnapshot(
+                buildManifestSnapshotUploadOptions({
+                    client: this.client,
+                    initialChatIndex,
+                    uploadItems,
+                    tombstones,
+                    previousManifest,
+                    quickChatOptions: quickChatOptionsForManifest,
+                    quickChatOptionsUpdatedAt,
+                    apiSettings: manifestApiSettings,
+                    apiSettingsEncrypted: manifestApiSettingsEncrypted,
+                    apiSettingsUpdatedAt,
+                    uploadConcurrency: SHARED_UPLOAD_CONCURRENCY
+                })
+            );
 
             // 清除同步開始時快照的 dirty flags（保留同步期間新增的，fire-and-forget）
             chatManager.clearDirtyChatIds(dirtySnapshot);
@@ -1044,7 +1052,7 @@ class WebDAVSyncManager {
             const localChatHashes = await this.loadLocalChatHashes();
 
             // 處理 tombstone 刪除
-            const remoteTombstones = sharedCleanTombstones(syncData.deletedChatIds || [], TOMBSTONE_MAX_AGE_MS);
+            const remoteTombstones = sharedCleanTombstones(getManifestDeletedChatIds(syncData), TOMBSTONE_MAX_AGE_MS);
             const deletedIds = new Set(remoteTombstones.map((tombstone) => tombstone.id));
 
             // 建立合併後的聊天列表
@@ -1320,7 +1328,7 @@ class WebDAVSyncManager {
 
             // 5. 合併 tombstones（本地 + 遠端取聯集，by id 去重保留較新的 deletedAt）
             const localTombstones = sharedCleanTombstones(await this.loadDeletedChatIds(), TOMBSTONE_MAX_AGE_MS);
-            const remoteTombstones = sharedCleanTombstones(remoteManifest.deletedChatIds || [], TOMBSTONE_MAX_AGE_MS);
+            const remoteTombstones = sharedCleanTombstones(getManifestDeletedChatIds(remoteManifest), TOMBSTONE_MAX_AGE_MS);
             const mergedTombstones = sharedCleanTombstones(
                 [...localTombstones, ...remoteTombstones],
                 TOMBSTONE_MAX_AGE_MS
@@ -1488,18 +1496,21 @@ class WebDAVSyncManager {
                 }
             }
 
-            const { manifest, uploadResult, persistedTombstones } = await uploadManifestSnapshot({
-                client: this.client,
-                initialChatIndex: manifestChatIndex,
-                uploadItems,
-                tombstones: mergedTombstones,
-                quickChatOptions: quickChatMerge.value,
-                quickChatOptionsUpdatedAt: quickChatMerge.updatedAt,
-                apiSettings: manifestApiSettings,
-                apiSettingsEncrypted: manifestApiSettingsEncrypted,
-                apiSettingsUpdatedAt: this.config.syncApiConfig ? apiSettingsMerge.updatedAt : null,
-                uploadConcurrency: SHARED_UPLOAD_CONCURRENCY
-            });
+            const { manifest, uploadResult, persistedTombstones } = await uploadManifestSnapshot(
+                buildManifestSnapshotUploadOptions({
+                    client: this.client,
+                    initialChatIndex: manifestChatIndex,
+                    uploadItems,
+                    tombstones: mergedTombstones,
+                    previousManifest: remoteManifest,
+                    quickChatOptions: quickChatMerge.value,
+                    quickChatOptionsUpdatedAt: quickChatMerge.updatedAt,
+                    apiSettings: manifestApiSettings,
+                    apiSettingsEncrypted: manifestApiSettingsEncrypted,
+                    apiSettingsUpdatedAt: this.config.syncApiConfig ? apiSettingsMerge.updatedAt : null,
+                    uploadConcurrency: SHARED_UPLOAD_CONCURRENCY
+                })
+            );
 
             // 12. 更新本地狀態
             // 儲存合併後的聊天到本地（關鍵數據寫入，須先完成）

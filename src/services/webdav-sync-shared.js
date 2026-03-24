@@ -120,25 +120,81 @@ export async function runWithConcurrency(tasks, concurrency) {
 }
 
 function normalizeTimestampToIso(value) {
+    const parsed = normalizeTimestampToMs(value);
+    if (parsed === null) return null;
+    try {
+        return new Date(parsed).toISOString();
+    } catch {
+        return null;
+    }
+}
+
+function normalizeTimestampToMs(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    if (value instanceof Date) {
+        const parsed = value.getTime();
+        return Number.isFinite(parsed) ? parsed : null;
+    }
     const parsed = Date.parse(value || '');
-    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeCompactTimestampToIso(value) {
+    if (typeof value !== 'string' || !/^[0-9a-z]{6,}$/i.test(value)) {
+        return null;
+    }
+    const parsed = Number.parseInt(value, 36);
+    if (!Number.isFinite(parsed)) {
+        return null;
+    }
+    try {
+        return new Date(parsed).toISOString();
+    } catch {
+        return null;
+    }
+}
+
+function normalizeDeletedAtToIso(value) {
+    return normalizeTimestampToIso(value) || normalizeCompactTimestampToIso(value);
+}
+
+function serializeDeletedAtToCompact(value) {
+    const parsed = normalizeTimestampToMs(value);
+    return parsed !== null ? parsed.toString(36) : null;
+}
+
+function parseCompactTombstoneRecord(tombstone) {
+    if (typeof tombstone !== 'string') return null;
+
+    const separatorIndex = tombstone.lastIndexOf('|');
+    if (separatorIndex <= 0 || separatorIndex >= (tombstone.length - 1)) {
+        return null;
+    }
+
+    const id = tombstone.slice(0, separatorIndex);
+    const deletedAt = normalizeCompactTimestampToIso(tombstone.slice(separatorIndex + 1));
+    if (!id || !deletedAt) {
+        return null;
+    }
+
+    return { id, deletedAt };
 }
 
 function normalizeTombstoneRecord(tombstone) {
+    if (typeof tombstone === 'string') {
+        return parseCompactTombstoneRecord(tombstone);
+    }
     if (!tombstone?.id) return null;
 
-    const deletedAt = normalizeTimestampToIso(tombstone.deletedAt);
+    const deletedAt = normalizeDeletedAtToIso(tombstone.deletedAt);
     if (!deletedAt) return null;
 
-    const normalized = {
+    return {
         id: tombstone.id,
         deletedAt
     };
-    const fileDeletedAt = normalizeTimestampToIso(tombstone.fileDeletedAt);
-    if (fileDeletedAt) {
-        normalized.fileDeletedAt = fileDeletedAt;
-    }
-    return normalized;
 }
 
 export function mergeTombstoneRecords(left, right) {
@@ -156,17 +212,9 @@ export function mergeTombstoneRecords(left, right) {
         }
     }
 
-    const leftFileDeletedAt = normalizeTimestampToIso(left.fileDeletedAt);
-    const rightFileDeletedAt = normalizeTimestampToIso(right.fileDeletedAt);
-    let fileDeletedAt = leftFileDeletedAt || rightFileDeletedAt || null;
-    if (leftFileDeletedAt && rightFileDeletedAt) {
-        fileDeletedAt = leftFileDeletedAt >= rightFileDeletedAt ? leftFileDeletedAt : rightFileDeletedAt;
-    }
-
     return {
         id: right.id || left.id,
-        deletedAt: right.deletedAt || left.deletedAt,
-        ...(fileDeletedAt ? { fileDeletedAt } : {})
+        deletedAt: right.deletedAt || left.deletedAt
     };
 }
 
@@ -197,6 +245,45 @@ export function cleanTombstones(tombstones, maxAgeMs) {
         }
         return String(left.id).localeCompare(String(right.id));
     });
+}
+
+function serializeTombstoneRecord(tombstone) {
+    const normalized = normalizeTombstoneRecord(tombstone);
+    if (!normalized) return null;
+
+    const compactDeletedAt = serializeDeletedAtToCompact(normalized.deletedAt);
+    if (!compactDeletedAt) return null;
+
+    return `${normalized.id}|${compactDeletedAt}`;
+}
+
+function serializeTombstones(tombstones) {
+    return cleanTombstones(tombstones, Number.POSITIVE_INFINITY)
+        .map((tombstone) => serializeTombstoneRecord(tombstone))
+        .filter(Boolean);
+}
+
+function computePendingDeletionTombstones(tombstones, previousTombstones = []) {
+    const previousTombstoneMap = new Map(
+        cleanTombstones(previousTombstones, Number.POSITIVE_INFINITY)
+            .map((tombstone) => [tombstone.id, tombstone])
+    );
+
+    return cleanTombstones(tombstones, Number.POSITIVE_INFINITY)
+        .filter((tombstone) => {
+            const previous = previousTombstoneMap.get(tombstone.id);
+            if (!previous) {
+                return true;
+            }
+
+            const currentDeletedMs = Date.parse(tombstone.deletedAt || '');
+            const previousDeletedMs = Date.parse(previous.deletedAt || '');
+            if (Number.isFinite(currentDeletedMs) && Number.isFinite(previousDeletedMs)) {
+                return currentDeletedMs > previousDeletedMs;
+            }
+
+            return tombstone.deletedAt !== previous.deletedAt;
+        });
 }
 
 export function createDefaultMetadataSyncState() {
@@ -300,7 +387,7 @@ export function buildManifestUploadPlan({
     }
 
     const normalizedTombstones = cleanTombstones(tombstones, tombstoneMaxAgeMs);
-    const previousTombstones = cleanTombstones(previousManifest?.deletedChatIds || [], tombstoneMaxAgeMs);
+    const previousTombstones = cleanTombstones(getManifestDeletedChatIds(previousManifest), tombstoneMaxAgeMs);
     const tombstonesChanged =
         computeTombstoneHash(normalizedTombstones) !== computeTombstoneHash(previousTombstones);
     const hashesMatch = localHash !== null && localHash === lastLocalHash;
@@ -311,6 +398,40 @@ export function buildManifestUploadPlan({
         tombstones: normalizedTombstones,
         tombstonesChanged,
         noChanges: uploadItems.length === 0 && hashesMatch && !tombstonesChanged
+    };
+}
+
+export function getManifestDeletedChatIds(manifest) {
+    return Array.isArray(manifest?.deletedChatIds) ? manifest.deletedChatIds : [];
+}
+
+export function buildManifestSnapshotUploadOptions({
+    client,
+    initialChatIndex = [],
+    uploadItems = [],
+    tombstones = [],
+    previousManifest = null,
+    quickChatOptions,
+    quickChatOptionsUpdatedAt = null,
+    apiSettings,
+    apiSettingsEncrypted = false,
+    apiSettingsUpdatedAt = null,
+    uploadConcurrency = UPLOAD_CONCURRENCY,
+    timestamp = new Date().toISOString()
+}) {
+    return {
+        client,
+        initialChatIndex,
+        uploadItems,
+        tombstones,
+        previousTombstones: getManifestDeletedChatIds(previousManifest),
+        quickChatOptions,
+        quickChatOptionsUpdatedAt,
+        apiSettings,
+        apiSettingsEncrypted,
+        apiSettingsUpdatedAt,
+        uploadConcurrency,
+        timestamp
     };
 }
 
@@ -794,6 +915,7 @@ export async function uploadManifestSnapshot({
     initialChatIndex = [],
     uploadItems = [],
     tombstones = [],
+    previousTombstones = [],
     quickChatOptions,
     quickChatOptionsUpdatedAt = null,
     apiSettings,
@@ -821,14 +943,15 @@ export async function uploadManifestSnapshot({
     }
 
     const normalizedTombstones = cleanTombstones(tombstones, Number.POSITIVE_INFINITY);
-    const confirmedDeletedIds = new Set();
-    if (normalizedTombstones.length > 0) {
-        const deleteTasks = normalizedTombstones
-            .filter((tombstone) => !tombstone.fileDeletedAt)
+    const pendingDeletionTombstones = computePendingDeletionTombstones(
+        normalizedTombstones,
+        previousTombstones
+    );
+    if (pendingDeletionTombstones.length > 0) {
+        const deleteTasks = pendingDeletionTombstones
             .map((tombstone) => async () => {
             try {
                 await client.deleteFile(`${CHAT_DIRECTORY}/${tombstone.id}.json`);
-                confirmedDeletedIds.add(tombstone.id);
             } catch (error) {
                 console.warn(`[WebDAV] 刪除聊天檔案 ${tombstone.id} 失敗:`, error);
             }
@@ -836,16 +959,7 @@ export async function uploadManifestSnapshot({
         await runWorkerQueue(deleteTasks, uploadConcurrency);
     }
 
-    const persistedTombstones = normalizedTombstones.map((tombstone) => {
-        if (!confirmedDeletedIds.has(tombstone.id) || tombstone.fileDeletedAt) {
-            return tombstone;
-        }
-        return {
-            ...tombstone,
-            fileDeletedAt: timestamp
-        };
-    });
-
+    const persistedTombstones = normalizedTombstones;
     const deletedIds = new Set(persistedTombstones.map((tombstone) => tombstone.id));
     const manifestChatIndex = sortChatIndexEntries(
         chatIndex.filter((entry) => entry?.id && !deletedIds.has(entry.id))
@@ -855,7 +969,7 @@ export async function uploadManifestSnapshot({
         version: 2,
         timestamp,
         chatIndex: manifestChatIndex,
-        deletedChatIds: persistedTombstones
+        deletedChatIds: serializeTombstones(persistedTombstones)
     };
 
     if (Array.isArray(quickChatOptions)) {
@@ -1043,9 +1157,7 @@ export async function performStorageBackedCloseSyncUpload({
             return (!chat || chat._remoteOnly || chat._webdavHydrated) ? null : chat;
         }
     });
-    const pendingTombstones = tombstonesForUpload.filter(tombstone => !tombstone.fileDeletedAt);
-
-    if (dirtyIds.length === 0 && pendingTombstones.length === 0 && !localDataDirty && !tombstonesChanged) {
+    if (dirtyIds.length === 0 && !localDataDirty && !tombstonesChanged) {
         return { skipped: true, reason: 'no-changes' };
     }
 
@@ -1112,18 +1224,21 @@ export async function performStorageBackedCloseSyncUpload({
         throw encryptError;
     }
 
-    const { manifest, uploadResult, persistedTombstones, uploadedIds } = await uploadManifestSnapshot({
-        client,
-        initialChatIndex,
-        uploadItems: plannedUploadItems,
-        tombstones: tombstonesForUpload,
-        quickChatOptions: quickChatOptionsForManifest,
-        quickChatOptionsUpdatedAt,
-        apiSettings: manifestApiSettings,
-        apiSettingsEncrypted: manifestApiSettingsEncrypted,
-        apiSettingsUpdatedAt,
-        uploadConcurrency
-    });
+    const { manifest, uploadResult, persistedTombstones, uploadedIds } = await uploadManifestSnapshot(
+        buildManifestSnapshotUploadOptions({
+            client,
+            initialChatIndex,
+            uploadItems: plannedUploadItems,
+            tombstones: tombstonesForUpload,
+            previousManifest: cachedManifest,
+            quickChatOptions: quickChatOptionsForManifest,
+            quickChatOptionsUpdatedAt,
+            apiSettings: manifestApiSettings,
+            apiSettingsEncrypted: manifestApiSettingsEncrypted,
+            apiSettingsUpdatedAt,
+            uploadConcurrency
+        })
+    );
 
     const currentDirtyResult = await localStorageArea.get(DIRTY_CHAT_IDS_KEY);
     const currentDirty = Array.isArray(currentDirtyResult[DIRTY_CHAT_IDS_KEY])
