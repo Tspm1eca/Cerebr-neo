@@ -19,6 +19,7 @@ import { chatManager } from '../utils/chat-manager.js';
 import { computeChatHash } from '../utils/chat-hash.js';
 import { t } from '../utils/i18n.js';
 import {
+    acquireWebDAVSyncLock,
     CHAT_DIRECTORY as SHARED_CHAT_DIRECTORY,
     UPLOAD_CONCURRENCY as SHARED_UPLOAD_CONCURRENCY,
     buildManifestUploadPlan,
@@ -57,7 +58,7 @@ const WEBDAV_ORPHAN_CLEANUP_PENDING_KEY = 'webdav_orphan_cleanup_pending';
 const WEBDAV_ORPHAN_CLEANUP_LAST_SCAN_AT_KEY = 'webdav_orphan_cleanup_last_scan_at';
 const WEBDAV_ORPHAN_CLEANUP_LOCK_KEY = 'webdav_orphan_cleanup_lock';
 
-const ORPHAN_CLEANUP_DEFAULT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const ORPHAN_CLEANUP_DEFAULT_COOLDOWN_MS = 10 * 24 * 60 * 60 * 1000;
 
 // 默认配置
 const DEFAULT_CONFIG = {
@@ -160,6 +161,7 @@ class WebDAVSyncManager {
         this._lastCheckSyncResult = null;
         // 標記：啟動後是否已完成首次 hash fallback 檢查
         this._initialHashCheckDone = false;
+        this._syncLockHandle = null;
         this._orphanCleanupOwnerId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
@@ -183,6 +185,46 @@ class WebDAVSyncManager {
             [WEBDAV_CROSS_TAB_CHECK_RESULT_KEY]: result
         }).catch(() => {});
         return result;
+    }
+
+    async _acquireCrossTabSyncLock() {
+        this._syncLockHandle = await acquireWebDAVSyncLock();
+        return Boolean(this._syncLockHandle);
+    }
+
+    async _releaseCrossTabSyncLock() {
+        try {
+            await this._syncLockHandle?.release();
+        } catch (error) {
+            console.warn('[WebDAV] 釋放跨分頁同步鎖失敗:', error);
+        } finally {
+            this._syncLockHandle = null;
+        }
+    }
+
+    async _beginSyncOperation(direction) {
+        if (!this.client) {
+            throw new Error(t('webdav.notEnabled'));
+        }
+
+        if (this.client.syncInProgress) {
+            throw new Error(t('webdav.syncInProgress'));
+        }
+
+        const acquired = await this._acquireCrossTabSyncLock();
+        if (!acquired) {
+            throw new Error(t('webdav.syncInProgress'));
+        }
+
+        this.client.syncInProgress = true;
+        this.notifyListeners('sync-start', { direction });
+    }
+
+    async _endSyncOperation() {
+        if (this.client) {
+            this.client.syncInProgress = false;
+        }
+        await this._releaseCrossTabSyncLock();
     }
 
     /**
@@ -532,9 +574,10 @@ class WebDAVSyncManager {
         }
     }
 
-    async _runOrphanCleanupIfNeeded(latestManifest = null) {
+    async _runOrphanCleanupIfNeeded(latestManifest = null, options = {}) {
         if (!this.client) return;
 
+        const { forceScan = false } = options;
         const runtimeConfig = this._getOrphanCleanupRuntimeConfig();
         if (!runtimeConfig.enabled) {
             return;
@@ -548,7 +591,7 @@ class WebDAVSyncManager {
                 WEBDAV_ORPHAN_CLEANUP_LAST_SCAN_AT_KEY
             ]);
             const pending = stateResult[WEBDAV_ORPHAN_CLEANUP_PENDING_KEY] === true;
-            if (!pending) {
+            if (!pending && !forceScan) {
                 return;
             }
 
@@ -811,12 +854,7 @@ class WebDAVSyncManager {
             throw new Error(t('webdav.encryptionPasswordMissing'));
         }
 
-        if (this.client.syncInProgress) {
-            throw new Error(t('webdav.syncInProgress'));
-        }
-
-        this.client.syncInProgress = true;
-        this.notifyListeners('sync-start', { direction: 'upload' });
+        await this._beginSyncOperation('upload');
 
         try {
             // 快照當前 dirty IDs，同步完成後只清除這些（保留同步期間新增的）
@@ -983,8 +1021,17 @@ class WebDAVSyncManager {
             this.notifyListeners('sync-error', { direction: 'upload', error: error.message });
             throw error;
         } finally {
-            this.client.syncInProgress = false;
+            await this._endSyncOperation();
         }
+    }
+
+    async runOrphanCleanupOnOpen() {
+        if (!this.config.enabled || !this.client) {
+            return { skipped: true, reason: 'disabled' };
+        }
+
+        await this._runOrphanCleanupIfNeeded(null, { forceScan: true });
+        return { skipped: false };
     }
 
     /**
@@ -1001,12 +1048,7 @@ class WebDAVSyncManager {
             throw new Error(t('webdav.encryptionPasswordMissing'));
         }
 
-        if (this.client.syncInProgress) {
-            throw new Error(t('webdav.syncInProgress'));
-        }
-
-        this.client.syncInProgress = true;
-        this.notifyListeners('sync-start', { direction: 'download' });
+        await this._beginSyncOperation('download');
 
         try {
             // 快照當前 dirty IDs，同步完成後只清除這些（保留同步期間新增的）
@@ -1229,7 +1271,7 @@ class WebDAVSyncManager {
             this.notifyListeners('sync-error', { direction: 'download', error: error.message });
             throw error;
         } finally {
-            this.client.syncInProgress = false;
+            await this._endSyncOperation();
         }
     }
 
@@ -1245,12 +1287,7 @@ class WebDAVSyncManager {
             throw new Error(t('webdav.notEnabled'));
         }
 
-        if (this.client.syncInProgress) {
-            throw new Error(t('webdav.syncInProgress'));
-        }
-
-        this.client.syncInProgress = true;
-        this.notifyListeners('sync-start', { direction: 'merge' });
+        await this._beginSyncOperation('merge');
 
         try {
             // 1. 快照當前 dirty IDs
@@ -1502,7 +1539,6 @@ class WebDAVSyncManager {
                     initialChatIndex: manifestChatIndex,
                     uploadItems,
                     tombstones: mergedTombstones,
-                    previousManifest: remoteManifest,
                     quickChatOptions: quickChatMerge.value,
                     quickChatOptionsUpdatedAt: quickChatMerge.updatedAt,
                     apiSettings: manifestApiSettings,
@@ -1592,7 +1628,7 @@ class WebDAVSyncManager {
             this.notifyListeners('sync-error', { direction: 'merge', error: error.message });
             throw error;
         } finally {
-            this.client.syncInProgress = false;
+            await this._endSyncOperation();
         }
     }
 
@@ -1899,7 +1935,13 @@ class WebDAVSyncManager {
 
             if (status.direction === 'unknown') {
                 console.warn('[WebDAV] syncOnOpen 跳過：', status.reason);
-                return { synced: false, direction: 'unknown', result: null, error: null, conflict: null };
+                return {
+                    synced: false,
+                    direction: 'unknown',
+                    result: null,
+                    error: status.error || status.reason || t('webdav.syncStatusUnknown'),
+                    conflict: null
+                };
             }
 
             if (!status.needsSync) {
@@ -1933,6 +1975,10 @@ class WebDAVSyncManager {
 
             return { synced: false, direction: null, result: null, error: null, conflict: null };
         } catch (error) {
+            if (error?.message === t('webdav.syncInProgress')) {
+                console.log('[WebDAV] syncOnOpen 跳過：已有其他面板正在同步');
+                return { synced: false, direction: 'busy', result: null, error: null, conflict: null };
+            }
             console.error('[WebDAV] 开启同步失败:', error);
             return { synced: false, direction: null, result: null, error: error.message, conflict: null };
         }

@@ -2155,15 +2155,10 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             if (currentChatId) {
                 chatManager.flushSaveChat(currentChatId).catch(() => {});
             }
-            // 標記面板已關閉，讓 SW 知道可以接手同步
-            chrome.storage.local.set({ webdav_panel_active: false }).catch(() => {});
             // 委託給 service worker（訊息傳遞幾乎瞬間完成，SW 可在頁面關閉後繼續執行）
             chrome.runtime.sendMessage({ type: 'WEBDAV_SYNC_UPLOAD' }).catch(() => {});
         }
     });
-
-    // 標記面板已啟動，防止 SW 重複同步（面板的 syncOnOpen 會接手）
-    chrome.storage.local.set({ webdav_panel_active: true }).catch(() => {});
 
     // 網頁載入時執行 WebDAV 同步
     performWebDAVSyncOnOpen();

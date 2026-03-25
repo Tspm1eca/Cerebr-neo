@@ -564,6 +564,12 @@ class WebDAVSettingsController {
                 currentChatId: options.currentChatId
             });
 
+            // 開啟時的自動同步以安靜為主：狀態探測失敗時先略過這一輪，
+            // 避免把一次性的網路抖動直接升級成用戶可見的錯誤提示。
+            if (syncResult.direction === 'unknown') {
+                return syncResult;
+            }
+
             // 如果有错误，显示 Toast 提示
             if (syncResult.error) {
                 showToast(`${t('webdav.webdavSyncFailed')}<br>${syncResult.error}`, 'error');
@@ -588,6 +594,13 @@ class WebDAVSettingsController {
                     }
                 }
             }
+
+            if (!syncResult.error && syncResult.direction !== 'busy') {
+                webdavSyncManager.runOrphanCleanupOnOpen().catch((error) => {
+                    console.warn('[WebDAV] 開啟時 orphan cleanup 執行失敗:', error);
+                });
+            }
+
             return syncResult;
         } catch (error) {
             showToast(`${t('webdav.webdavSyncFailed')}<br>${error.message}`, 'error');

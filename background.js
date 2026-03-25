@@ -5,7 +5,8 @@ import {
 } from './src/utils/crypto.js';
 import { SYNC_MODE_FLAG_KEY } from './src/utils/storage-adapter.js';
 import {
-  performStorageBackedCloseSyncUpload
+  acquireWebDAVSyncLock,
+  performStorageBackedCloseSyncUpload,
 } from './src/services/webdav-sync-shared.js';
 
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -527,14 +528,15 @@ chrome.tabs.onActivated.addListener(activeInfo => {
  * 用於頁面關閉時接替 side panel 完成同步
  */
 async function performWebDAVSyncUpload() {
+    let syncLockHandle = null;
+
     try {
-        // 0. 等待短暫時間，讓新面板有機會啟動並設置 webdav_panel_active 標記
+        // 0. 等待短暫時間，讓新打開的面板有機會先進入同步流程
         await new Promise(resolve => setTimeout(resolve, 1500));
 
-        // 0.1 若面板已重新啟動（會自行透過 syncOnOpen 處理同步），跳過 SW 上傳
-        const { webdav_panel_active: panelActive } = await chrome.storage.local.get('webdav_panel_active');
-        if (panelActive) {
-            console.log('[WebDAV SW] 面板已啟動，跳過 SW 同步（面板會接手）');
+        syncLockHandle = await acquireWebDAVSyncLock();
+        if (!syncLockHandle) {
+            console.log('[WebDAV SW] 其他實例正在同步，略過本次關閉同步');
             return;
         }
 
@@ -582,5 +584,11 @@ async function performWebDAVSyncUpload() {
     } catch (e) {
         console.error('[WebDAV SW] 同步上傳失敗:', e);
         throw e;
+    } finally {
+        if (syncLockHandle) {
+            await syncLockHandle.release().catch((error) => {
+                console.warn('[WebDAV SW] 釋放同步鎖失敗:', error);
+            });
+        }
     }
 }

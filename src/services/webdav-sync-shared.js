@@ -45,6 +45,7 @@ const WEBDAV_REMOTE_ETAG_KEY = 'webdav_remote_etag';
 const WEBDAV_LOCAL_HASH_KEY = 'webdav_local_hash';
 const WEBDAV_LAST_SYNC_KEY = 'webdav_last_sync';
 const WEBDAV_LAST_SYNC_TIMESTAMP_KEY = 'webdav_last_sync_timestamp';
+export const WEBDAV_SYNC_LOCK_NAME = 'webdav_sync_lock';
 
 const DEFAULT_CLIENT_CONFIG = {
     serverUrl: '',
@@ -52,6 +53,39 @@ const DEFAULT_CLIENT_CONFIG = {
     password: '',
     syncPath: '/Cerebr-neo'
 };
+
+export async function acquireWebDAVSyncLock() {
+    const locksApi = globalThis.navigator?.locks;
+    if (!locksApi?.request) {
+        throw new Error('Web Locks API is unavailable');
+    }
+
+    return new Promise((resolve, reject) => {
+        locksApi.request(
+            WEBDAV_SYNC_LOCK_NAME,
+            { mode: 'exclusive', ifAvailable: true },
+            (lock) => {
+                if (!lock) {
+                    resolve(null);
+                    return;
+                }
+
+                return new Promise((unlock) => {
+                    let released = false;
+                    resolve({
+                        async release() {
+                            if (released) {
+                                return;
+                            }
+                            released = true;
+                            unlock();
+                        }
+                    });
+                });
+            }
+        ).catch(reject);
+    });
+}
 
 async function runWorkerQueue(tasks, concurrency) {
     const results = [];
@@ -263,29 +297,6 @@ function serializeTombstones(tombstones) {
         .filter(Boolean);
 }
 
-function computePendingDeletionTombstones(tombstones, previousTombstones = []) {
-    const previousTombstoneMap = new Map(
-        cleanTombstones(previousTombstones, Number.POSITIVE_INFINITY)
-            .map((tombstone) => [tombstone.id, tombstone])
-    );
-
-    return cleanTombstones(tombstones, Number.POSITIVE_INFINITY)
-        .filter((tombstone) => {
-            const previous = previousTombstoneMap.get(tombstone.id);
-            if (!previous) {
-                return true;
-            }
-
-            const currentDeletedMs = Date.parse(tombstone.deletedAt || '');
-            const previousDeletedMs = Date.parse(previous.deletedAt || '');
-            if (Number.isFinite(currentDeletedMs) && Number.isFinite(previousDeletedMs)) {
-                return currentDeletedMs > previousDeletedMs;
-            }
-
-            return tombstone.deletedAt !== previous.deletedAt;
-        });
-}
-
 export function createDefaultMetadataSyncState() {
     return {
         quickChatOptions: { ...DEFAULT_METADATA_SYNC_STATE.quickChatOptions },
@@ -410,7 +421,6 @@ export function buildManifestSnapshotUploadOptions({
     initialChatIndex = [],
     uploadItems = [],
     tombstones = [],
-    previousManifest = null,
     quickChatOptions,
     quickChatOptionsUpdatedAt = null,
     apiSettings,
@@ -424,7 +434,6 @@ export function buildManifestSnapshotUploadOptions({
         initialChatIndex,
         uploadItems,
         tombstones,
-        previousTombstones: getManifestDeletedChatIds(previousManifest),
         quickChatOptions,
         quickChatOptionsUpdatedAt,
         apiSettings,
@@ -915,7 +924,6 @@ export async function uploadManifestSnapshot({
     initialChatIndex = [],
     uploadItems = [],
     tombstones = [],
-    previousTombstones = [],
     quickChatOptions,
     quickChatOptionsUpdatedAt = null,
     apiSettings,
@@ -942,24 +950,9 @@ export async function uploadManifestSnapshot({
         await runWorkerQueue(uploadTasks, uploadConcurrency);
     }
 
-    const normalizedTombstones = cleanTombstones(tombstones, Number.POSITIVE_INFINITY);
-    const pendingDeletionTombstones = computePendingDeletionTombstones(
-        normalizedTombstones,
-        previousTombstones
-    );
-    if (pendingDeletionTombstones.length > 0) {
-        const deleteTasks = pendingDeletionTombstones
-            .map((tombstone) => async () => {
-            try {
-                await client.deleteFile(`${CHAT_DIRECTORY}/${tombstone.id}.json`);
-            } catch (error) {
-                console.warn(`[WebDAV] 刪除聊天檔案 ${tombstone.id} 失敗:`, error);
-            }
-        });
-        await runWorkerQueue(deleteTasks, uploadConcurrency);
-    }
-
-    const persistedTombstones = normalizedTombstones;
+    // 先更新 manifest，再交由後續 cleanup 清理孤兒聊天檔，
+    // 可避免「遠端聊天檔已刪除，但 manifest 尚未寫成功」的破壞性中間態。
+    const persistedTombstones = cleanTombstones(tombstones, Number.POSITIVE_INFINITY);
     const deletedIds = new Set(persistedTombstones.map((tombstone) => tombstone.id));
     const manifestChatIndex = sortChatIndexEntries(
         chatIndex.filter((entry) => entry?.id && !deletedIds.has(entry.id))
@@ -1230,7 +1223,6 @@ export async function performStorageBackedCloseSyncUpload({
             initialChatIndex,
             uploadItems: plannedUploadItems,
             tombstones: tombstonesForUpload,
-            previousManifest: cachedManifest,
             quickChatOptions: quickChatOptionsForManifest,
             quickChatOptionsUpdatedAt,
             apiSettings: manifestApiSettings,

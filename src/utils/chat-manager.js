@@ -265,8 +265,17 @@ export class ChatManager {
         }
     }
 
+    _touchChatUpdatedAt(chatId) {
+        const chat = this.chats.get(chatId);
+        if (chat) {
+            chat.updatedAt = new Date().toISOString();
+        }
+        return chat;
+    }
+
     async persistModifiedChat(chatId) {
         if (!chatId) return;
+        this._touchChatUpdatedAt(chatId);
         this.markChatDirty(chatId);
         await this.saveChat(chatId);
     }
@@ -528,7 +537,7 @@ export class ChatManager {
         const isFirstMessage = currentChat.isNew && currentChat.messages.length === 0;
 
         currentChat.messages.push(message);
-        currentChat.updatedAt = new Date().toISOString();
+        this._touchChatUpdatedAt(currentChat.id);
         this.markChatDirty(currentChat.id);
 
         // If there's webpage info, add the URLs to the chat
@@ -588,8 +597,7 @@ export class ChatManager {
         const newTitle = await generateTitle(chat.messages, this.apiConfig);
         if (newTitle && newTitle !== chat.title) {
             chat.title = newTitle;
-            this.markChatDirty(chat.id);
-            await this.saveChat(chat.id);
+            await this.persistModifiedChat(chat.id);
             // 通知UI更新
             document.dispatchEvent(new CustomEvent('chat-title-updated', { detail: { chatId: chat.id, newTitle } }));
         }
@@ -633,7 +641,7 @@ export class ChatManager {
         // 当流式响应结束时，触发标题生成
         if (isFinalUpdate) {
             delete lastMessage.updating;
-            currentChat.updatedAt = new Date().toISOString();
+            this._touchChatUpdatedAt(chatId);
             // 检查是否是第一次AI回复（即对话中只有两条消息，一条user，一条assistant）
             if (currentChat.messages.length === 2) {
                 this.generateAndSaveTitle(currentChat);
@@ -652,7 +660,7 @@ export class ChatManager {
             throw new Error(t('chat.notFound'));
         }
         currentChat.messages.pop();
-        currentChat.updatedAt = new Date().toISOString();
+        this._touchChatUpdatedAt(currentChat.id);
         this.markChatDirty(currentChat.id);
         await this.saveChat(this.currentChatId);
     }
@@ -661,7 +669,7 @@ export class ChatManager {
         const currentChat = this.getCurrentChat();
         if (currentChat) {
             currentChat.messages = [];
-            currentChat.updatedAt = new Date().toISOString();
+            this._touchChatUpdatedAt(currentChat.id);
             this.markChatDirty(currentChat.id);
             await this.saveChat(this.currentChatId);
         }
