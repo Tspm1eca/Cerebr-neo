@@ -594,13 +594,6 @@ class WebDAVSettingsController {
                     }
                 }
             }
-
-            if (!syncResult.error && syncResult.direction !== 'busy') {
-                webdavSyncManager.runOrphanCleanupOnOpen().catch((error) => {
-                    console.warn('[WebDAV] 開啟時 orphan cleanup 執行失敗:', error);
-                });
-            }
-
             return syncResult;
         } catch (error) {
             showToast(`${t('webdav.webdavSyncFailed')}<br>${error.message}`, 'error');

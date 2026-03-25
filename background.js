@@ -5,8 +5,8 @@ import {
 } from './src/utils/crypto.js';
 import { SYNC_MODE_FLAG_KEY } from './src/utils/storage-adapter.js';
 import {
-  acquireWebDAVSyncLock,
   performStorageBackedCloseSyncUpload,
+  withWebDAVSyncLock,
 } from './src/services/webdav-sync-shared.js';
 
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -528,67 +528,61 @@ chrome.tabs.onActivated.addListener(activeInfo => {
  * 用於頁面關閉時接替 side panel 完成同步
  */
 async function performWebDAVSyncUpload() {
-    let syncLockHandle = null;
-
     try {
         // 0. 等待短暫時間，讓新打開的面板有機會先進入同步流程
         await new Promise(resolve => setTimeout(resolve, 1500));
 
-        syncLockHandle = await acquireWebDAVSyncLock();
-        if (!syncLockHandle) {
-            console.log('[WebDAV SW] 其他實例正在同步，略過本次關閉同步');
-            return;
-        }
+        await withWebDAVSyncLock(async () => {
+            // 1. 讀取 WebDAV 配置
+            const syncStorage = await getSyncStorage();
+            const [{ webdav_config: storedConfig }, passwordResult] = await Promise.all([
+                syncStorage.get('webdav_config'),
+                chrome.storage.local.get('webdav_encryption_password')
+            ]);
+            if (!storedConfig || !storedConfig.enabled) return;
 
-        // 1. 讀取 WebDAV 配置
-        const syncStorage = await getSyncStorage();
-        const [{ webdav_config: storedConfig }, passwordResult] = await Promise.all([
-            syncStorage.get('webdav_config'),
-            chrome.storage.local.get('webdav_encryption_password')
-        ]);
-        if (!storedConfig || !storedConfig.enabled) return;
-
-        let encryptionPassword = '';
-        const storedPassword = passwordResult.webdav_encryption_password;
-        if (storedPassword) {
-            if (isEncryptedPassword(storedPassword)) {
-                try {
-                    encryptionPassword = await decryptPasswordFromStorage(storedPassword);
-                } catch (error) {
-                    console.error('[WebDAV SW] 解密本地加密密码失败:', error);
-                    encryptionPassword = '';
+            let encryptionPassword = '';
+            const storedPassword = passwordResult.webdav_encryption_password;
+            if (storedPassword) {
+                if (isEncryptedPassword(storedPassword)) {
+                    try {
+                        encryptionPassword = await decryptPasswordFromStorage(storedPassword);
+                    } catch (error) {
+                        console.error('[WebDAV SW] 解密本地加密密码失败:', error);
+                        encryptionPassword = '';
+                    }
+                } else {
+                    encryptionPassword = storedPassword;
                 }
-            } else {
-                encryptionPassword = storedPassword;
             }
-        }
 
-        const config = { ...storedConfig, encryptionPassword };
-        if (config.encryptApiKeys && !config.encryptionPassword) {
-            console.log('[WebDAV SW] 加密已启用但未设置加密密码，跳过同步');
-            return;
-        }
+            const config = { ...storedConfig, encryptionPassword };
+            if (config.encryptApiKeys && !config.encryptionPassword) {
+                console.log('[WebDAV SW] 加密已启用但未设置加密密码，跳過同步');
+                return;
+            }
 
-        const result = await performStorageBackedCloseSyncUpload({
-            config,
-            localStorageArea: chrome.storage.local,
-            syncStorageArea: syncStorage,
-            encryptValue: encrypt,
-            tombstoneMaxAgeMs: TOMBSTONE_MAX_AGE_MS
+            const result = await performStorageBackedCloseSyncUpload({
+                config,
+                localStorageArea: chrome.storage.local,
+                syncStorageArea: syncStorage,
+                encryptValue: encrypt,
+                tombstoneMaxAgeMs: TOMBSTONE_MAX_AGE_MS
+            });
+            if (result.skipped) return;
+
+            console.log(
+                `[WebDAV SW] 關閉同步完成：已上傳 ${result.uploadedIds.length} 個聊天，已同步 ${result.persistedTombstones.length} 個 tombstone，metadataDirty=${result.localDataDirty}`
+            );
+        }, {
+            logLabel: '[WebDAV SW]',
+            onBusy: () => {
+                console.log('[WebDAV SW] 其他實例正在同步，略過本次關閉同步');
+                return null;
+            }
         });
-        if (result.skipped) return;
-
-        console.log(
-            `[WebDAV SW] 關閉同步完成：已上傳 ${result.uploadedIds.length} 個聊天，已同步 ${result.persistedTombstones.length} 個 tombstone，metadataDirty=${result.localDataDirty}`
-        );
     } catch (e) {
         console.error('[WebDAV SW] 同步上傳失敗:', e);
         throw e;
-    } finally {
-        if (syncLockHandle) {
-            await syncLockHandle.release().catch((error) => {
-                console.warn('[WebDAV SW] 釋放同步鎖失敗:', error);
-            });
-        }
     }
 }

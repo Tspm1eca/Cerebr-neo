@@ -46,6 +46,7 @@ const WEBDAV_LOCAL_HASH_KEY = 'webdav_local_hash';
 const WEBDAV_LAST_SYNC_KEY = 'webdav_last_sync';
 const WEBDAV_LAST_SYNC_TIMESTAMP_KEY = 'webdav_last_sync_timestamp';
 export const WEBDAV_SYNC_LOCK_NAME = 'webdav_sync_lock';
+export const WEBDAV_SYNC_ERROR_CODE_BUSY = 'WEBDAV_SYNC_BUSY';
 
 const DEFAULT_CLIENT_CONFIG = {
     serverUrl: '',
@@ -53,6 +54,14 @@ const DEFAULT_CLIENT_CONFIG = {
     password: '',
     syncPath: '/Cerebr-neo'
 };
+
+function createWebDAVSyncError(message, { code = null } = {}) {
+    const error = new Error(message);
+    if (code) {
+        error.code = code;
+    }
+    return error;
+}
 
 export async function acquireWebDAVSyncLock() {
     const locksApi = globalThis.navigator?.locks;
@@ -85,6 +94,42 @@ export async function acquireWebDAVSyncLock() {
             }
         ).catch(reject);
     });
+}
+
+export function createWebDAVSyncBusyError(message = t('webdav.syncInProgress')) {
+    return createWebDAVSyncError(message, { code: WEBDAV_SYNC_ERROR_CODE_BUSY });
+}
+
+export function isWebDAVSyncBusyError(error) {
+    return error?.code === WEBDAV_SYNC_ERROR_CODE_BUSY;
+}
+
+export async function releaseWebDAVSyncLock(lockHandle, logLabel = '[WebDAV]') {
+    if (!lockHandle?.release) {
+        return;
+    }
+
+    try {
+        await lockHandle.release();
+    } catch (error) {
+        console.warn(`${logLabel} 釋放同步鎖失敗:`, error);
+    }
+}
+
+export async function withWebDAVSyncLock(task, { onBusy = null, logLabel = '[WebDAV]' } = {}) {
+    const lockHandle = await acquireWebDAVSyncLock();
+    if (!lockHandle) {
+        if (typeof onBusy === 'function') {
+            return await onBusy();
+        }
+        throw createWebDAVSyncBusyError();
+    }
+
+    try {
+        return await task(lockHandle);
+    } finally {
+        await releaseWebDAVSyncLock(lockHandle, logLabel);
+    }
 }
 
 async function runWorkerQueue(tasks, concurrency) {
@@ -414,34 +459,6 @@ export function buildManifestUploadPlan({
 
 export function getManifestDeletedChatIds(manifest) {
     return Array.isArray(manifest?.deletedChatIds) ? manifest.deletedChatIds : [];
-}
-
-export function buildManifestSnapshotUploadOptions({
-    client,
-    initialChatIndex = [],
-    uploadItems = [],
-    tombstones = [],
-    quickChatOptions,
-    quickChatOptionsUpdatedAt = null,
-    apiSettings,
-    apiSettingsEncrypted = false,
-    apiSettingsUpdatedAt = null,
-    uploadConcurrency = UPLOAD_CONCURRENCY,
-    timestamp = new Date().toISOString()
-}) {
-    return {
-        client,
-        initialChatIndex,
-        uploadItems,
-        tombstones,
-        quickChatOptions,
-        quickChatOptionsUpdatedAt,
-        apiSettings,
-        apiSettingsEncrypted,
-        apiSettingsUpdatedAt,
-        uploadConcurrency,
-        timestamp
-    };
 }
 
 export function computeOverallHash(chatIndex, quickChatOptions, apiSettings) {
@@ -1217,20 +1234,18 @@ export async function performStorageBackedCloseSyncUpload({
         throw encryptError;
     }
 
-    const { manifest, uploadResult, persistedTombstones, uploadedIds } = await uploadManifestSnapshot(
-        buildManifestSnapshotUploadOptions({
-            client,
-            initialChatIndex,
-            uploadItems: plannedUploadItems,
-            tombstones: tombstonesForUpload,
-            quickChatOptions: quickChatOptionsForManifest,
-            quickChatOptionsUpdatedAt,
-            apiSettings: manifestApiSettings,
-            apiSettingsEncrypted: manifestApiSettingsEncrypted,
-            apiSettingsUpdatedAt,
-            uploadConcurrency
-        })
-    );
+    const { manifest, uploadResult, persistedTombstones, uploadedIds } = await uploadManifestSnapshot({
+        client,
+        initialChatIndex,
+        uploadItems: plannedUploadItems,
+        tombstones: tombstonesForUpload,
+        quickChatOptions: quickChatOptionsForManifest,
+        quickChatOptionsUpdatedAt,
+        apiSettings: manifestApiSettings,
+        apiSettingsEncrypted: manifestApiSettingsEncrypted,
+        apiSettingsUpdatedAt,
+        uploadConcurrency
+    });
 
     const currentDirtyResult = await localStorageArea.get(DIRTY_CHAT_IDS_KEY);
     const currentDirty = Array.isArray(currentDirtyResult[DIRTY_CHAT_IDS_KEY])
