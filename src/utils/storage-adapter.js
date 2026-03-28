@@ -163,6 +163,11 @@ export const storageAdapter = {
 // ===== Sync 模式切換：WebDAV 啟用時改用 local storage =====
 export const SYNC_MODE_FLAG_KEY = 'cerebr_use_local_sync';
 const SYNC_MIGRATION_STATE_KEY = 'cerebr_sync_migration_state';
+const SYNC_LEGACY_CLEANUP_STATE_KEY = 'cerebr_sync_legacy_cleanup';
+const SYNC_LEGACY_CLEANUP_VERSION = 1;
+const LEGACY_SYNC_KEYS_TO_REMOVE = Object.freeze([
+    'webdav_last_sync_timestamp'
+]);
 
 let _useLocalForSync = false;
 
@@ -175,7 +180,7 @@ export const SYNC_KEYS_REGISTRY = Object.freeze([
     'cerebrLocale',
     'webdav_config',
     'webdav_remote_etag', 'webdav_local_hash',
-    'webdav_last_sync', 'webdav_last_sync_timestamp'
+    'webdav_last_sync'
 ]);
 const SYNC_KEYS_REGISTRY_SET = new Set(SYNC_KEYS_REGISTRY);
 const DEFAULT_SYNC_MODE_OPTIONS = Object.freeze({
@@ -197,11 +202,61 @@ function warnUnregisteredSyncKeys(data) {
     }
 }
 
+async function cleanupLegacySyncKeysOnce(initialLocalState = null) {
+    // 舊版遺留 key 只做一次性清理，避免把無關清理塞回同步熱路徑。
+    if (!isExtensionEnvironment) {
+        for (const key of LEGACY_SYNC_KEYS_TO_REMOVE) {
+            localStorage.removeItem(`sync_${key}`);
+        }
+        return;
+    }
+
+    const cleanupState = initialLocalState?.[SYNC_LEGACY_CLEANUP_STATE_KEY];
+    if (Number(cleanupState?.version) >= SYNC_LEGACY_CLEANUP_VERSION) {
+        return;
+    }
+
+    const cleanupTargets = [
+        { area: 'local', task: chrome.storage.local.remove(LEGACY_SYNC_KEYS_TO_REMOVE) },
+        { area: 'sync', task: chrome.storage.sync.remove(LEGACY_SYNC_KEYS_TO_REMOVE) }
+    ];
+    const results = await Promise.allSettled(cleanupTargets.map(({ task }) => task));
+    let cleanupFailed = false;
+
+    results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+            return;
+        }
+        cleanupFailed = true;
+        console.warn(`[SyncMode] 清理 ${cleanupTargets[index].area} 中的 legacy sync keys 失败:`, result.reason);
+    });
+
+    if (cleanupFailed) {
+        return;
+    }
+
+    await chrome.storage.local.set({
+        [SYNC_LEGACY_CLEANUP_STATE_KEY]: {
+            version: SYNC_LEGACY_CLEANUP_VERSION,
+            finishedAt: new Date().toISOString(),
+            removedKeys: [...LEGACY_SYNC_KEYS_TO_REMOVE]
+        }
+    });
+}
+
 // 啟動時讀取 flag（必須在任何 syncStorageAdapter 操作之前呼叫）
 export async function initSyncMode() {
-    if (!isExtensionEnvironment) return;
-    const result = await chrome.storage.local.get(SYNC_MODE_FLAG_KEY);
+    if (!isExtensionEnvironment) {
+        await cleanupLegacySyncKeysOnce();
+        return;
+    }
+
+    const result = await chrome.storage.local.get([
+        SYNC_MODE_FLAG_KEY,
+        SYNC_LEGACY_CLEANUP_STATE_KEY
+    ]);
     _useLocalForSync = result[SYNC_MODE_FLAG_KEY] === true;
+    await cleanupLegacySyncKeysOnce(result);
     console.log(`[SyncMode] 初始化完成：当前使用 ${_useLocalForSync ? 'local' : 'sync'}，registry keys=${SYNC_KEYS_REGISTRY.length}`);
 }
 
@@ -213,9 +268,13 @@ export async function setSyncMode(useLocal, options = {}) {
         ...DEFAULT_SYNC_MODE_OPTIONS,
         ...options
     };
-    const currentFlagResult = await chrome.storage.local.get(SYNC_MODE_FLAG_KEY);
+    const currentFlagResult = await chrome.storage.local.get([
+        SYNC_MODE_FLAG_KEY,
+        SYNC_LEGACY_CLEANUP_STATE_KEY
+    ]);
     const currentUseLocal = currentFlagResult[SYNC_MODE_FLAG_KEY] === true;
     _useLocalForSync = currentUseLocal;
+    await cleanupLegacySyncKeysOnce(currentFlagResult);
 
     if (currentUseLocal === useLocal) {
         return { switched: false, reason: 'already-target-mode' };

@@ -304,7 +304,6 @@ class WebDAVSyncManager {
         etag,
         localHash,
         lastSync,
-        remoteTimestamp,
         metadataSyncState = null,
         syncStorageData = null
     }) {
@@ -323,7 +322,6 @@ class WebDAVSyncManager {
             etag,
             localHash,
             lastSync,
-            remoteTimestamp,
             metadataSyncState,
             syncStorageData,
             knownDirectories
@@ -978,7 +976,6 @@ class WebDAVSyncManager {
                 etag: newETag || `__needs_refresh_${Date.now()}`,
                 localHash,
                 lastSync,
-                remoteTimestamp: manifest.timestamp,
                 metadataSyncState: syncedMetadataState
             });
             await this.clearLocalDataDirty();
@@ -1224,7 +1221,6 @@ class WebDAVSyncManager {
                 etag: downloadETag || `__needs_refresh_${Date.now()}`,
                 localHash,
                 lastSync,
-                remoteTimestamp: syncData.timestamp || lastSync,
                 metadataSyncState: syncedMetadataState,
                 syncStorageData: Object.keys(syncMetadataUpdates).length > 0 ? syncMetadataUpdates : null
             });
@@ -1574,7 +1570,6 @@ class WebDAVSyncManager {
                 etag: newETag || `__needs_refresh_${Date.now()}`,
                 localHash,
                 lastSync,
-                remoteTimestamp: manifest.timestamp,
                 metadataSyncState: syncedMetadataState,
                 syncStorageData: Object.keys(syncMetadataUpdates).length > 0 ? syncMetadataUpdates : null
             });

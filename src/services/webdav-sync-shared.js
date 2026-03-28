@@ -44,7 +44,6 @@ const WEBDAV_METADATA_SYNC_STATE_KEY = 'webdav_metadata_sync_state';
 const WEBDAV_REMOTE_ETAG_KEY = 'webdav_remote_etag';
 const WEBDAV_LOCAL_HASH_KEY = 'webdav_local_hash';
 const WEBDAV_LAST_SYNC_KEY = 'webdav_last_sync';
-const WEBDAV_LAST_SYNC_TIMESTAMP_KEY = 'webdav_last_sync_timestamp';
 export const WEBDAV_SYNC_LOCK_NAME = 'webdav_sync_lock';
 export const WEBDAV_SYNC_ERROR_CODE_BUSY = 'WEBDAV_SYNC_BUSY';
 
@@ -1017,7 +1016,6 @@ export async function persistStorageBackedSyncState({
     etag,
     localHash,
     lastSync,
-    remoteTimestamp,
     metadataSyncState = null,
     syncStorageData = null,
     knownDirectories = null
@@ -1039,8 +1037,7 @@ export async function persistStorageBackedSyncState({
     const syncData = {
         [WEBDAV_REMOTE_ETAG_KEY]: etag,
         [WEBDAV_LOCAL_HASH_KEY]: localHash,
-        [WEBDAV_LAST_SYNC_KEY]: lastSync,
-        [WEBDAV_LAST_SYNC_TIMESTAMP_KEY]: remoteTimestamp
+        [WEBDAV_LAST_SYNC_KEY]: lastSync
     };
     if (syncStorageData && typeof syncStorageData === 'object') {
         Object.assign(syncData, syncStorageData);
@@ -1272,7 +1269,6 @@ export async function performStorageBackedCloseSyncUpload({
         etag: uploadResult.etag || `__needs_refresh_${Date.now()}`,
         localHash,
         lastSync: manifest.timestamp,
-        remoteTimestamp: manifest.timestamp,
         metadataSyncState: nextMetadataSyncState,
         knownDirectories: [...client._knownDirectories]
     });
