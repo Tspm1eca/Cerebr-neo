@@ -176,6 +176,7 @@
 .message-input-shell:focus-within {
     border-color: var(--cerebr-border-color);
     box-shadow: none;
+    background-color: var(--cerebr-input-bg);
 }
 
 .message-history-picker {
@@ -269,7 +270,7 @@
 }
 
 @media (prefers-color-scheme: light) {
-    .message-input-shell:focus-within {
+    :root:not(.dark-theme) .message-input-shell:focus-within {
         background-color: #fff;
     }
 }
