@@ -586,7 +586,8 @@ class WebDAVSyncManager {
             const now = Date.now();
             const lastScanRaw = stateResult[WEBDAV_ORPHAN_CLEANUP_LAST_SCAN_AT_KEY];
             const lastScanMs = Date.parse(lastScanRaw || '');
-            if (Number.isFinite(lastScanMs) && (now - lastScanMs) < runtimeConfig.cooldownMs) {
+            // 已明確標記 pending 的刪除應儘快處理；cooldown 只節流例行掃描。
+            if (!pending && Number.isFinite(lastScanMs) && (now - lastScanMs) < runtimeConfig.cooldownMs) {
                 return;
             }
 
@@ -603,11 +604,10 @@ class WebDAVSyncManager {
                 return;
             }
 
+            // 只有仍存在於 manifest.chatIndex 的聊天檔應被保留。
+            // tombstone 的用途是阻止已刪除聊天被其他裝置重新合併回來，
+            // 不應該再阻止對應的 /chats/{id}.json 被清理掉。
             const keepSet = new Set(manifest.chatIndex.map(entry => entry.id));
-            const manifestTombstones = sharedCleanTombstones(getManifestDeletedChatIds(manifest), TOMBSTONE_MAX_AGE_MS);
-            for (const tombstone of manifestTombstones) {
-                keepSet.add(tombstone.id);
-            }
 
             const remoteChatIds = await this.client.listJsonFilesInDirectory(SHARED_CHAT_DIRECTORY);
             const orphanIds = remoteChatIds.filter(chatId => !keepSet.has(chatId));
