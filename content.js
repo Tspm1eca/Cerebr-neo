@@ -113,7 +113,7 @@ class CerebrSidebar {
         }
         .cerebr-sidebar {
           --sidebar-width: 430px;
-          --sidebar-margin: 20px;
+          --sidebar-margin: 10px;
           --sidebar-translation: calc(var(--sidebar-width) + var(--sidebar-margin));
 
           position: fixed;
