@@ -38,6 +38,12 @@ export default {
         questionHistory: '提问记录',
     },
 
+    streamLock: {
+        eyebrow: '跨分页回复进行中',
+        title: '此窗口暂时锁定',
+        description: '另一个分页正在等待 LLM 回复或正在生成内容。为避免跨分页请求互相干扰，请等待该回复完成后再回到这个窗口操作。',
+    },
+
     // ===== 设置菜单 =====
     settingsMenu: {
         sendWebpage: '传送网页',

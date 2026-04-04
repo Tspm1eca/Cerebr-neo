@@ -38,6 +38,12 @@ export default {
         questionHistory: 'Question History',
     },
 
+    streamLock: {
+        eyebrow: 'Cross-tab reply in progress',
+        title: 'This window is temporarily locked',
+        description: 'Another tab is waiting for the model or streaming a reply. To avoid cross-tab request interference, please wait for that reply to finish before using this window.',
+    },
+
     // ===== Settings Menu =====
     settingsMenu: {
         sendWebpage: 'Send Webpage',

@@ -38,6 +38,12 @@ export default {
         questionHistory: '質問履歴',
     },
 
+    streamLock: {
+        eyebrow: '別タブで応答中',
+        title: 'このウィンドウは一時的にロックされています',
+        description: '別のタブで LLM の応答待ち、または生成中です。タブ間でリクエストが干渉しないよう、その応答が終わるまでこのウィンドウでの操作はお待ちください。',
+    },
+
     // ===== Settings Menu =====
     settingsMenu: {
         sendWebpage: 'ウェブページを送信',

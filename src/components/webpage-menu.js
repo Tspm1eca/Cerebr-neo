@@ -1,22 +1,96 @@
 import { storageAdapter, browserAdapter } from '../utils/storage-adapter.js';
 
 const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
+const WEBPAGE_SWITCHES_KEY = 'webpageSwitches';
+const WEBPAGE_SWITCHES_BY_SCOPE_KEY = 'webpageSwitchesByScope';
+const GLOBAL_WEBPAGE_SWITCH_SCOPE = 'global';
 
-// 过滤重复的标签页，只保留每个 URL 最新访问的标签页
-function getUniqueTabsByUrl(tabs) {
-    const seenUrls = new Set();
-    return tabs.filter(tab => {
-        if (!tab.url || seenUrls.has(tab.url)) {
-            return false;
-        }
-        seenUrls.add(tab.url);
-        return true;
+function isPlainObject(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+async function getWebpageSwitchScopeState() {
+    const viewContext = browserAdapter.getViewContext();
+    const scopedTabId = Number.isInteger(viewContext?.tabId) ? viewContext.tabId : null;
+    const scopeKey = Number.isInteger(scopedTabId)
+        ? String(scopedTabId)
+        : GLOBAL_WEBPAGE_SWITCH_SCOPE;
+
+    const result = await storageAdapter.get([WEBPAGE_SWITCHES_BY_SCOPE_KEY, WEBPAGE_SWITCHES_KEY]);
+    const scopedSwitchesByScope = isPlainObject(result[WEBPAGE_SWITCHES_BY_SCOPE_KEY])
+        ? result[WEBPAGE_SWITCHES_BY_SCOPE_KEY]
+        : {};
+    const scopedSwitches = isPlainObject(scopedSwitchesByScope[scopeKey])
+        ? scopedSwitchesByScope[scopeKey]
+        : null;
+    const legacySwitches = isPlainObject(result[WEBPAGE_SWITCHES_KEY])
+        ? result[WEBPAGE_SWITCHES_KEY]
+        : {};
+
+    return {
+        scopeKey,
+        scopedSwitchesByScope,
+        switches: { ...(scopedSwitches ?? legacySwitches) }
+    };
+}
+
+async function saveWebpageSwitchScopeState(scopeKey, nextSwitches, scopedSwitchesByScope = null) {
+    const nextScopes = isPlainObject(scopedSwitchesByScope)
+        ? { ...scopedSwitchesByScope }
+        : {};
+    nextScopes[scopeKey] = nextSwitches;
+
+    await storageAdapter.set({
+        [WEBPAGE_SWITCHES_BY_SCOPE_KEY]: nextScopes
     });
+}
+
+export async function resetWebpageSwitchesForCurrentContext(currentTabId = null) {
+    const { scopeKey, scopedSwitchesByScope } = await getWebpageSwitchScopeState();
+    let targetTabId = currentTabId;
+
+    if (!Number.isInteger(targetTabId)) {
+        const currentTab = await browserAdapter.getCurrentTab().catch(() => null);
+        targetTabId = currentTab?.id ?? null;
+    }
+
+    if (!Number.isInteger(targetTabId)) {
+        return null;
+    }
+
+    const nextSwitches = { [targetTabId]: true };
+    await saveWebpageSwitchScopeState(scopeKey, nextSwitches, scopedSwitchesByScope);
+    return nextSwitches;
+}
+
+// 过滤重复的标签页，只保留每个 URL 最新访问的标签页，但优先保留当前标签页
+function getUniqueTabsByUrl(tabs, preferredTabId = null) {
+    const chosenTabsByUrl = new Map();
+
+    tabs.forEach((tab) => {
+        if (!tab.url) {
+            return;
+        }
+
+        const existingTab = chosenTabsByUrl.get(tab.url);
+        if (!existingTab) {
+            chosenTabsByUrl.set(tab.url, tab);
+            return;
+        }
+
+        const shouldPreferCurrentTab = tab.id === preferredTabId && existingTab.id !== preferredTabId;
+        if (shouldPreferCurrentTab) {
+            chosenTabsByUrl.set(tab.url, tab);
+        }
+    });
+
+    return tabs.filter((tab) => chosenTabsByUrl.get(tab.url)?.id === tab.id);
 }
 
 async function populateWebpageContentMenu(webpageContentMenu) {
     webpageContentMenu.innerHTML = ''; // 清空现有内容
     let allTabs = await browserAdapter.getAllTabs();
+    const currentTab = await browserAdapter.getCurrentTab().catch(() => null);
 
     // 1. 过滤掉浏览器自身的特殊页面
     allTabs = allTabs.filter(tab => tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://') && !tab.url.startsWith('about:'));
@@ -25,9 +99,9 @@ async function populateWebpageContentMenu(webpageContentMenu) {
     allTabs.sort((a, b) => b.lastAccessed - a.lastAccessed);
 
     // 2. 过滤掉重复的 URL
-    const finalTabs = getUniqueTabsByUrl(allTabs);
+    const finalTabs = getUniqueTabsByUrl(allTabs, currentTab?.id ?? null);
 
-    const { webpageSwitches: switches } = await storageAdapter.get('webpageSwitches');
+    const { switches } = await getWebpageSwitchScopeState();
 
     for (const tab of finalTabs) {
         if (!tab.title || !tab.url) continue;
@@ -63,14 +137,20 @@ async function populateWebpageContentMenu(webpageContentMenu) {
         switchInput.id = switchId;
 
         // 确定开关状态
-        const isEnabled = switches && switches[tab.id] !== undefined ? switches[tab.id] : false;
+        const isEnabled = Object.prototype.hasOwnProperty.call(switches, tab.id)
+            ? switches[tab.id]
+            : (tab.id === currentTab?.id);
         switchInput.checked = isEnabled;
 
         switchInput.addEventListener('change', async (e) => {
             const isChecked = e.target.checked;
-            const { webpageSwitches: currentSwitches } = await storageAdapter.get('webpageSwitches');
-            const newSwitches = { ...currentSwitches, [tab.id]: isChecked };
-            await storageAdapter.set({ webpageSwitches: newSwitches });
+            const {
+                scopeKey,
+                switches: currentSwitches,
+                scopedSwitchesByScope
+            } = await getWebpageSwitchScopeState();
+            const nextSwitches = { ...currentSwitches, [tab.id]: isChecked };
+            await saveWebpageSwitchScopeState(scopeKey, nextSwitches, scopedSwitchesByScope);
 
             // 如果是开启，且标签页未连接，则刷新它
             if (isChecked) {
@@ -95,7 +175,7 @@ async function populateWebpageContentMenu(webpageContentMenu) {
 }
 
 export async function getEnabledTabsContent() {
-    const { webpageSwitches: switches } = await storageAdapter.get('webpageSwitches');
+    const { switches } = await getWebpageSwitchScopeState();
     let allTabs = await browserAdapter.getAllTabs();
     const currentTab = await browserAdapter.getCurrentTab();
     let combinedContent = null;
@@ -107,10 +187,12 @@ export async function getEnabledTabsContent() {
     allTabs.sort((a, b) => b.lastAccessed - a.lastAccessed);
 
     // 2. 过滤掉重复的 URL
-    const finalTabs = getUniqueTabsByUrl(allTabs);
+    const finalTabs = getUniqueTabsByUrl(allTabs, currentTab?.id ?? null);
 
     for (const tab of finalTabs) {
-        const isEnabled = switches && switches[tab.id] !== undefined ? switches[tab.id] : (tab.id === currentTab.id);
+        const isEnabled = Object.prototype.hasOwnProperty.call(switches, tab.id)
+            ? switches[tab.id]
+            : (tab.id === currentTab?.id);
         if (isEnabled) {
             let isConnected = await browserAdapter.isTabConnected(tab.id);
 
@@ -135,7 +217,7 @@ export async function getEnabledTabsContent() {
 
                     // YouTube 当前頁字幕提取失敗：直接中止流程，交由上層顯示錯誤氣泡
                     if (pageData?.error?.code === 'YOUTUBE_TRANSCRIPT_UNAVAILABLE'
-                        && tab.id === currentTab.id
+                        && tab.id === currentTab?.id
                         && YT_WATCH_RE.test(tab.url || '')) {
                         const err = new Error(pageData.error.message || '无法提取 YouTube 字幕');
                         err.code = 'YOUTUBE_TRANSCRIPT_UNAVAILABLE';
@@ -150,7 +232,7 @@ export async function getEnabledTabsContent() {
                             title: pageData.title,
                             url: tab.url,
                             content: pageData.content,
-                            isCurrent: tab.id === currentTab.id
+                            isCurrent: tab.id === currentTab?.id
                         });
                     }
                 } catch (e) {

@@ -10,6 +10,7 @@ import {
 } from './src/services/webdav-sync-shared.js';
 
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const ACTIVE_STREAMS_BY_TAB_KEY = 'cerebr_active_stream_by_tab';
 
 // Helper: 根據 sync 模式 flag 取得正確的 storage area（Service Worker 可能隨時重啟）
 async function getSyncStorage() {
@@ -125,6 +126,77 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 // 创建一个持久连接
 let port = null;
+const uiContexts = new Map();
+
+function normalizeUiContext(context = {}, sender = null) {
+  if (!context?.contextId) {
+    return null;
+  }
+
+  const senderTab = sender?.tab || null;
+  const normalizedTabId = Number.isInteger(context.tabId)
+    ? context.tabId
+    : senderTab?.id ?? null;
+  const normalizedWindowId = Number.isInteger(context.windowId)
+    ? context.windowId
+    : senderTab?.windowId ?? null;
+
+  return {
+    contextId: context.contextId,
+    uiType: context.uiType || 'unknown',
+    tabId: normalizedTabId,
+    windowId: normalizedWindowId
+  };
+}
+
+function upsertUiContext(context, sender = null) {
+  const normalizedContext = normalizeUiContext(context, sender);
+  if (!normalizedContext) {
+    return null;
+  }
+  uiContexts.set(normalizedContext.contextId, normalizedContext);
+  return normalizedContext;
+}
+
+function removeUiContext(contextId) {
+  if (!contextId) return null;
+  const removedContext = uiContexts.get(contextId) || null;
+  uiContexts.delete(contextId);
+  return removedContext;
+}
+
+async function cleanupActiveStreamsByOwnerContextIds(contextIds = []) {
+  const ownerIds = new Set(contextIds.filter(Boolean));
+  if (ownerIds.size === 0 || !chrome.storage?.session) {
+    return false;
+  }
+
+  const result = await chrome.storage.session.get(ACTIVE_STREAMS_BY_TAB_KEY);
+  const snapshot = result[ACTIVE_STREAMS_BY_TAB_KEY];
+  if (!snapshot || typeof snapshot !== 'object') {
+    return false;
+  }
+
+  const nextSnapshot = {};
+  let changed = false;
+
+  for (const [scopeKey, streamRecord] of Object.entries(snapshot)) {
+    if (streamRecord?.ownerContextId && ownerIds.has(streamRecord.ownerContextId)) {
+      changed = true;
+      continue;
+    }
+    nextSnapshot[scopeKey] = streamRecord;
+  }
+
+  if (changed) {
+    await chrome.storage.session.set({
+      [ACTIVE_STREAMS_BY_TAB_KEY]: nextSnapshot
+    });
+  }
+
+  return changed;
+}
+
 chrome.runtime.onConnect.addListener((p) => {
   // console.log('建立持久连接');
   port = p;
@@ -162,6 +234,58 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     })();
     return true; // Indicates that the response is sent asynchronously.
+  }
+
+  if (message.type === 'GET_TAB_INFO') {
+    (async () => {
+      try {
+        if (!Number.isInteger(message.tabId)) {
+          sendResponse(null);
+          return;
+        }
+        const tab = await chrome.tabs.get(message.tabId);
+        sendResponse(tab);
+      } catch (e) {
+        console.error(`Failed to get tab info for ${message.tabId}:`, e);
+        sendResponse(null);
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === 'GET_EMBED_CONTEXT') {
+    sendResponse({
+      tabId: sender.tab?.id ?? null,
+      windowId: sender.tab?.windowId ?? null
+    });
+    return false;
+  }
+
+  if (message.type === 'REGISTER_UI_CONTEXT') {
+    const context = upsertUiContext(message.context, sender);
+    sendResponse({ success: true, context });
+    return false;
+  }
+
+  if (message.type === 'UPDATE_UI_CONTEXT') {
+    const context = upsertUiContext(message.context, sender);
+    sendResponse({ success: true, context });
+    return false;
+  }
+
+  if (message.type === 'UNREGISTER_UI_CONTEXT') {
+    (async () => {
+      try {
+        const removedContext = removeUiContext(message.contextId);
+        await cleanupActiveStreamsByOwnerContextIds([
+          removedContext?.contextId ?? message.contextId
+        ]);
+      } catch (error) {
+        console.warn('清理 UI context 关联的 stream ownership 失败:', error);
+      }
+      sendResponse({ success: true });
+    })();
+    return true;
   }
 
   if (message.type === 'CONTENT_LOADED') {
@@ -400,6 +524,32 @@ chrome.runtime.onInstalled.addListener(() => {
     console.log('扩展已安装/更新:', new Date().toISOString());
 });
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+  const removedContextIds = [];
+  for (const [contextId, context] of uiContexts.entries()) {
+    if (context.tabId === tabId) {
+      uiContexts.delete(contextId);
+      removedContextIds.push(contextId);
+    }
+  }
+  cleanupActiveStreamsByOwnerContextIds(removedContextIds).catch((error) => {
+    console.warn('标签页关闭后清理 stream ownership 失败:', error);
+  });
+});
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  const removedContextIds = [];
+  for (const [contextId, context] of uiContexts.entries()) {
+    if (context.windowId === windowId) {
+      uiContexts.delete(contextId);
+      removedContextIds.push(contextId);
+    }
+  }
+  cleanupActiveStreamsByOwnerContextIds(removedContextIds).catch((error) => {
+    console.warn('窗口关闭后清理 stream ownership 失败:', error);
+  });
+});
+
 // 改进标签页连接检查
 async function isTabConnected(tabId) {
     try {
@@ -505,19 +655,23 @@ async function getPDFChunk(url, chunkIndex) {
   }
 }
 
-// 监听标签页激活事件，并通知相关方，兼容 Firefox 需要
-chrome.tabs.onActivated.addListener(activeInfo => {
-  chrome.runtime.sendMessage({
-    type: 'TAB_ACTIVATED',
-    payload: activeInfo
-  }).catch(error => {
-    // 忽略错误，因为可能没有页面在监听
-    if (error.message.includes('Could not establish connection') || error.message.includes('Receiving end does not exist')) {
-      // This is expected if no content script is listening
-    } else {
-      console.error('Error sending TAB_ACTIVATED message:', error);
-    }
-  });
+// 监听标签页激活事件，并只路由到真正关心的 UI
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  try {
+    const sidePanelTargets = Array.from(uiContexts.values()).filter((context) =>
+      context.uiType === 'side_panel' && context.windowId === activeInfo.windowId
+    );
+
+    await Promise.allSettled(sidePanelTargets.map((context) =>
+      chrome.runtime.sendMessage({
+        type: 'TAB_CONTEXT_SWITCH',
+        targetContextId: context.contextId,
+        payload: activeInfo
+      })
+    ));
+  } catch (error) {
+    console.error('Error routing tab activation:', error);
+  }
 });
 
 // ========== WebDAV 關閉同步：Service Worker 自包含上傳 ==========

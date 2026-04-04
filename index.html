@@ -691,6 +691,14 @@
         </div>
     </div>
     <div id="webpage-content-menu"></div>
+    <div id="stream-lock-overlay" class="stream-lock-overlay" aria-hidden="true">
+        <div class="stream-lock-card" role="alert" aria-live="polite" aria-atomic="true">
+            <div class="stream-lock-pulse" aria-hidden="true"></div>
+            <div class="stream-lock-eyebrow" data-i18n="streamLock.eyebrow">跨分页回复进行中</div>
+            <h2 class="stream-lock-title" data-i18n="streamLock.title">此窗口暂时锁定</h2>
+            <p class="stream-lock-description" data-i18n="streamLock.description">另一个分页正在等待 LLM 回复或正在生成内容。为避免跨分页请求互相干扰，请等待该回复完成后再回到这个窗口操作。</p>
+        </div>
+    </div>
     <script src="src/main.js" type="module"></script>
 </body>
 </html>

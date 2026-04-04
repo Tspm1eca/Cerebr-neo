@@ -1,6 +1,7 @@
 import { appendMessage } from '../handlers/message-handler.js';
-import { storageAdapter, browserAdapter, isExtensionEnvironment } from '../utils/storage-adapter.js';
+import { browserAdapter, isExtensionEnvironment } from '../utils/storage-adapter.js';
 import { toggleQuickChatOptions } from './quick-chat.js';
+import { resetWebpageSwitchesForCurrentContext } from './webpage-menu.js';
 import { t } from '../utils/i18n.js';
 import { HISTORY_LIMIT_THRESHOLD } from '../constants/history.js';
 import { hideMenuWithAnimation } from '../utils/menu-animation.js';
@@ -127,7 +128,8 @@ export async function loadChatContent(chat, chatContainer) {
 
     for (let i = 0; i < messages.length; i++) {
         const message = messages[i];
-        if (message.content) {
+        const hasRenderableContent = Boolean(message.content) || Boolean(message.reasoning_content);
+        if (hasRenderableContent) {
             await appendMessage({
                 text: message,
                 sender: message.role === 'user' ? 'user' : 'ai',
@@ -279,7 +281,7 @@ export function initializeChatList({
             try {
                 const currentTab = await browserAdapter.getCurrentTab();
                 if (currentTab) {
-                    await storageAdapter.set({ webpageSwitches: { [currentTab.id]: true } });
+                    await resetWebpageSwitchesForCurrentContext(currentTab.id);
                 }
             } catch (error) {
                 console.warn('新建对话时获取当前标签页失败，已跳过网页开关重置:', error);

@@ -221,7 +221,23 @@ class CerebrSidebar {
 
       const iframe = document.createElement('iframe');
       iframe.className = 'cerebr-sidebar__iframe';
-      iframe.src = chrome.runtime.getURL('index.html');
+      let iframeUrl = chrome.runtime.getURL('index.html?ui=iframe');
+      try {
+        const embedContext = await chrome.runtime.sendMessage({ type: 'GET_EMBED_CONTEXT' });
+        if (Number.isInteger(embedContext?.tabId)) {
+          const params = new URLSearchParams({
+            ui: 'iframe',
+            tabId: String(embedContext.tabId)
+          });
+          if (Number.isInteger(embedContext?.windowId)) {
+            params.set('windowId', String(embedContext.windowId));
+          }
+          iframeUrl = `${chrome.runtime.getURL('index.html')}?${params.toString()}`;
+        }
+      } catch (error) {
+        console.warn('获取 iframe 上下文失败，回退到默认 URL:', error);
+      }
+      iframe.src = iframeUrl;
       iframe.allow = 'clipboard-write';
 
       content.appendChild(iframe);

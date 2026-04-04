@@ -38,6 +38,12 @@ export default {
         questionHistory: '提問紀錄',
     },
 
+    streamLock: {
+        eyebrow: '跨分頁回覆進行中',
+        title: '此視窗暫時鎖定',
+        description: '另一個分頁正在等待 LLM 回覆或正在生成內容。為避免跨分頁請求互相干擾，請等待該回覆完成後再回到這個視窗操作。',
+    },
+
     // ===== 設定選單 =====
     settingsMenu: {
         sendWebpage: '傳送網頁',

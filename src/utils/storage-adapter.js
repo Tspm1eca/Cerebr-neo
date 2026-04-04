@@ -6,6 +6,13 @@ const IDB_DB_VERSION = 1;
 const IDB_STORE_NAME = 'keyValueStore';
 
 let dbPromise = null;
+const sessionFallbackStore = new Map();
+const browserViewContext = {
+    contextId: null,
+    uiType: 'unknown',
+    tabId: null,
+    windowId: null
+};
 
 function getDb() {
     if (!isExtensionEnvironment && !dbPromise) { //仅在非插件环境且dbPromise未初始化时创建
@@ -391,18 +398,108 @@ export const syncStorageAdapter = {
     }
 };
 
+// 会话级存储适配器（用于 UI context / 流式 ownership 等短生命周期状态）
+export const sessionStorageAdapter = {
+    async get(keyOrKeys) {
+        const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+        if (isExtensionEnvironment && chrome.storage?.session) {
+            return await chrome.storage.session.get(keyOrKeys);
+        }
+
+        const result = {};
+        keys.forEach((key) => {
+            result[key] = sessionFallbackStore.get(key);
+        });
+        return result;
+    },
+
+    async set(data) {
+        if (isExtensionEnvironment && chrome.storage?.session) {
+            await chrome.storage.session.set(data);
+            return;
+        }
+
+        Object.entries(data).forEach(([key, value]) => {
+            sessionFallbackStore.set(key, value);
+        });
+    },
+
+    async remove(keys) {
+        const keyArray = Array.isArray(keys) ? keys : [keys];
+        if (keyArray.length === 0) return;
+
+        if (isExtensionEnvironment && chrome.storage?.session) {
+            await chrome.storage.session.remove(keyArray);
+            return;
+        }
+
+        keyArray.forEach((key) => {
+            sessionFallbackStore.delete(key);
+        });
+    }
+};
+
 // 浏览器API适配器
 export const browserAdapter = {
+    setViewContext(context) {
+        Object.assign(browserViewContext, context || {});
+    },
+
+    getViewContext() {
+        return { ...browserViewContext };
+    },
+
+    async registerUiContext(context) {
+        if (!isExtensionEnvironment) return null;
+        this.setViewContext(context);
+        return await this.sendMessage({
+            type: 'REGISTER_UI_CONTEXT',
+            context: this.getViewContext()
+        });
+    },
+
+    async updateUiContext(partialContext) {
+        if (!isExtensionEnvironment) {
+            this.setViewContext(partialContext);
+            return this.getViewContext();
+        }
+
+        this.setViewContext(partialContext);
+        await this.sendMessage({
+            type: 'UPDATE_UI_CONTEXT',
+            context: this.getViewContext()
+        });
+        return this.getViewContext();
+    },
+
+    async unregisterUiContext(contextId = browserViewContext.contextId) {
+        if (!isExtensionEnvironment || !contextId) return null;
+        return await this.sendMessage({
+            type: 'UNREGISTER_UI_CONTEXT',
+            contextId
+        });
+    },
+
     // 获取当前标签页信息
     async getCurrentTab() {
         if (isExtensionEnvironment) {
-            const tab = await chrome.runtime.sendMessage({ type: "GET_CURRENT_TAB" });
+            let tab = null;
+            if (Number.isInteger(browserViewContext.tabId)) {
+                tab = await chrome.runtime.sendMessage({
+                    type: 'GET_TAB_INFO',
+                    tabId: browserViewContext.tabId
+                });
+            }
+            if (!tab?.url) {
+                tab = await chrome.runtime.sendMessage({ type: "GET_CURRENT_TAB" });
+            }
             if (!tab?.url) return null;
 
             // 处理本地文件
             if (tab.url.startsWith('file://')) {
                 return {
                     id: tab.id,
+                    windowId: Number.isInteger(tab.windowId) ? tab.windowId : null,
                     url: 'file://',
                     title: 'Local PDF',
                     hostname: 'local_pdf'
@@ -412,6 +509,7 @@ export const browserAdapter = {
             const url = new URL(tab.url);
             return {
                 id: tab.id,
+                windowId: Number.isInteger(tab.windowId) ? tab.windowId : null,
                 url: tab.url,
                 title: tab.title,
                 hostname: url.hostname
@@ -421,14 +519,16 @@ export const browserAdapter = {
             // 处理本地文件
             if (url.startsWith('file://')) {
                 return {
-                    id: tab.id,
+                    id: null,
+                    windowId: null,
                     url: 'file://',
                     title: 'Local PDF',
                     hostname: 'local_pdf'
                 };
             }
             return {
-                id: tab.id,
+                id: null,
+                windowId: null,
                 url: url,
                 title: document.title,
                 hostname: window.location.hostname
@@ -501,13 +601,12 @@ export const browserAdapter = {
     // 添加标签页变化监听器
     onTabActivated(callback) {
         if (isExtensionEnvironment) {
-            // In a non-background script, we can't directly access chrome.tabs.
-            // We listen for messages from the background script instead.
-            // chrome.tabs.onActivated.addListener(callback);
-
-            // 兼容 Firefox 需要
             chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-                if (message.type === 'TAB_ACTIVATED') {
+                if (
+                    message.type === 'TAB_CONTEXT_SWITCH' &&
+                    message.targetContextId &&
+                    message.targetContextId === browserViewContext.contextId
+                ) {
                     callback(message.payload);
                 }
             });
