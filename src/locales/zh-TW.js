@@ -38,12 +38,6 @@ export default {
         questionHistory: '提問紀錄',
     },
 
-    streamLock: {
-        eyebrow: '跨分頁回覆進行中',
-        title: '此視窗暫時鎖定',
-        description: '另一個分頁正在等待 LLM 回覆或正在生成內容。為避免跨分頁請求互相干擾，請等待該回覆完成後再回到這個視窗操作。',
-    },
-
     // ===== 設定選單 =====
     settingsMenu: {
         sendWebpage: '傳送網頁',
@@ -188,6 +182,7 @@ export default {
         clearAllWarning: '此操作無法撤銷。',
         allCleared: '所有對話已清除',
         clearFailed: '清除對話失敗: ',
+        deleteRefreshFailed: '對話已刪除，但畫面刷新失敗: ',
     },
 
     // ===== 模態框 =====
@@ -221,6 +216,8 @@ export default {
         remoteLoadFailed: '載入遠端對話失敗: {{error}}',
         notFound: '對話不存在',
         noActiveChat: '目前沒有活動的對話',
+        activeStreamMutationBlocked: '此對話仍在生成回覆，請等待完成後再操作。',
+        activeStreamBatchMutationBlocked: '仍有對話正在生成回覆，請等待完成後再清除。',
         editCancel: '取消',
         editSave: '儲存',
         editSaveAndResend: '儲存並重新傳送',

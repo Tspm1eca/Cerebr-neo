@@ -239,13 +239,25 @@ export function initChatListEvents({
         if (!card || card.classList.contains('template')) return;
 
         e.stopPropagation();
-        await chatManager.deleteChat(card.dataset.chatId);
-        renderChatList(chatManager, chatCards);
+        try {
+            await chatManager.deleteChat(card.dataset.chatId);
+        } catch (error) {
+            console.error('删除对话失败:', error);
+            showToast(error.message, 'error');
+            return;
+        }
 
-        // 如果删除的是当前对话，重新加载聊天内容
-        const currentChat = chatManager.getCurrentChat();
-        if (currentChat) {
-            await loadChatContentFn(currentChat, document.getElementById('chat-container'));
+        try {
+            await renderChatList(chatManager, chatCards);
+
+            // 如果删除的是当前对话，重新加载聊天内容
+            const currentChat = chatManager.getCurrentChat();
+            if (currentChat) {
+                await loadChatContentFn(currentChat, document.getElementById('chat-container'));
+            }
+        } catch (error) {
+            console.error('删除对话后刷新失败:', error);
+            showToast(t('chatList.deleteRefreshFailed') + error.message, 'error');
         }
     });
 

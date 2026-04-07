@@ -1,6 +1,7 @@
 import { initDarkTheme } from './utils/theme.js';
 import { callAPI, formatAIErrorMessage } from './services/chat.js';
-import { chatManager } from './utils/chat-manager.js';
+import { chatManager, ACTIVE_STREAMS_BY_TAB_KEY } from './utils/chat-manager.js';
+import { hasActiveStreamsInSnapshot } from './utils/active-streams.js';
 import { appendMessage, createWaitingMessage, createYouTubeExtractionMessage, transitionExtractionToWaiting, loadThumbnailCache } from './handlers/message-handler.js';
 import { hideContextMenu } from './components/context-menu.js';
 import { initChatContainer } from './components/chat-container.js';
@@ -176,7 +177,6 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     const webpageQAContainer = document.getElementById('webpage-qa');
     const webpageContentMenu = document.getElementById('webpage-content-menu');
     const sendWebpageSwitch = document.getElementById('send-webpage-switch');
-    const streamLockOverlay = document.getElementById('stream-lock-overlay');
 
     // 常用聊天選項相關元素
     const quickChatContainer = document.getElementById('quick-chat-options');
@@ -187,6 +187,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     const abortControllerRef = { current: null, pendingAbort: false };
     let currentController = null;
     let activeRequestId = null; // 用于跟踪当前活动的请求ID
+    let pendingLocalRequestChatId = null;
+    let pendingLocalRequestId = null;
+    let pendingLocalRequestStartedAt = 0;
     const urlParams = new URLSearchParams(window.location.search);
     const uiType = urlParams.get('ui') || (
         window.location.protocol === 'chrome-extension:' && window.self === window.top
@@ -232,6 +235,162 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         chatManager.setUiContext(nextContext);
         return nextContext;
     };
+
+    const setPendingLocalRequest = ({ chatId, requestId }) => {
+        pendingLocalRequestChatId = chatId || null;
+        pendingLocalRequestId = requestId || null;
+        pendingLocalRequestStartedAt = pendingLocalRequestId ? Date.now() : 0;
+    };
+
+    const clearPendingLocalRequest = ({ requestId } = {}) => {
+        if (!pendingLocalRequestId) {
+            return false;
+        }
+
+        if (requestId && pendingLocalRequestId !== requestId) {
+            return false;
+        }
+
+        pendingLocalRequestChatId = null;
+        pendingLocalRequestId = null;
+        pendingLocalRequestStartedAt = 0;
+        return true;
+    };
+
+    const isCurrentChatPendingLocalRequest = () => {
+        const currentChatId = chatManager.getCurrentChat()?.id;
+        return Boolean(
+            currentChatId &&
+            pendingLocalRequestId &&
+            pendingLocalRequestStartedAt > 0 &&
+            pendingLocalRequestChatId === currentChatId
+        );
+    };
+
+    const isCurrentChatSyncProtected = () => {
+        const currentChatId = chatManager.getCurrentChat()?.id;
+        return Boolean(
+            currentChatId && (
+                isCurrentChatPendingLocalRequest() ||
+                chatManager.isStreamOwner(currentChatId)
+            )
+        );
+    };
+
+    const claimLocalRequestProtection = async ({ chatId, requestId }) => {
+        if (!chatId || !requestId) {
+            return;
+        }
+
+        setPendingLocalRequest({ chatId, requestId });
+        try {
+            await chatManager.claimStreamOwnership({ chatId, requestId });
+        } catch (error) {
+            clearPendingLocalRequest({ requestId });
+            throw error;
+        }
+    };
+
+    const releaseLocalRequestProtection = async ({ requestId } = {}) => {
+        clearPendingLocalRequest({ requestId });
+        await chatManager.releaseStreamOwnership({ requestId }).catch((error) => {
+            console.warn('释放 stream ownership 失败:', error);
+        });
+    };
+
+    const waitForCondition = (predicate, { timeoutMs = 3000, intervalMs = 25 } = {}) => new Promise((resolve) => {
+        const startedAt = Date.now();
+
+        const tick = () => {
+            try {
+                if (predicate()) {
+                    resolve(true);
+                    return;
+                }
+            } catch {
+                resolve(false);
+                return;
+            }
+
+            if (Date.now() - startedAt >= timeoutMs) {
+                resolve(false);
+                return;
+            }
+
+            setTimeout(tick, intervalMs);
+        };
+
+        tick();
+    });
+
+    const removeActiveWaitingMessage = () => {
+        const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
+        if (!waitingMsg) {
+            return;
+        }
+
+        waitingMsg.classList.add('message-vanishing');
+        waitingMsg.addEventListener('animationend', () => {
+            waitingMsg.remove();
+        }, { once: true });
+        setTimeout(() => {
+            if (waitingMsg.parentNode) {
+                waitingMsg.remove();
+            }
+        }, 350);
+    };
+
+    const stopActiveResponseGeneration = () => {
+        if (currentController) {
+            currentController.abort();
+            currentController = null;
+        }
+        if (abortControllerRef) {
+            abortControllerRef.pendingAbort = true;
+        }
+        removeActiveWaitingMessage();
+    };
+
+    const interruptOwnedChatMutation = async ({
+        chatId,
+        activeStream,
+        errorMessageKey = 'chat.activeStreamMutationBlocked'
+    } = {}) => {
+        if (!chatId) {
+            return false;
+        }
+
+        const stream = activeStream || chatManager.getActiveStreamForChat(chatId);
+        if (!stream) {
+            return false;
+        }
+        if (stream.ownerContextId !== uiContext.contextId) {
+            throw new Error(t(errorMessageKey));
+        }
+
+        const hasLocalRequestInFlight = Boolean(
+            pendingLocalRequestChatId === chatId ||
+            currentController ||
+            abortControllerRef.current ||
+            abortControllerRef.pendingAbort ||
+            typeof stopResponseButton.onclick === 'function'
+        );
+
+        if (hasLocalRequestInFlight) {
+            stopActiveResponseGeneration();
+        } else {
+            abortControllerRef.pendingAbort = false;
+            await releaseLocalRequestProtection({ requestId: stream.requestId });
+        }
+
+        const released = await waitForCondition(() => !chatManager.hasActiveStreamForChat(chatId));
+        if (!released && chatManager.hasActiveStreamForChat(chatId)) {
+            throw new Error(t(errorMessageKey));
+        }
+        return true;
+    };
+
+    chatManager.setChatMutationInterrupter(interruptOwnedChatMutation);
 
     // 创建UI工具配置
     const uiConfig = {
@@ -371,98 +530,17 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         typeof stopResponseButton.onclick === 'function'
     );
 
-    let interactionLockState = {
-        isLocked: false,
-        blockingStream: null
-    };
-
-    const blockedWindowMessageTypes = new Set(['DROP_IMAGE', 'FOCUS_INPUT', 'NEW_CHAT']);
-
-    const isUiInteractionLocked = () => interactionLockState.isLocked;
-
-    const refreshUiInteractionLock = () => {
-        const blockingStream = chatManager.getConflictingActiveStream();
-        const isLocked = Boolean(blockingStream);
-
-        interactionLockState = {
-            isLocked,
-            blockingStream
-        };
-
-        document.body.classList.toggle('cerebr-ui-locked', isLocked);
-        if (streamLockOverlay) {
-            streamLockOverlay.classList.toggle('visible', isLocked);
-            streamLockOverlay.setAttribute('aria-hidden', String(!isLocked));
-        }
-
-        messageInput.contentEditable = isLocked ? 'false' : 'true';
-        messageInput.setAttribute('aria-disabled', String(isLocked));
-
-        if (isLocked && document.activeElement instanceof HTMLElement) {
-            document.activeElement.blur();
-        }
-    };
-
-    let interactionLockRefreshQueued = false;
-    const scheduleInteractionLockRefresh = () => {
-        if (interactionLockRefreshQueued) {
-            return;
-        }
-        interactionLockRefreshQueued = true;
-        queueMicrotask(() => {
-            interactionLockRefreshQueued = false;
-            refreshUiInteractionLock();
-        });
-    };
-
-    const blockLockedInteraction = (event) => {
-        if (!isUiInteractionLocked()) {
-            return;
-        }
-
-        const targetNode = event.target instanceof Node ? event.target : null;
-        if (targetNode && streamLockOverlay?.contains(targetNode)) {
-            event.preventDefault();
-            return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation?.();
-    };
-
-    ['click', 'pointerdown', 'mousedown', 'touchstart', 'dragover', 'drop', 'submit'].forEach((eventName) => {
-        document.addEventListener(eventName, blockLockedInteraction, true);
-    });
-
-    document.addEventListener('keydown', (event) => {
-        if (!isUiInteractionLocked()) {
-            return;
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation?.();
-    }, true);
-
     const triggerNewChatFromShortcut = () => {
-        if (isUiInteractionLocked()) {
-            return;
-        }
         // 快捷键触发新对话时，若正在生成则先复用停止按钮逻辑中止生成
         if (hasActiveResponseGeneration()) {
-            stopResponseButton.click();
+            stopActiveResponseGeneration();
         }
         newChatButton.click();
         messageInput.focus();
     };
-    refreshUiInteractionLock();
 
     // 监听来自 content script 的消息
     window.addEventListener('message', (event) => {
-        if (isUiInteractionLocked() && blockedWindowMessageTypes.has(event.data?.type)) {
-            return;
-        }
-
         // 使用消息输入组件的窗口消息处理函数
         handleWindowMessage(event, {
             messageInput,
@@ -493,35 +571,12 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     async function callAPIWithRetry(apiParams, chatManager, chatId, requestId, onMessageUpdate, maxRetries = 10) {
         let attempt = 0;
 
-        // 標記 stream owner，防止其他 UI instance 寫回舊狀態
-        await chatManager.claimStreamOwnership({ chatId, requestId });
-
         // 切換按鈕顯示：使用 CSS 類觸發動畫
         newChatButton.classList.add('button-hidden');
         stopResponseButton.classList.add('button-visible');
 
         // 绑定停止按钮事件
-        const stopHandler = () => {
-            if (currentController) {
-                currentController.abort();
-                currentController = null;
-            }
-            if (abortControllerRef) {
-                abortControllerRef.pendingAbort = true;
-            }
-            // 移除等待动画（包括 YouTube 提取狀態）
-            const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
-            if (waitingMsg) {
-                waitingMsg.classList.add('message-vanishing');
-                waitingMsg.addEventListener('animationend', () => {
-                    waitingMsg.remove();
-                }, { once: true });
-                setTimeout(() => {
-                    if (waitingMsg.parentNode) waitingMsg.remove();
-                }, 350);
-            }
-        };
-        stopResponseButton.onclick = stopHandler;
+        stopResponseButton.onclick = stopActiveResponseGeneration;
 
         try {
             while (attempt <= maxRetries) {
@@ -563,10 +618,6 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             }
             abortControllerRef.current = null;
 
-            // 清除串流標記與 owner
-            await chatManager.releaseStreamOwnership({ requestId }).catch((error) => {
-                console.warn('释放 stream ownership 失败:', error);
-            });
             // 恢復按鈕顯示：使用 CSS 類觸發動畫
             newChatButton.classList.remove('button-hidden');
             stopResponseButton.classList.remove('button-visible');
@@ -575,7 +626,6 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     }
 
     async function regenerateMessage(messageElement) {
-        if (isUiInteractionLocked()) return;
         if (!messageElement) return;
 
         // 生成新的请求ID
@@ -690,6 +740,11 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 remainingDomMessages.slice(newUserMessageIndex + 1).forEach(el => el.remove());
             }
 
+            await claimLocalRequestProtection({
+                chatId: requestChatId,
+                requestId: currentRequestId
+            });
+
             const messagesToResend = currentChat.messages;
 
             // 准备API调用参数
@@ -697,6 +752,11 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             const effectiveWebSearchMode = (isExtensionEnvironment && sendWebpageSwitch.checked && webSearchMode === 'auto')
                 ? 'off'
                 : webSearchMode;
+
+            // 显示等待动画；on 模式从第一帧就使用搜索光暈（綠色）
+            createWaitingMessage(chatContainer, {
+                isSearchUsed: effectiveWebSearchMode === 'on'
+            });
 
             const apiParams = {
                 messages: messagesToResend,
@@ -712,11 +772,6 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     exaApiUrl: exaApiUrl
                 }
             };
-
-            // 显示等待动画；on 模式从第一帧就使用搜索光暈（綠色）
-            createWaitingMessage(chatContainer, {
-                isSearchUsed: effectiveWebSearchMode === 'on'
-            });
 
             // 调用带重试逻辑的 API
             await callAPIWithRetry(apiParams, chatManager, requestChatId, currentRequestId, (chatId, message) => {
@@ -777,6 +832,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 });
             }
         } finally {
+            await releaseLocalRequestProtection({ requestId: currentRequestId });
             // 只有当仍然是当前活动的请求时才清理状态
             if (currentRequestId === activeRequestId && isRequestChatVisible()) {
                 cleanupActiveStreamingMessages(chatContainer);
@@ -785,11 +841,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     }
 
     async function sendMessage() {
-        if (isUiInteractionLocked()) return;
         // 生成新的请求ID
         const currentRequestId = Date.now().toString();
         activeRequestId = currentRequestId;
-        let shouldRollbackUserMessage = false;
         let requestChatId = null;
         const isRequestChatVisible = () => Boolean(
             requestChatId && chatManager.getCurrentChat()?.id === requestChatId
@@ -828,9 +882,18 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 content: content
             };
 
-            const wasNewChat = chatManager.getCurrentChat()?.isNew;
+            const currentChatBeforeSend = chatManager.getCurrentChat();
+            const wasNewChat = currentChatBeforeSend?.isNew;
+            requestChatId = currentChatBeforeSend?.id || null;
+            if (!requestChatId) {
+                throw new Error('无法确定当前聊天 ID');
+            }
 
-            // 先添加用户消息到界面和历史记录
+            await claimLocalRequestProtection({
+                chatId: requestChatId,
+                requestId: currentRequestId
+            });
+
             await appendMessage({
                 text: userMessage,
                 sender: 'user',
@@ -842,17 +905,6 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
             // 清空输入框并调整高度
             clearMessageInput(messageInput, uiConfig);
-
-            // 构建消息数组
-            const currentChat = chatManager.getCurrentChat();
-            const messages = currentChat ? [...currentChat.messages] : [];  // 从chatManager获取消息历史
-            requestChatId = currentChat?.id || null;
-            messages.push(userMessage);
-
-            if (wasNewChat) {
-                const chatCards = chatListPage.querySelector('.chat-cards');
-                renderChatList(chatManager, chatCards);
-            }
 
             // 先基于当前活动标签页预判 YouTube 模式，保证等待气泡及时显示紫色样式
             let isCurrentTabYouTube = false;
@@ -868,16 +920,34 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
             // 先显示等待动画，再执行网页内容提取，避免 YouTube 字幕较长时无反馈
             // 僅首次提問顯示提取動畫，後續提問直接顯示等待動畫（字幕已快取）
+            const currentChat = chatManager.getChat(requestChatId);
             const isFirstMessage = !currentChat || currentChat.messages.length === 0;
+            let assistantPlaceholder = null;
             let youtubeExtractionMsg = null;
             if (isCurrentTabYouTube && isFirstMessage) {
                 youtubeExtractionMsg = createYouTubeExtractionMessage(chatContainer);
+                assistantPlaceholder = youtubeExtractionMsg;
             } else {
-                createWaitingMessage(chatContainer, {
+                assistantPlaceholder = createWaitingMessage(chatContainer, {
                     isYouTube: isCurrentTabYouTube,
                     isSearchUsed: webSearchMode === 'on'
                 });
             }
+
+            if (!assistantPlaceholder) {
+                throw new Error('无法建立等待状态');
+            }
+
+            // 等 waiting/assistant UI 建立後，再正式保存 user message。
+            await chatManager.addMessageToCurrentChat(userMessage, null);
+            const persistedChat = chatManager.getChat(requestChatId);
+            const messages = persistedChat ? [...persistedChat.messages] : [];
+
+            if (wasNewChat) {
+                const chatCards = chatListPage.querySelector('.chat-cards');
+                renderChatList(chatManager, chatCards);
+            }
+
             const webpageInfo = isExtensionEnvironment && sendWebpageSwitch.checked ? await getEnabledTabsContent() : null;
             // YouTube 提取完成後，過渡到三點等待動畫（帶拉伸動畫）
             if (youtubeExtractionMsg && youtubeExtractionMsg.parentNode) {
@@ -885,8 +955,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                     isSearchUsed: webSearchMode === 'on'
                 });
             }
-            shouldRollbackUserMessage = true;
-            await chatManager.addMessageToCurrentChat(userMessage, webpageInfo);
+            if (webpageInfo) {
+                await chatManager.addWebpageInfoToChat(requestChatId, webpageInfo);
+            }
 
             // 准备API调用参数
             // 当传送网页开启时，强制关闭 auto 模式（避免 tool_choice 冲突）
@@ -970,40 +1041,21 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                         skipHistory: true,
                     });
                 }
-                if (shouldRollbackUserMessage) {
-                    const requestChat = chatManager.getChat(requestChatId);
-                    const messages = requestChat?.messages || [];
-                    if (messages.length > 0) {
-                        const lastMsg = messages[messages.length - 1];
-                        if (lastMsg.role === 'assistant') {
-                            // 空回覆才 rollback 整個回合；有內容則保留部分回覆
-                            if (!lastMsg.content?.trim()) {
-                                await chatManager.popMessage(requestChatId); // 移除空的 assistant 訊息
-                                // 僅在不會清空對話的情況下才移除用戶訊息，
-                                // 保留用戶訊息讓「重新生成」功能能正確運作
-                                if (requestChat && requestChat.messages.length > 1) {
-                                    await chatManager.popMessage(requestChatId);
-                                }
-                            }
-                        } else {
-                            // 僅在不會清空對話的情況下才移除用戶訊息，
-                            // 保留用戶訊息讓「重新生成」功能能正確運作
-                            if (messages.length > 1) {
-                                await chatManager.popMessage(requestChatId);
-                            }
-                        }
-                    }
-
-                    // rollback 後若對話已無任何訊息，刪除整個對話並刷新歷史列表
-                    const chatAfterRollback = chatManager.getChat(requestChatId);
-                    if (chatAfterRollback && chatAfterRollback.messages.length === 0) {
-                        await chatManager.deleteChat(chatAfterRollback.id);
-                        const chatCards = chatListPage.querySelector('.chat-cards');
-                        renderChatList(chatManager, chatCards);
+                const requestChat = chatManager.getChat(requestChatId);
+                const messages = requestChat?.messages || [];
+                if (messages.length > 0) {
+                    const lastMsg = messages[messages.length - 1];
+                    const hasAssistantContent = Boolean(
+                        lastMsg?.content?.trim?.() ||
+                        lastMsg?.reasoning_content?.trim?.()
+                    );
+                    if (lastMsg?.role === 'assistant' && !hasAssistantContent) {
+                        await chatManager.popMessage(requestChatId);
                     }
                 }
             }
         } finally {
+            await releaseLocalRequestProtection({ requestId: currentRequestId });
             // 只有当仍然是当前活动的请求时才清理状态
             if (currentRequestId === activeRequestId && isRequestChatVisible()) {
                 cleanupActiveStreamingMessages(chatContainer);
@@ -2148,64 +2200,170 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     }
 
     // 监听标签页切换
-    async function syncCurrentChatView() {
-        await renderChatList(
-            chatManager,
-            chatListPage.querySelector('.chat-cards')
-        );
+    async function syncCurrentChatView(options = {}) {
+        const {
+            refreshChatList = true,
+            refreshCurrentChat = true
+        } = options;
+
+        if (refreshChatList) {
+            await renderChatList(
+                chatManager,
+                chatListPage.querySelector('.chat-cards')
+            );
+        }
 
         const currentChat = chatManager.getCurrentChat();
-        if (currentChat) {
-            await loadChatContent(currentChat, chatContainer);
-            toggleQuickChatOptions(!(currentChat.messages && currentChat.messages.length > 0));
-        } else {
-            chatContainer.innerHTML = '';
-            toggleQuickChatOptions(true);
+        if (refreshCurrentChat) {
+            if (currentChat) {
+                await loadChatContent(currentChat, chatContainer);
+                toggleQuickChatOptions(!(currentChat.messages && currentChat.messages.length > 0));
+            } else {
+                chatContainer.innerHTML = '';
+                toggleQuickChatOptions(true);
+            }
         }
 
         return currentChat;
     }
 
     let chatStorageSyncTimer = null;
-
-    const isCurrentUiStreamingOwner = () => {
-        const currentChatId = chatManager.getCurrentChat()?.id;
-        return Boolean(currentChatId && chatManager.isStreamOwner(currentChatId));
+    let pendingChatStorageSync = {
+        force: false,
+        refreshChatList: false,
+        refreshCurrentChat: false
     };
+    const ACTIVE_STREAM_IDLE_SYNC_DELAY_MS = 15000;
+    let deferredWebDAVSyncTimer = null;
+    let hasPendingDeferredWebDAVSync = false;
 
-    const syncChatStateFromStorage = async () => {
+    const syncChatStateFromStorage = async (options = {}) => {
         await chatManager.switchUiContext(browserAdapter.getViewContext());
-        await syncCurrentChatView();
-        refreshUiInteractionLock();
+        const syncOptions = { ...options };
+        if (!syncOptions.force && isCurrentChatSyncProtected()) {
+            syncOptions.refreshCurrentChat = false;
+        }
+        await syncCurrentChatView(syncOptions);
     };
 
-    const scheduleChatStorageSync = (delayMs = 150, { force = false } = {}) => {
+    const clearDeferredWebDAVSync = ({ keepPending = false } = {}) => {
+        if (deferredWebDAVSyncTimer) {
+            clearTimeout(deferredWebDAVSyncTimer);
+            deferredWebDAVSyncTimer = null;
+        }
+        if (!keepPending) {
+            hasPendingDeferredWebDAVSync = false;
+        }
+    };
+
+    const requestDeferredWebDAVSync = (delayMs = ACTIVE_STREAM_IDLE_SYNC_DELAY_MS) => {
+        hasPendingDeferredWebDAVSync = true;
+        scheduleDeferredWebDAVSync(delayMs);
+    };
+
+    const scheduleDeferredWebDAVSync = (delayMs = ACTIVE_STREAM_IDLE_SYNC_DELAY_MS) => {
+        if (!hasPendingDeferredWebDAVSync) {
+            return;
+        }
+
+        if (!webdavSyncManager.getConfig().enabled) {
+            clearDeferredWebDAVSync();
+            return;
+        }
+
+        clearDeferredWebDAVSync({ keepPending: true });
+        deferredWebDAVSyncTimer = setTimeout(async () => {
+            deferredWebDAVSyncTimer = null;
+
+            if (document.visibilityState !== 'visible') {
+                return;
+            }
+
+            if (chatManager.hasActiveStreams()) {
+                scheduleDeferredWebDAVSync(delayMs);
+                return;
+            }
+
+            try {
+                const syncResult = await performWebDAVSyncOnOpen({
+                    allowDeferral: false,
+                    keepDeferredState: true
+                });
+                if (syncResult.direction === 'busy' || syncResult.direction === 'deferred') {
+                    scheduleDeferredWebDAVSync(delayMs);
+                    return;
+                }
+                clearDeferredWebDAVSync();
+            } catch (error) {
+                clearDeferredWebDAVSync();
+                console.warn('延後執行 WebDAV 自動同步失敗:', error);
+            }
+        }, delayMs);
+    };
+
+    const handleActiveStreamsChanged = (snapshot) => {
+        if (!hasPendingDeferredWebDAVSync) {
+            return;
+        }
+
+        if (hasActiveStreamsInSnapshot(snapshot)) {
+            clearDeferredWebDAVSync({ keepPending: true });
+            return;
+        }
+
+        scheduleDeferredWebDAVSync(1000);
+    };
+
+    const scheduleChatStorageSync = (delayMs = 150, {
+        force = false,
+        refreshChatList = true,
+        refreshCurrentChat = true
+    } = {}) => {
         if (!force && chatManager.shouldIgnoreLocalChatSync()) {
             return;
         }
 
-        if (isCurrentUiStreamingOwner()) {
+        const protectCurrentChat = !force && isCurrentChatSyncProtected();
+        const nextRefreshCurrentChat = refreshCurrentChat && !protectCurrentChat;
+        const nextRefreshChatList = refreshChatList || refreshCurrentChat;
+
+        if (!nextRefreshChatList && !nextRefreshCurrentChat) {
             return;
         }
+
+        pendingChatStorageSync.force = pendingChatStorageSync.force || force;
+        pendingChatStorageSync.refreshCurrentChat = pendingChatStorageSync.refreshCurrentChat || nextRefreshCurrentChat;
+        pendingChatStorageSync.refreshChatList = pendingChatStorageSync.refreshChatList || nextRefreshChatList;
 
         clearTimeout(chatStorageSyncTimer);
         chatStorageSyncTimer = setTimeout(() => {
             chatStorageSyncTimer = null;
+            const syncRequest = { ...pendingChatStorageSync };
+            pendingChatStorageSync = {
+                force: false,
+                refreshChatList: false,
+                refreshCurrentChat: false
+            };
+
             if (document.visibilityState !== 'visible') {
                 return;
             }
 
             // 某些 session 變更會先排入同步，再接著發生本地 chat 寫入或 claim stream ownership。
             // 這裡再次檢查，避免延遲執行的 loadChatContent() 把僅存在 DOM 的 waiting bubble 洗掉。
-            if (!force && chatManager.shouldIgnoreLocalChatSync()) {
+            if (!syncRequest.force && chatManager.shouldIgnoreLocalChatSync()) {
                 return;
             }
 
-            if (isCurrentUiStreamingOwner()) {
+            if (!syncRequest.force && isCurrentChatSyncProtected()) {
+                syncRequest.refreshCurrentChat = false;
+            }
+
+            if (!syncRequest.refreshChatList && !syncRequest.refreshCurrentChat) {
                 return;
             }
 
-            syncChatStateFromStorage().catch((error) => {
+            syncChatStateFromStorage(syncRequest).catch((error) => {
                 console.warn('同步本地聊天状态失败:', error);
             });
         }, delayMs);
@@ -2233,7 +2391,6 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
             // 切換 side panel 綁定的 tab context，不做破壞性全量 re-init
             await chatManager.switchUiContext(nextContext);
-            refreshUiInteractionLock();
             const currentChat = await syncCurrentChatView();
 
             // 如果当前对话为空，则重置网页内容开关
@@ -2254,11 +2411,12 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
     if (isExtensionEnvironment && chrome.storage?.onChanged) {
         chrome.storage.onChanged.addListener((changes, areaName) => {
-            if (areaName === 'session') {
-                scheduleInteractionLockRefresh();
+            if (areaName === 'session' && Object.prototype.hasOwnProperty.call(changes, ACTIVE_STREAMS_BY_TAB_KEY)) {
+                handleActiveStreamsChanged(changes[ACTIVE_STREAMS_BY_TAB_KEY].newValue);
             }
 
-            if (!chatManager.isChatStorageChange(changes, areaName)) {
+            const chatSyncImpact = chatManager.getChatStorageSyncImpact(changes, areaName);
+            if (!chatSyncImpact.hasChatChange) {
                 return;
             }
 
@@ -2266,14 +2424,16 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 return;
             }
 
-            scheduleChatStorageSync();
+            scheduleChatStorageSync(150, {
+                refreshChatList: chatSyncImpact.affectsChatList || chatSyncImpact.affectsCurrentChat,
+                refreshCurrentChat: chatSyncImpact.affectsCurrentChat
+            });
         });
     }
 
     // 延遲 initialize 完成後刷新聊天列表 UI
     chatManager._onDeferredInitComplete = async () => {
         await syncCurrentChatView();
-        refreshUiInteractionLock();
     };
     // 保存配置到存储
     async function saveAPIConfigs(options = {}) {
@@ -2342,16 +2502,46 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     });
 
     // WebDAV 同步函數 - 當用戶通過 Alt+Z 開啟插件時調用
-    async function performWebDAVSyncOnOpen() {
-        const currentChat = chatManager.getCurrentChat();
-        await webdavSettingsController.performSyncOnOpen({
-            currentChatId: currentChat?.id
-        });
+    async function performWebDAVSyncOnOpen(options = {}) {
+        const {
+            allowDeferral = true,
+            keepDeferredState = false
+        } = options;
+        if (!webdavSyncManager.getConfig().enabled) {
+            if (!keepDeferredState) {
+                clearDeferredWebDAVSync();
+            }
+            return { synced: false, direction: null, result: null, error: null };
+        }
+
+        if (allowDeferral && chatManager.hasActiveStreams()) {
+            requestDeferredWebDAVSync();
+            return { synced: false, direction: 'deferred', result: null, error: null };
+        }
+
+        try {
+            const currentChat = chatManager.getCurrentChat();
+            const syncResult = await webdavSettingsController.performSyncOnOpen({
+                currentChatId: currentChat?.id
+            });
+            if (syncResult.direction === 'busy' || syncResult.direction === 'deferred') {
+                requestDeferredWebDAVSync();
+            } else if (!keepDeferredState) {
+                clearDeferredWebDAVSync();
+            }
+            return syncResult;
+        } catch (error) {
+            if (!keepDeferredState) {
+                clearDeferredWebDAVSync();
+            }
+            throw error;
+        }
     }
 
     // visibilitychange: 隱藏時先 flush，回到前台時再補一次本地聊天同步
     document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'hidden') {
+            clearDeferredWebDAVSync({ keepPending: true });
             // 頁面被隱藏時，立即寫入當前對話（防止串流中途丟失資料）
             const currentChatId = chatManager.getCurrentChat()?.id;
             if (currentChatId && chatManager.canFlushChat(currentChatId)) {
@@ -2360,8 +2550,10 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             return;
         }
 
-        scheduleChatStorageSync(0, { force: true });
-        scheduleInteractionLockRefresh();
+        scheduleChatStorageSync(0, { force: true, refreshChatList: true, refreshCurrentChat: true });
+        if (hasPendingDeferredWebDAVSync && !chatManager.hasActiveStreams()) {
+            scheduleDeferredWebDAVSync(1000);
+        }
     });
 
     // 僅在真正卸載時才委託 background service worker 執行關閉同步

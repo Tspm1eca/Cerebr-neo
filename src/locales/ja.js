@@ -38,12 +38,6 @@ export default {
         questionHistory: '質問履歴',
     },
 
-    streamLock: {
-        eyebrow: '別タブで応答中',
-        title: 'このウィンドウは一時的にロックされています',
-        description: '別のタブで LLM の応答待ち、または生成中です。タブ間でリクエストが干渉しないよう、その応答が終わるまでこのウィンドウでの操作はお待ちください。',
-    },
-
     // ===== Settings Menu =====
     settingsMenu: {
         sendWebpage: 'ウェブページを送信',
@@ -186,6 +180,7 @@ export default {
         clearAllWarning: 'この操作は元に戻せません。',
         allCleared: 'すべてのチャットを削除しました',
         clearFailed: 'チャットの削除に失敗しました: ',
+        deleteRefreshFailed: 'チャットは削除されましたが、画面の更新に失敗しました: ',
     },
 
     // ===== Modals =====
@@ -219,6 +214,8 @@ export default {
         remoteLoadFailed: 'リモートチャットの読み込みに失敗しました: {{error}}',
         notFound: 'チャットが見つかりません',
         noActiveChat: 'アクティブなチャットがありません',
+        activeStreamMutationBlocked: 'このチャットはまだ応答を生成中です。完了してから操作してください。',
+        activeStreamBatchMutationBlocked: 'まだ応答を生成中のチャットがあります。完了してから一括削除してください。',
         editCancel: 'キャンセル',
         editSave: '保存',
         editSaveAndResend: '保存して再送信',

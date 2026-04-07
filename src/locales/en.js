@@ -38,12 +38,6 @@ export default {
         questionHistory: 'Question History',
     },
 
-    streamLock: {
-        eyebrow: 'Cross-tab reply in progress',
-        title: 'This window is temporarily locked',
-        description: 'Another tab is waiting for the model or streaming a reply. To avoid cross-tab request interference, please wait for that reply to finish before using this window.',
-    },
-
     // ===== Settings Menu =====
     settingsMenu: {
         sendWebpage: 'Send Webpage',
@@ -186,6 +180,7 @@ export default {
         clearAllWarning: 'This action cannot be undone.',
         allCleared: 'All chats cleared',
         clearFailed: 'Failed to clear chats: ',
+        deleteRefreshFailed: 'Chat deleted, but refresh failed: ',
     },
 
     // ===== Modals =====
@@ -219,6 +214,8 @@ export default {
         remoteLoadFailed: 'Failed to load remote chat: {{error}}',
         notFound: 'Chat not found',
         noActiveChat: 'No active chat',
+        activeStreamMutationBlocked: 'This chat is still generating a reply. Please wait until it finishes before changing it.',
+        activeStreamBatchMutationBlocked: 'A chat is still generating a reply. Please wait until it finishes before clearing chats.',
         editCancel: 'Cancel',
         editSave: 'Save',
         editSaveAndResend: 'Save and resend',

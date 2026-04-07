@@ -514,24 +514,35 @@ export async function buildUploadMetadataPayload({
     let manifestApiSettings = undefined;
     let manifestApiSettingsEncrypted = false;
     let apiSettingsUpdatedAt = null;
+    const hasPendingApiSettingsChange = Boolean(normalizedState.apiSettings.modifiedAt);
 
     if (syncApiConfig && apiSettings !== undefined) {
-        manifestApiSettings = apiSettings;
-        apiSettingsUpdatedAt = normalizedState.apiSettings.modifiedAt ||
-            normalizedState.apiSettings.lastSyncedAt ||
-            previousManifest?.apiSettingsUpdatedAt ||
-            previousManifest?.timestamp ||
-            now;
+        const shouldWriteLocalApiSettings = hasPendingApiSettingsChange || previousManifest?.apiSettings === undefined;
+        if (shouldWriteLocalApiSettings) {
+            manifestApiSettings = apiSettings;
+            apiSettingsUpdatedAt = normalizedState.apiSettings.modifiedAt ||
+                normalizedState.apiSettings.lastSyncedAt ||
+                previousManifest?.apiSettingsUpdatedAt ||
+                previousManifest?.timestamp ||
+                now;
 
-        if (encryptApiKeys) {
-            if (!encryptionPassword) {
-                throw new Error(t('webdav.encryptionPasswordMissing'));
+            if (encryptApiKeys) {
+                if (!encryptionPassword) {
+                    throw new Error(t('webdav.encryptionPasswordMissing'));
+                }
+                if (typeof encryptValue !== 'function') {
+                    throw new Error('WebDAV upload metadata encryption is unavailable');
+                }
+                manifestApiSettings = await encryptValue(apiSettings, encryptionPassword);
+                manifestApiSettingsEncrypted = true;
             }
-            if (typeof encryptValue !== 'function') {
-                throw new Error('WebDAV upload metadata encryption is unavailable');
-            }
-            manifestApiSettings = await encryptValue(apiSettings, encryptionPassword);
-            manifestApiSettingsEncrypted = true;
+        } else if (previousManifest?.apiSettings !== undefined) {
+            manifestApiSettings = previousManifest.apiSettings;
+            manifestApiSettingsEncrypted = Boolean(previousManifest.apiSettingsEncrypted);
+            apiSettingsUpdatedAt = previousManifest.apiSettingsUpdatedAt ||
+                previousManifest.timestamp ||
+                normalizedState.apiSettings.lastSyncedAt ||
+                now;
         }
     }
 
@@ -1087,6 +1098,10 @@ export async function performStorageBackedCloseSyncUpload({
 
     const cachedManifest = localSnapshot[WEBDAV_CACHED_MANIFEST_KEY];
     const metadataSyncState = normalizeMetadataSyncState(localSnapshot[WEBDAV_METADATA_SYNC_STATE_KEY]);
+    const hasPendingMetadataChanges = Boolean(
+        metadataSyncState.quickChatOptions.modifiedAt ||
+        metadataSyncState.apiSettings.modifiedAt
+    );
     const hashTable = new Map(Object.entries(localSnapshot[WEBDAV_LOCAL_CHAT_HASHES_KEY] || {}));
     const storedChatIndex = Array.isArray(localSnapshot[CHAT_INDEX_KEY])
         ? localSnapshot[CHAT_INDEX_KEY]
@@ -1168,7 +1183,7 @@ export async function performStorageBackedCloseSyncUpload({
         return { skipped: true, reason: 'no-changes' };
     }
 
-    if (noChanges) {
+    if (noChanges && !hasPendingMetadataChanges) {
         const currentDirtyResult = await localStorageArea.get(DIRTY_CHAT_IDS_KEY);
         const currentDirty = Array.isArray(currentDirtyResult[DIRTY_CHAT_IDS_KEY])
             ? currentDirtyResult[DIRTY_CHAT_IDS_KEY]

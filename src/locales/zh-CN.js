@@ -38,12 +38,6 @@ export default {
         questionHistory: '提问记录',
     },
 
-    streamLock: {
-        eyebrow: '跨分页回复进行中',
-        title: '此窗口暂时锁定',
-        description: '另一个分页正在等待 LLM 回复或正在生成内容。为避免跨分页请求互相干扰，请等待该回复完成后再回到这个窗口操作。',
-    },
-
     // ===== 设置菜单 =====
     settingsMenu: {
         sendWebpage: '传送网页',
@@ -186,6 +180,7 @@ export default {
         clearAllWarning: '此操作无法撤销。',
         allCleared: '所有对话已清除',
         clearFailed: '清除对话失败: ',
+        deleteRefreshFailed: '对话已删除，但界面刷新失败: ',
     },
 
     // ===== 模态框 =====
@@ -219,6 +214,8 @@ export default {
         remoteLoadFailed: '加载远端对话失败: {{error}}',
         notFound: '对话不存在',
         noActiveChat: '当前没有活动的对话',
+        activeStreamMutationBlocked: '此对话仍在生成回复，请等待完成后再操作。',
+        activeStreamBatchMutationBlocked: '仍有对话正在生成回复，请等待完成后再清空。',
         editCancel: '取消',
         editSave: '保存',
         editSaveAndResend: '保存并重新发送',

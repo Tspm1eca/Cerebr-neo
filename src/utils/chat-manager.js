@@ -2,12 +2,20 @@ import { storageAdapter, sessionStorageAdapter, isExtensionEnvironment } from '.
 import { generateTitle } from '../services/title-generator.js';
 import { HISTORY_LIMIT_THRESHOLD } from '../constants/history.js';
 import { t } from './i18n.js';
+import {
+    ACTIVE_STREAM_HEARTBEAT_INTERVAL_MS,
+    ACTIVE_STREAMS_BY_TAB_KEY,
+    createActiveStreamRecord,
+    normalizeActiveStreamsSnapshot,
+    pruneStoredActiveStreams,
+    touchActiveStreamRecord
+} from './active-streams.js';
 
 export const CHAT_KEY_PREFIX = 'cerebr_chat_'; // Per-chat key 前綴
 export const CHAT_INDEX_KEY = 'cerebr_chat_index'; // 輕量索引
 export const CURRENT_CHAT_BY_TAB_KEY = 'cerebr_current_chat_by_tab';
+export { ACTIVE_STREAMS_BY_TAB_KEY };
 const DIRTY_CHAT_IDS_KEY = 'cerebr_dirty_chat_ids';
-const ACTIVE_STREAMS_BY_TAB_KEY = 'cerebr_active_stream_by_tab';
 const GLOBAL_CHAT_SCOPE = '__global__';
 const LOCAL_CHAT_SYNC_IGNORE_WINDOW_MS = 1200;
 
@@ -29,6 +37,8 @@ export class ChatManager {
         this._onDeferredInitComplete = null; // 延遲 initialize 完成後的回調
         this._activeStreamsByTab = new Map();
         this._ownedStream = null;
+        this._ownedStreamHeartbeatTimer = null;
+        this._chatMutationInterrupter = null;
         this._initialized = false;
         this._lastLocalChatMutationAt = 0;
         this.uiContext = {
@@ -70,27 +80,85 @@ export class ChatManager {
         await this.storage.remove(keys);
     }
 
-    isChatStorageChange(changes, areaName) {
-        if (!changes || typeof changes !== 'object') {
+    shouldIgnoreLocalChatSync(graceMs = LOCAL_CHAT_SYNC_IGNORE_WINDOW_MS) {
+        return Date.now() - this._lastLocalChatMutationAt < graceMs;
+    }
+
+    _findIndexEntry(indexValue, chatId) {
+        if (!Array.isArray(indexValue) || !chatId) {
+            return null;
+        }
+        return indexValue.find((entry) => entry?.id === chatId) || null;
+    }
+
+    _didIndexEntryChangeForChat(oldIndex, newIndex, chatId) {
+        if (!chatId) {
             return false;
         }
 
-        if (areaName === 'local') {
-            return Object.keys(changes).some((key) =>
-                key === CHAT_INDEX_KEY ||
-                key.startsWith(CHAT_KEY_PREFIX)
-            );
-        }
-
-        if (areaName === 'session') {
-            return Object.prototype.hasOwnProperty.call(changes, CURRENT_CHAT_BY_TAB_KEY);
-        }
-
-        return false;
+        const previousEntry = this._findIndexEntry(oldIndex, chatId);
+        const nextEntry = this._findIndexEntry(newIndex, chatId);
+        return JSON.stringify(previousEntry || null) !== JSON.stringify(nextEntry || null);
     }
 
-    shouldIgnoreLocalChatSync(graceMs = LOCAL_CHAT_SYNC_IGNORE_WINDOW_MS) {
-        return Date.now() - this._lastLocalChatMutationAt < graceMs;
+    getChatStorageSyncImpact(changes, areaName, {
+        tabId = this.uiContext.tabId,
+        currentChatId = this.currentChatId
+    } = {}) {
+        const impact = {
+            hasChatChange: false,
+            affectsChatList: false,
+            affectsCurrentChat: false
+        };
+
+        if (!changes || typeof changes !== 'object') {
+            return impact;
+        }
+
+        if (areaName === 'local') {
+            const changedKeys = Object.keys(changes);
+            const hasChatStorageChange = changedKeys.some((key) =>
+                key === CHAT_INDEX_KEY || key.startsWith(CHAT_KEY_PREFIX)
+            );
+
+            if (!hasChatStorageChange) {
+                return impact;
+            }
+
+            impact.hasChatChange = true;
+            impact.affectsChatList = changedKeys.includes(CHAT_INDEX_KEY);
+
+            if (currentChatId) {
+                const currentChatKey = this._chatKey(currentChatId);
+                if (Object.prototype.hasOwnProperty.call(changes, currentChatKey)) {
+                    impact.affectsCurrentChat = true;
+                } else if (changes[CHAT_INDEX_KEY]) {
+                    impact.affectsCurrentChat = this._didIndexEntryChangeForChat(
+                        changes[CHAT_INDEX_KEY].oldValue,
+                        changes[CHAT_INDEX_KEY].newValue,
+                        currentChatId
+                    );
+                }
+            } else {
+                impact.affectsCurrentChat = impact.affectsChatList;
+            }
+
+            return impact;
+        }
+
+        if (areaName === 'session' && Object.prototype.hasOwnProperty.call(changes, CURRENT_CHAT_BY_TAB_KEY)) {
+            const scopeKey = this._getChatScopeKey(tabId);
+            const previousMappings = changes[CURRENT_CHAT_BY_TAB_KEY].oldValue || {};
+            const nextMappings = changes[CURRENT_CHAT_BY_TAB_KEY].newValue || {};
+
+            if ((previousMappings?.[scopeKey] || null) !== (nextMappings?.[scopeKey] || null)) {
+                impact.hasChatChange = true;
+                impact.affectsChatList = true;
+                impact.affectsCurrentChat = true;
+            }
+        }
+
+        return impact;
     }
 
     /**
@@ -120,23 +188,6 @@ export class ChatManager {
     }
 
     /**
-     * 增量更新索引中的單一條目（O(1) 查找 + 更新）
-     * @param {string} chatId - 要更新的聊天 ID
-     */
-    _updateIndexEntry(chatId) {
-        const chat = this.chats.get(chatId);
-        if (!chat || chat.isNew) return;
-
-        const entry = this._buildIndexEntry(chat);
-        const idx = this._chatIndex.findIndex(e => e.id === chatId);
-        if (idx !== -1) {
-            this._chatIndex[idx] = entry;
-        } else {
-            this._chatIndex.push(entry);
-        }
-    }
-
-    /**
      * 從索引中移除指定的條目
      * @param {string} chatId - 要移除的聊天 ID
      */
@@ -159,17 +210,150 @@ export class ChatManager {
         return Number.isInteger(tabId) ? String(tabId) : GLOBAL_CHAT_SCOPE;
     }
 
+    _sortChatIndexEntries(indexEntries = []) {
+        return [...indexEntries].sort((a, b) =>
+            new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+        );
+    }
+
+    _normalizeChatIndex(indexValue) {
+        if (!Array.isArray(indexValue)) {
+            return [];
+        }
+
+        const seen = new Set();
+        const normalized = [];
+        for (const entry of indexValue) {
+            if (!entry?.id || seen.has(entry.id)) {
+                continue;
+            }
+            seen.add(entry.id);
+            normalized.push({
+                ...entry,
+                webpageUrls: Array.isArray(entry.webpageUrls) ? entry.webpageUrls : [],
+                messageCount: Number.isFinite(entry.messageCount) ? entry.messageCount : 0
+            });
+        }
+
+        return this._sortChatIndexEntries(normalized);
+    }
+
+    _upsertIndexEntries(indexEntries, entriesToUpsert = []) {
+        if (!Array.isArray(indexEntries) || !Array.isArray(entriesToUpsert)) {
+            return false;
+        }
+
+        let changed = false;
+        entriesToUpsert.forEach((entry) => {
+            if (!entry?.id) {
+                return;
+            }
+            const index = indexEntries.findIndex((item) => item?.id === entry.id);
+            if (index === -1) {
+                indexEntries.push(entry);
+                changed = true;
+                return;
+            }
+
+            if (JSON.stringify(indexEntries[index]) !== JSON.stringify(entry)) {
+                indexEntries[index] = entry;
+                changed = true;
+            }
+        });
+
+        return changed;
+    }
+
+    _removeIndexEntries(indexEntries, chatIds = []) {
+        if (!Array.isArray(indexEntries) || !Array.isArray(chatIds) || chatIds.length === 0) {
+            return false;
+        }
+
+        const idsToRemove = new Set(chatIds.filter(Boolean));
+        const initialLength = indexEntries.length;
+        for (let i = indexEntries.length - 1; i >= 0; i--) {
+            if (idsToRemove.has(indexEntries[i]?.id)) {
+                indexEntries.splice(i, 1);
+            }
+        }
+
+        return indexEntries.length !== initialLength;
+    }
+
+    async _updateCurrentChatMappings(mutator) {
+        const result = await this.sessionStorage.get(CURRENT_CHAT_BY_TAB_KEY);
+        const nextMappings = result[CURRENT_CHAT_BY_TAB_KEY] && typeof result[CURRENT_CHAT_BY_TAB_KEY] === 'object'
+            ? { ...result[CURRENT_CHAT_BY_TAB_KEY] }
+            : {};
+        const changed = mutator(nextMappings) === true;
+        this.currentChatByTab = nextMappings;
+        if (changed) {
+            await this.sessionStorage.set({
+                [CURRENT_CHAT_BY_TAB_KEY]: nextMappings
+            });
+        }
+        return nextMappings;
+    }
+
+    async _updateActiveStreams(mutator) {
+        const result = await this.sessionStorage.get(ACTIVE_STREAMS_BY_TAB_KEY);
+        const nextSnapshot = result[ACTIVE_STREAMS_BY_TAB_KEY] && typeof result[ACTIVE_STREAMS_BY_TAB_KEY] === 'object'
+            ? { ...result[ACTIVE_STREAMS_BY_TAB_KEY] }
+            : {};
+        const changed = mutator(nextSnapshot) === true;
+        if (changed) {
+            await this.sessionStorage.set({
+                [ACTIVE_STREAMS_BY_TAB_KEY]: nextSnapshot
+            });
+        }
+        this._applyActiveStreamsSnapshot(nextSnapshot);
+        return nextSnapshot;
+    }
+
+    async _commitChatStorage({
+        upsertChats = [],
+        removeChatIds = [],
+        upsertIndexEntries = [],
+        removeIndexIds = [],
+        replaceIndex = null
+    } = {}) {
+        let nextIndex;
+        if (Array.isArray(replaceIndex)) {
+            nextIndex = this._normalizeChatIndex(replaceIndex);
+        } else {
+            const result = await this.storage.get(CHAT_INDEX_KEY);
+            nextIndex = this._normalizeChatIndex(result[CHAT_INDEX_KEY]);
+            this._removeIndexEntries(nextIndex, removeIndexIds);
+            this._upsertIndexEntries(nextIndex, upsertIndexEntries);
+            nextIndex = this._sortChatIndexEntries(nextIndex);
+        }
+
+        const dataToWrite = {
+            [CHAT_INDEX_KEY]: nextIndex
+        };
+        upsertChats.forEach((chat) => {
+            if (!chat?.id) {
+                return;
+            }
+            dataToWrite[this._chatKey(chat.id)] = chat;
+        });
+
+        await this._setChatStorage(dataToWrite);
+
+        const uniqueRemoveIds = [...new Set(removeChatIds.filter(Boolean))];
+        if (uniqueRemoveIds.length > 0) {
+            await this._removeChatStorage(uniqueRemoveIds.map((chatId) => this._chatKey(chatId)));
+        }
+
+        this._chatIndex = nextIndex;
+        return nextIndex;
+    }
+
     async _loadCurrentChatMappings() {
         const result = await this.sessionStorage.get(CURRENT_CHAT_BY_TAB_KEY);
         this.currentChatByTab = result[CURRENT_CHAT_BY_TAB_KEY] && typeof result[CURRENT_CHAT_BY_TAB_KEY] === 'object'
             ? { ...result[CURRENT_CHAT_BY_TAB_KEY] }
             : {};
-    }
-
-    async _persistCurrentChatMappings() {
-        await this.sessionStorage.set({
-            [CURRENT_CHAT_BY_TAB_KEY]: this.currentChatByTab
-        });
     }
 
     _setTransientChatForScope(scopeKey, chatId = null) {
@@ -201,12 +385,9 @@ export class ChatManager {
     }
 
     _removeChatFromScopeMappings(chatId) {
-        let sessionChanged = false;
-
         Object.keys(this.currentChatByTab).forEach((scopeKey) => {
             if (this.currentChatByTab[scopeKey] === chatId) {
                 delete this.currentChatByTab[scopeKey];
-                sessionChanged = true;
             }
         });
 
@@ -215,8 +396,6 @@ export class ChatManager {
                 delete this._transientChatByScope[scopeKey];
             }
         });
-
-        return sessionChanged;
     }
 
     async bindChatToCurrentContext(chatId = this.currentChatId, scopeKey = this._getChatScopeKey()) {
@@ -225,9 +404,14 @@ export class ChatManager {
         }
 
         this.currentChatId = chatId;
-        this.currentChatByTab[scopeKey] = chatId;
         this._setTransientChatForScope(scopeKey, null);
-        await this._persistCurrentChatMappings();
+        await this._updateCurrentChatMappings((nextMappings) => {
+            if (nextMappings[scopeKey] === chatId) {
+                return false;
+            }
+            nextMappings[scopeKey] = chatId;
+            return true;
+        });
         return this.chats.get(chatId);
     }
 
@@ -242,8 +426,13 @@ export class ChatManager {
         }
 
         if (scopedChatId) {
-            delete this.currentChatByTab[scopeKey];
-            await this._persistCurrentChatMappings();
+            await this._updateCurrentChatMappings((nextMappings) => {
+                if (nextMappings[scopeKey] !== scopedChatId) {
+                    return false;
+                }
+                delete nextMappings[scopeKey];
+                return true;
+            });
         }
 
         const transientChat = this._getTransientChatForScope(scopeKey);
@@ -259,20 +448,22 @@ export class ChatManager {
     }
 
     _applyActiveStreamsSnapshot(snapshot) {
-        this._activeStreamsByTab = new Map(Object.entries(snapshot || {}));
+        const normalized = normalizeActiveStreamsSnapshot(snapshot).snapshot;
+        this._activeStreamsByTab = new Map(Object.entries(normalized));
     }
 
-    _getActiveStreamsSnapshot() {
-        return Object.fromEntries(this._activeStreamsByTab);
+    _pruneActiveStreamsInMemory() {
+        this._applyActiveStreamsSnapshot(Object.fromEntries(this._activeStreamsByTab));
     }
 
     async _loadActiveStreamsFromSession() {
-        const result = await this.sessionStorage.get(ACTIVE_STREAMS_BY_TAB_KEY);
-        this._applyActiveStreamsSnapshot(result[ACTIVE_STREAMS_BY_TAB_KEY]);
+        const snapshot = await pruneStoredActiveStreams(this.sessionStorage);
+        this._applyActiveStreamsSnapshot(snapshot);
     }
 
     _findActiveStreamByChatId(chatId) {
         if (!chatId) return null;
+        this._pruneActiveStreamsInMemory();
         for (const stream of this._activeStreamsByTab.values()) {
             if (stream?.chatId === chatId) {
                 return stream;
@@ -282,32 +473,77 @@ export class ChatManager {
     }
 
     getActiveStreams() {
+        this._pruneActiveStreamsInMemory();
         return Array.from(this._activeStreamsByTab.values()).filter((stream) => Boolean(stream?.requestId));
     }
 
-    getConflictingActiveStream({ tabId = this.uiContext.tabId } = {}) {
-        const currentScopeKey = this._getChatScopeKey(tabId);
-        const currentScopeStream = this._activeStreamsByTab.get(currentScopeKey);
-
-        if (currentScopeStream?.requestId) {
-            return null;
-        }
-
-        for (const [scopeKey, streamRecord] of this._activeStreamsByTab.entries()) {
-            if (!streamRecord?.requestId) {
-                continue;
-            }
-            if (scopeKey === currentScopeKey) {
-                continue;
-            }
-            return streamRecord;
-        }
-
-        return null;
+    hasActiveStreams() {
+        return this.getActiveStreams().length > 0;
     }
 
-    hasConflictingActiveStream(options = {}) {
-        return Boolean(this.getConflictingActiveStream(options));
+    getActiveStreamForChat(chatId) {
+        return this._findActiveStreamByChatId(chatId);
+    }
+
+    hasActiveStreamForChat(chatId) {
+        return Boolean(this.getActiveStreamForChat(chatId));
+    }
+
+    async _ensureChatMutationAllowed(chatId, errorMessageKey = 'chat.activeStreamMutationBlocked') {
+        if (!chatId) {
+            return;
+        }
+
+        let activeStream = this.getActiveStreamForChat(chatId);
+        if (
+            activeStream &&
+            activeStream.ownerContextId === this.uiContext.contextId &&
+            typeof this._chatMutationInterrupter === 'function'
+        ) {
+            await this._chatMutationInterrupter({ chatId, activeStream, errorMessageKey });
+            activeStream = this.getActiveStreamForChat(chatId);
+        }
+
+        if (activeStream) {
+            throw new Error(t(errorMessageKey));
+        }
+    }
+
+    async _ensureBatchChatMutationAllowed(chatIds = [], errorMessageKey = 'chat.activeStreamBatchMutationBlocked') {
+        const uniqueChatIds = Array.from(new Set((Array.isArray(chatIds) ? chatIds : []).filter(Boolean)));
+
+        for (const chatId of uniqueChatIds) {
+            const activeStream = this.getActiveStreamForChat(chatId);
+            if (
+                activeStream &&
+                activeStream.ownerContextId === this.uiContext.contextId &&
+                typeof this._chatMutationInterrupter === 'function'
+            ) {
+                await this._chatMutationInterrupter({ chatId, activeStream, errorMessageKey });
+            }
+        }
+
+        const blockingChatIds = uniqueChatIds
+            .filter((chatId) => this.hasActiveStreamForChat(chatId));
+        if (blockingChatIds.length > 0) {
+            throw new Error(t(errorMessageKey));
+        }
+    }
+
+    _stopOwnedStreamHeartbeat() {
+        if (this._ownedStreamHeartbeatTimer) {
+            clearInterval(this._ownedStreamHeartbeatTimer);
+            this._ownedStreamHeartbeatTimer = null;
+        }
+    }
+
+    _startOwnedStreamHeartbeat(requestId) {
+        this._stopOwnedStreamHeartbeat();
+        this._ownedStreamHeartbeatTimer = setInterval(() => {
+            this.refreshStreamOwnership({ requestId }).catch((error) => {
+                console.warn('[ChatManager] 刷新 stream ownership 心跳失败:', error);
+            });
+        }, ACTIVE_STREAM_HEARTBEAT_INTERVAL_MS);
     }
 
     canFlushChat(chatId) {
@@ -324,21 +560,52 @@ export class ChatManager {
         if (!chatId || !requestId) return null;
 
         const scopeKey = this._getChatScopeKey(tabId);
-        const streamRecord = {
+        const streamRecord = createActiveStreamRecord({
             requestId,
             chatId,
-            tabId: Number.isInteger(tabId) ? tabId : null,
+            tabId,
             ownerContextId: this.uiContext.contextId,
             uiType: this.uiContext.uiType
-        };
-
-        this._activeStreamsByTab.set(scopeKey, streamRecord);
-        this._ownedStream = streamRecord;
-        await this.sessionStorage.set({
-            [ACTIVE_STREAMS_BY_TAB_KEY]: this._getActiveStreamsSnapshot()
         });
+
+        await this._updateActiveStreams((nextSnapshot) => {
+            if (JSON.stringify(nextSnapshot[scopeKey] || null) === JSON.stringify(streamRecord)) {
+                return false;
+            }
+            nextSnapshot[scopeKey] = streamRecord;
+            return true;
+        });
+        this._ownedStream = streamRecord;
+        this._startOwnedStreamHeartbeat(requestId);
         this.setStreamingChatId(chatId);
         return streamRecord;
+    }
+
+    async refreshStreamOwnership({ requestId = this._ownedStream?.requestId } = {}) {
+        if (!requestId || this._ownedStream?.requestId !== requestId) {
+            return null;
+        }
+
+        let nextRecord = null;
+        await this._updateActiveStreams((nextSnapshot) => {
+            for (const [scopeKey, activeStream] of Object.entries(nextSnapshot)) {
+                if (
+                    activeStream &&
+                    activeStream.requestId === requestId &&
+                    activeStream.ownerContextId === this.uiContext.contextId
+                ) {
+                    nextRecord = touchActiveStreamRecord(activeStream);
+                    nextSnapshot[scopeKey] = nextRecord;
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        if (nextRecord) {
+            this._ownedStream = nextRecord;
+        }
+        return nextRecord;
     }
 
     async releaseStreamOwnership({ requestId = this._ownedStream?.requestId } = {}) {
@@ -346,26 +613,22 @@ export class ChatManager {
             return;
         }
 
-        let streamRemoved = false;
-        for (const [scopeKey, activeStream] of this._activeStreamsByTab.entries()) {
-            if (
-                activeStream &&
-                activeStream.requestId === requestId &&
-                activeStream.ownerContextId === this.uiContext.contextId
-            ) {
-                this._activeStreamsByTab.delete(scopeKey);
-                streamRemoved = true;
-                break;
+        await this._updateActiveStreams((nextSnapshot) => {
+            for (const [scopeKey, activeStream] of Object.entries(nextSnapshot)) {
+                if (
+                    activeStream &&
+                    activeStream.requestId === requestId &&
+                    activeStream.ownerContextId === this.uiContext.contextId
+                ) {
+                    delete nextSnapshot[scopeKey];
+                    return true;
+                }
             }
-        }
-
-        if (streamRemoved) {
-            await this.sessionStorage.set({
-                [ACTIVE_STREAMS_BY_TAB_KEY]: this._getActiveStreamsSnapshot()
-            });
-        }
+            return false;
+        });
 
         if (this._ownedStream?.requestId === requestId) {
+            this._stopOwnedStreamHeartbeat();
             this._ownedStream = null;
             this.setStreamingChatId(null);
         }
@@ -379,6 +642,10 @@ export class ChatManager {
      */
     setOnDemandLoader(loader) {
         this.onDemandLoader = loader;
+    }
+
+    setChatMutationInterrupter(interrupter) {
+        this._chatMutationInterrupter = typeof interrupter === 'function' ? interrupter : null;
     }
 
     /**
@@ -416,6 +683,16 @@ export class ChatManager {
             this._dirtyChatIds.clear();
         }
         this.storage.set({ [DIRTY_CHAT_IDS_KEY]: [...this._dirtyChatIds] }).catch(() => {});
+    }
+
+    async _loadDirtyChatIdsFromStorage() {
+        try {
+            const dirtyResult = await this.storage.get(DIRTY_CHAT_IDS_KEY);
+            const savedDirty = dirtyResult[DIRTY_CHAT_IDS_KEY];
+            this._dirtyChatIds = Array.isArray(savedDirty) ? new Set(savedDirty) : new Set();
+        } catch {
+            this._dirtyChatIds = new Set();
+        }
     }
 
     setApiConfig(config) {
@@ -463,16 +740,8 @@ export class ChatManager {
         await this._ensureCurrentChatForContext();
         await this._loadActiveStreamsFromSession();
 
-        // 載入持久化的 dirty flags（處理擴充套件重啟）
-        try {
-            const dirtyResult = await this.storage.get(DIRTY_CHAT_IDS_KEY);
-            const savedDirty = dirtyResult[DIRTY_CHAT_IDS_KEY];
-            if (Array.isArray(savedDirty)) {
-                this._dirtyChatIds = new Set(savedDirty);
-            }
-        } catch {
-            // 載入失敗不影響正常運作
-        }
+        // 載入持久化的 dirty flags（處理擴充套件重啟與跨分頁更新）
+        await this._loadDirtyChatIdsFromStorage();
 
         this._initialized = true;
     }
@@ -552,6 +821,7 @@ export class ChatManager {
 
         await this._refreshChatsFromStorage();
         await this._ensureCurrentChatForContext();
+        await this._loadDirtyChatIdsFromStorage();
         return this.getCurrentChat();
     }
 
@@ -610,11 +880,10 @@ export class ChatManager {
         if (!chat || chat.isNew) return;
         if (!this.canFlushChat(chatId)) return;
 
-        this._updateIndexEntry(chatId);
         try {
-            await this._setChatStorage({
-                [this._chatKey(chatId)]: chat,
-                [CHAT_INDEX_KEY]: this._chatIndex
+            await this._commitChatStorage({
+                upsertChats: [chat],
+                upsertIndexEntries: [this._buildIndexEntry(chat)]
             });
         } catch (error) {
             console.error(`儲存聊天 ${chatId} 失敗:`, error);
@@ -692,10 +961,10 @@ export class ChatManager {
 
         this.chats.clear();
 
-        const dataToWrite = {};
+        const chatsToWrite = [];
         const indexEntries = [];
         const newChatIds = new Set();
-        const keysToRemove = new Set();
+        const chatIdsToRemove = new Set();
         const writeAll = !dirtyIds;
 
         for (const chat of chatsArray) {
@@ -703,28 +972,26 @@ export class ChatManager {
             newChatIds.add(chat.id);
             if (!chat.isNew) {
                 if (chat._remoteOnly) {
-                    keysToRemove.add(this._chatKey(chat.id));
+                    chatIdsToRemove.add(chat.id);
                 } else if (writeAll || dirtyIds.has(chat.id)) {
-                    dataToWrite[this._chatKey(chat.id)] = chat;
+                    chatsToWrite.push(chat);
                 }
                 indexEntries.push(this._buildIndexEntry(chat));
             }
         }
-        dataToWrite[CHAT_INDEX_KEY] = indexEntries;
-        this._chatIndex = indexEntries;
-
-        // 寫入新資料
-        await this._setChatStorage(dataToWrite);
 
         // 清理孤兒 keys（舊的 chat 不在新列表中）
         for (const oldId of oldChatIds) {
             if (!newChatIds.has(oldId)) {
-                keysToRemove.add(this._chatKey(oldId));
+                chatIdsToRemove.add(oldId);
             }
         }
-        if (keysToRemove.size > 0) {
-            await this._removeChatStorage([...keysToRemove]);
-        }
+
+        await this._commitChatStorage({
+            replaceIndex: indexEntries,
+            upsertChats: chatsToWrite,
+            removeChatIds: [...chatIdsToRemove]
+        });
     }
 
     // ==================== CRUD 操作 ====================
@@ -800,21 +1067,29 @@ export class ChatManager {
         if (!this.chats.has(chatId)) {
             throw new Error(t('chat.notFound'));
         }
+        await this._ensureChatMutationAllowed(chatId);
         this.chats.delete(chatId);
         this._removeIndexEntry(chatId);
-        const sessionChanged = this._removeChatFromScopeMappings(chatId);
+        this._removeChatFromScopeMappings(chatId);
 
         // 更新索引並移除 per-chat key
         const pendingWrites = [
-            this._setChatStorage({
-                [CHAT_INDEX_KEY]: this._chatIndex
+            this._commitChatStorage({
+                removeChatIds: [chatId],
+                removeIndexIds: [chatId]
             })
         ];
-        if (sessionChanged) {
-            pendingWrites.push(this._persistCurrentChatMappings());
-        }
+        pendingWrites.push(this._updateCurrentChatMappings((nextMappings) => {
+            let changed = false;
+            Object.keys(nextMappings).forEach((scopeKey) => {
+                if (nextMappings[scopeKey] === chatId) {
+                    delete nextMappings[scopeKey];
+                    changed = true;
+                }
+            });
+            return changed;
+        }));
         await Promise.all(pendingWrites);
-        this._removeChatStorage(this._chatKey(chatId)).catch(() => {});
 
         // 通知 WebDAV 同步記錄刪除
         document.dispatchEvent(new CustomEvent('chat-deleted', { detail: { chatId } }));
@@ -878,13 +1153,18 @@ export class ChatManager {
 
         if (chatCount > limit) {
             const excessCount = chatCount - limit;
-            // getAllChats 返回的是按創建時間降序排列的，所以最舊的在最後
-            const chatsToDelete = allChats.slice(-excessCount);
+            const activeStreamChatIds = new Set(
+                this.getActiveStreams()
+                    .map((stream) => stream?.chatId)
+                    .filter(Boolean)
+            );
 
             const deletedIds = [];
-            for (const chat of chatsToDelete) {
-                // 不刪除當前正在使用的對話
-                if (chat.id !== this.currentChatId) {
+            // getAllChats 返回的是由新到舊排序，因此從尾端開始找最舊且可刪的聊天。
+            for (let index = allChats.length - 1; index >= 0 && deletedIds.length < excessCount; index -= 1) {
+                const chat = allChats[index];
+                // 不刪除當前正在使用或仍在生成回覆的對話
+                if (chat.id !== this.currentChatId && !activeStreamChatIds.has(chat.id)) {
                     this.chats.delete(chat.id);
                     this._removeIndexEntry(chat.id);
                     deletedIds.push(chat.id);
@@ -892,9 +1172,8 @@ export class ChatManager {
             }
 
             if (deletedIds.length > 0) {
-                let sessionChanged = false;
                 deletedIds.forEach((id) => {
-                    sessionChanged = sessionChanged || this._removeChatFromScopeMappings(id);
+                    this._removeChatFromScopeMappings(id);
                 });
 
                 // 清理 dirty flags，避免 WebDAV 同步嘗試同步已刪除的聊天
@@ -905,15 +1184,23 @@ export class ChatManager {
                     document.dispatchEvent(new CustomEvent('chat-deleted', { detail: { chatId: id } }));
                 }
 
-                const keysToRemove = deletedIds.map(id => this._chatKey(id));
                 const pendingWrites = [
-                    this._setChatStorage({ [CHAT_INDEX_KEY]: this._chatIndex })
+                    this._commitChatStorage({
+                        removeChatIds: deletedIds,
+                        removeIndexIds: deletedIds
+                    })
                 ];
-                if (sessionChanged) {
-                    pendingWrites.push(this._persistCurrentChatMappings());
-                }
+                pendingWrites.push(this._updateCurrentChatMappings((nextMappings) => {
+                    let changed = false;
+                    Object.keys(nextMappings).forEach((scopeKey) => {
+                        if (deletedIds.includes(nextMappings[scopeKey])) {
+                            delete nextMappings[scopeKey];
+                            changed = true;
+                        }
+                    });
+                    return changed;
+                }));
                 await Promise.all(pendingWrites);
-                this._removeChatStorage(keysToRemove).catch(() => {});
             }
 
             return deletedIds.length;
@@ -934,12 +1221,7 @@ export class ChatManager {
         this.markChatDirty(currentChat.id);
 
         // If there's webpage info, add the URLs to the chat
-        if (webpageInfo && webpageInfo.pages) {
-            const urls = webpageInfo.pages.map(page => page.url);
-            // Use a Set to avoid duplicate URLs
-            const uniqueUrls = new Set([...(currentChat.webpageUrls || []), ...urls]);
-            currentChat.webpageUrls = Array.from(uniqueUrls);
-        }
+        this._mergeWebpageInfoIntoChat(currentChat, webpageInfo);
 
         // 如果这是第一条消息，只移除 isNew 标记，不在此处生成标题
         if (isFirstMessage) {
@@ -977,6 +1259,48 @@ export class ChatManager {
         }
 
         await this.saveChat(currentChat.id);
+    }
+
+    _mergeWebpageInfoIntoChat(chat, webpageInfo) {
+        if (!chat || !webpageInfo?.pages) {
+            return false;
+        }
+
+        const urls = webpageInfo.pages
+            .map(page => page?.url)
+            .filter(Boolean);
+        if (urls.length === 0) {
+            return false;
+        }
+
+        const existingUrls = Array.isArray(chat.webpageUrls) ? chat.webpageUrls : [];
+        const uniqueUrls = new Set([...existingUrls, ...urls]);
+        if (uniqueUrls.size === existingUrls.length) {
+            return false;
+        }
+
+        chat.webpageUrls = Array.from(uniqueUrls);
+        return true;
+    }
+
+    async addWebpageInfoToChat(chatId = this.currentChatId, webpageInfo) {
+        if (!chatId || !this.canFlushChat(chatId)) {
+            return false;
+        }
+
+        const chat = this.chats.get(chatId);
+        if (!chat) {
+            throw new Error(t('chat.notFound'));
+        }
+
+        const didUpdate = this._mergeWebpageInfoIntoChat(chat, webpageInfo);
+        if (!didUpdate) {
+            return false;
+        }
+
+        this.markChatDirty(chatId);
+        await this.saveChat(chatId);
+        return true;
     }
 
     async generateAndSaveTitle(chat) {
@@ -1070,6 +1394,7 @@ export class ChatManager {
     async clearCurrentChat() {
         const currentChat = this.getCurrentChat();
         if (currentChat) {
+            await this._ensureChatMutationAllowed(currentChat.id);
             currentChat.messages = [];
             this._touchChatUpdatedAt(currentChat.id);
             this.markChatDirty(currentChat.id);
@@ -1078,16 +1403,12 @@ export class ChatManager {
     }
 
     async clearAllChats() {
+        await this._ensureBatchChatMutationAllowed(Array.from(this.chats.keys()));
+
         // 通知 WebDAV 同步記錄所有刪除（批次發送一次事件）
         const allIds = Array.from(this.chats.keys());
         if (allIds.length > 0) {
             document.dispatchEvent(new CustomEvent('chats-cleared', { detail: { chatIds: allIds } }));
-        }
-
-        // 移除所有 per-chat keys
-        const keysToRemove = allIds.map(id => this._chatKey(id));
-        if (keysToRemove.length > 0) {
-            await this._removeChatStorage(keysToRemove);
         }
 
         // 清除記憶體
@@ -1098,10 +1419,17 @@ export class ChatManager {
         this.currentChatByTab = {};
         this._transientChatByScope = {};
         await Promise.all([
-            this._setChatStorage({
-                [CHAT_INDEX_KEY]: []
+            this._commitChatStorage({
+                replaceIndex: [],
+                removeChatIds: allIds
             }),
-            this._persistCurrentChatMappings()
+            this._updateCurrentChatMappings((nextMappings) => {
+                const hasMappings = Object.keys(nextMappings).length > 0;
+                Object.keys(nextMappings).forEach((scopeKey) => {
+                    delete nextMappings[scopeKey];
+                });
+                return hasMappings;
+            })
         ]);
 
         // 創建一個新的默認對話

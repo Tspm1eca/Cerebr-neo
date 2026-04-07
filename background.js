@@ -8,9 +8,14 @@ import {
   performStorageBackedCloseSyncUpload,
   withWebDAVSyncLock,
 } from './src/services/webdav-sync-shared.js';
+import {
+  ACTIVE_STREAMS_BY_TAB_KEY,
+  hasStoredActiveStreams,
+  normalizeActiveStreamsSnapshot,
+  pruneStoredActiveStreams
+} from './src/utils/active-streams.js';
 
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-const ACTIVE_STREAMS_BY_TAB_KEY = 'cerebr_active_stream_by_tab';
 
 // Helper: 根據 sync 模式 flag 取得正確的 storage area（Service Worker 可能隨時重啟）
 async function getSyncStorage() {
@@ -33,6 +38,9 @@ self.addEventListener('activate', (event) => {
       // 安全地捕获错误以避免未捕ared 的 Promise 拒绝。
       try {
         await self.clients.claim();
+        if (chrome.storage?.session) {
+          await pruneStoredActiveStreams(chrome.storage.session);
+        }
       } catch (error) {
         // console.warn('clients.claim() 失败，但可以安全地忽略:', error);
       }
@@ -172,7 +180,8 @@ async function cleanupActiveStreamsByOwnerContextIds(contextIds = []) {
   }
 
   const result = await chrome.storage.session.get(ACTIVE_STREAMS_BY_TAB_KEY);
-  const snapshot = result[ACTIVE_STREAMS_BY_TAB_KEY];
+  const normalizedResult = normalizeActiveStreamsSnapshot(result[ACTIVE_STREAMS_BY_TAB_KEY]);
+  const snapshot = normalizedResult.snapshot;
   if (!snapshot || typeof snapshot !== 'object') {
     return false;
   }
@@ -188,13 +197,21 @@ async function cleanupActiveStreamsByOwnerContextIds(contextIds = []) {
     nextSnapshot[scopeKey] = streamRecord;
   }
 
-  if (changed) {
+  if (changed || normalizedResult.changed) {
     await chrome.storage.session.set({
       [ACTIVE_STREAMS_BY_TAB_KEY]: nextSnapshot
     });
   }
 
-  return changed;
+  return changed || normalizedResult.changed;
+}
+
+async function hasActiveStreamsInSession() {
+  if (!chrome.storage?.session) {
+    return false;
+  }
+
+  return await hasStoredActiveStreams(chrome.storage.session);
 }
 
 chrome.runtime.onConnect.addListener((p) => {
@@ -685,6 +702,11 @@ async function performWebDAVSyncUpload() {
     try {
         // 0. 等待短暫時間，讓新打開的面板有機會先進入同步流程
         await new Promise(resolve => setTimeout(resolve, 1500));
+
+        if (await hasActiveStreamsInSession()) {
+            console.log('[WebDAV SW] 仍有其他分頁正在生成回覆，延後本次關閉同步');
+            return;
+        }
 
         await withWebDAVSyncLock(async () => {
             // 1. 讀取 WebDAV 配置
