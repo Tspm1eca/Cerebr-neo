@@ -381,15 +381,14 @@ export function computeStructuredHash(value) {
 }
 
 export function normalizeApiSettings(raw = {}) {
-    const source = raw && typeof raw === 'object' ? raw : {};
     return {
-        apiConfigs: source.apiConfigs || [],
-        selectedConfigIndex: source.selectedConfigIndex ?? 0,
-        searchProvider: source.searchProvider || 'tavily',
-        tavilyApiKey: source.tavilyApiKey || '',
-        tavilyApiUrl: source.tavilyApiUrl || '',
-        exaApiKey: source.exaApiKey || '',
-        exaApiUrl: source.exaApiUrl || ''
+        apiConfigs: raw.apiConfigs || [],
+        selectedConfigIndex: raw.selectedConfigIndex ?? 0,
+        searchProvider: raw.searchProvider || 'tavily',
+        tavilyApiKey: raw.tavilyApiKey || '',
+        tavilyApiUrl: raw.tavilyApiUrl || '',
+        exaApiKey: raw.exaApiKey || '',
+        exaApiUrl: raw.exaApiUrl || ''
     };
 }
 
@@ -408,22 +407,6 @@ export function hasMeaningfulApiSettings(raw) {
     );
 }
 
-export function getManifestApiSettingsMode(manifest = null) {
-    if (manifest?.apiSettingsCleared === true) {
-        return 'cleared';
-    }
-
-    if (!manifest || manifest.apiSettings === undefined) {
-        return 'missing';
-    }
-
-    if (manifest.apiSettingsEncrypted && manifest.apiSettings != null) {
-        return 'configured';
-    }
-
-    return hasMeaningfulApiSettings(manifest.apiSettings) ? 'configured' : 'empty';
-}
-
 export function isApiSettingsBootstrapPending(dirtyMarker, metadataSyncState = null) {
     return dirtyMarker?.reason === API_SETTINGS_BOOTSTRAP_DIRTY_REASON &&
         !hasSyncedMetadataBaseline(normalizeMetadataSyncState(metadataSyncState).apiSettings);
@@ -440,8 +423,7 @@ export function resolveApiSettingsBootstrapSource({
         return null;
     }
 
-    const remoteApiSettingsMode = getManifestApiSettingsMode(manifest);
-    if (remoteApiSettingsMode === 'configured' || remoteApiSettingsMode === 'cleared') {
+    if (manifest?.apiSettings !== undefined) {
         return 'remote';
     }
 
@@ -574,31 +556,18 @@ export async function buildUploadMetadataPayload({
 
     let manifestApiSettings = undefined;
     let manifestApiSettingsEncrypted = false;
-    let manifestApiSettingsCleared = false;
     let apiSettingsUpdatedAt = null;
     const hasPendingApiSettingsChange = Boolean(normalizedState.apiSettings.modifiedAt);
-    const previousManifestApiSettingsMode = getManifestApiSettingsMode(previousManifest);
-    const hasPreviousApiSettingsState =
-        previousManifestApiSettingsMode === 'configured' ||
-        previousManifestApiSettingsMode === 'cleared';
-    const hasLocalMeaningfulApiSettings = hasMeaningfulApiSettings(apiSettings);
-    const hasSyncedApiSettingsBaseline = hasSyncedMetadataBaseline(normalizedState.apiSettings);
 
-    if (syncApiConfig) {
-        const nextApiSettingsUpdatedAt = normalizedState.apiSettings.modifiedAt ||
-            normalizedState.apiSettings.lastSyncedAt ||
-            previousManifest?.apiSettingsUpdatedAt ||
-            previousManifest?.timestamp ||
-            now;
-        const shouldWriteLocalApiSettings = hasLocalMeaningfulApiSettings &&
-            (hasPendingApiSettingsChange || !hasPreviousApiSettingsState);
-        const shouldWriteClearedApiSettings = !hasLocalMeaningfulApiSettings &&
-            hasPendingApiSettingsChange &&
-            (hasPreviousApiSettingsState || hasSyncedApiSettingsBaseline);
-
+    if (syncApiConfig && apiSettings !== undefined) {
+        const shouldWriteLocalApiSettings = hasPendingApiSettingsChange || previousManifest?.apiSettings === undefined;
         if (shouldWriteLocalApiSettings) {
             manifestApiSettings = apiSettings;
-            apiSettingsUpdatedAt = nextApiSettingsUpdatedAt;
+            apiSettingsUpdatedAt = normalizedState.apiSettings.modifiedAt ||
+                normalizedState.apiSettings.lastSyncedAt ||
+                previousManifest?.apiSettingsUpdatedAt ||
+                previousManifest?.timestamp ||
+                now;
 
             if (encryptApiKeys) {
                 if (!encryptionPassword) {
@@ -610,18 +579,9 @@ export async function buildUploadMetadataPayload({
                 manifestApiSettings = await encryptValue(apiSettings, encryptionPassword);
                 manifestApiSettingsEncrypted = true;
             }
-        } else if (shouldWriteClearedApiSettings) {
-            manifestApiSettingsCleared = true;
-            apiSettingsUpdatedAt = nextApiSettingsUpdatedAt;
-        } else if (previousManifestApiSettingsMode === 'configured') {
+        } else if (previousManifest?.apiSettings !== undefined) {
             manifestApiSettings = previousManifest.apiSettings;
             manifestApiSettingsEncrypted = Boolean(previousManifest.apiSettingsEncrypted);
-            apiSettingsUpdatedAt = previousManifest.apiSettingsUpdatedAt ||
-                previousManifest.timestamp ||
-                normalizedState.apiSettings.lastSyncedAt ||
-                now;
-        } else if (previousManifestApiSettingsMode === 'cleared') {
-            manifestApiSettingsCleared = true;
             apiSettingsUpdatedAt = previousManifest.apiSettingsUpdatedAt ||
                 previousManifest.timestamp ||
                 normalizedState.apiSettings.lastSyncedAt ||
@@ -634,7 +594,6 @@ export async function buildUploadMetadataPayload({
         quickChatOptionsUpdatedAt,
         manifestApiSettings,
         manifestApiSettingsEncrypted,
-        manifestApiSettingsCleared,
         apiSettingsUpdatedAt
     };
 }
@@ -1038,7 +997,6 @@ export async function uploadManifestSnapshot({
     quickChatOptions,
     quickChatOptionsUpdatedAt = null,
     apiSettings,
-    apiSettingsCleared = false,
     apiSettingsEncrypted = false,
     apiSettingsUpdatedAt = null,
     uploadConcurrency = UPLOAD_CONCURRENCY,
@@ -1091,11 +1049,6 @@ export async function uploadManifestSnapshot({
         }
         if (apiSettingsEncrypted) {
             manifest.apiSettingsEncrypted = true;
-        }
-    } else if (apiSettingsCleared) {
-        manifest.apiSettingsCleared = true;
-        if (apiSettingsUpdatedAt) {
-            manifest.apiSettingsUpdatedAt = apiSettingsUpdatedAt;
         }
     }
 
@@ -1336,7 +1289,6 @@ export async function performStorageBackedCloseSyncUpload({
     let quickChatOptionsUpdatedAt;
     let manifestApiSettings;
     let manifestApiSettingsEncrypted = false;
-    let manifestApiSettingsCleared = false;
     let apiSettingsUpdatedAt = null;
 
     try {
@@ -1345,7 +1297,6 @@ export async function performStorageBackedCloseSyncUpload({
             quickChatOptionsUpdatedAt,
             manifestApiSettings,
             manifestApiSettingsEncrypted,
-            manifestApiSettingsCleared,
             apiSettingsUpdatedAt
         } = await buildUploadMetadataPayload({
             metadataSyncState,
@@ -1372,7 +1323,6 @@ export async function performStorageBackedCloseSyncUpload({
         quickChatOptions: quickChatOptionsForManifest,
         quickChatOptionsUpdatedAt,
         apiSettings: manifestApiSettings,
-        apiSettingsCleared: manifestApiSettingsCleared,
         apiSettingsEncrypted: manifestApiSettingsEncrypted,
         apiSettingsUpdatedAt,
         uploadConcurrency
