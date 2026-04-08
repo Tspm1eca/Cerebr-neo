@@ -19,6 +19,7 @@ export const HTTP_STATUS = {
 export const DEFAULT_TIMEOUT = 30000;
 export const CHAT_DIRECTORY = 'chats';
 export const UPLOAD_CONCURRENCY = 5;
+export const API_SETTINGS_BOOTSTRAP_DIRTY_REASON = 'api-sync-config';
 export const DEFAULT_METADATA_SYNC_STATE = Object.freeze({
     quickChatOptions: Object.freeze({
         baseHash: null,
@@ -365,6 +366,10 @@ export function normalizeMetadataSyncState(rawState) {
     return nextState;
 }
 
+export function hasSyncedMetadataBaseline(syncState) {
+    return Boolean(syncState?.lastSyncedAt);
+}
+
 export function computeStructuredHash(value) {
     const hashSource = JSON.stringify(value === undefined ? null : value);
     let hash = 5381;
@@ -376,15 +381,71 @@ export function computeStructuredHash(value) {
 }
 
 export function normalizeApiSettings(raw = {}) {
+    const source = raw && typeof raw === 'object' ? raw : {};
     return {
-        apiConfigs: raw.apiConfigs || [],
-        selectedConfigIndex: raw.selectedConfigIndex ?? 0,
-        searchProvider: raw.searchProvider || 'tavily',
-        tavilyApiKey: raw.tavilyApiKey || '',
-        tavilyApiUrl: raw.tavilyApiUrl || '',
-        exaApiKey: raw.exaApiKey || '',
-        exaApiUrl: raw.exaApiUrl || ''
+        apiConfigs: source.apiConfigs || [],
+        selectedConfigIndex: source.selectedConfigIndex ?? 0,
+        searchProvider: source.searchProvider || 'tavily',
+        tavilyApiKey: source.tavilyApiKey || '',
+        tavilyApiUrl: source.tavilyApiUrl || '',
+        exaApiKey: source.exaApiKey || '',
+        exaApiUrl: source.exaApiUrl || ''
     };
+}
+
+export function hasMeaningfulApiSettings(raw) {
+    if (raw === undefined) {
+        return false;
+    }
+
+    const normalized = normalizeApiSettings(raw);
+    return Boolean(
+        (Array.isArray(normalized.apiConfigs) && normalized.apiConfigs.length > 0) ||
+        normalized.tavilyApiKey ||
+        normalized.tavilyApiUrl ||
+        normalized.exaApiKey ||
+        normalized.exaApiUrl
+    );
+}
+
+export function getManifestApiSettingsMode(manifest = null) {
+    if (manifest?.apiSettingsCleared === true) {
+        return 'cleared';
+    }
+
+    if (!manifest || manifest.apiSettings === undefined) {
+        return 'missing';
+    }
+
+    if (manifest.apiSettingsEncrypted && manifest.apiSettings != null) {
+        return 'configured';
+    }
+
+    return hasMeaningfulApiSettings(manifest.apiSettings) ? 'configured' : 'empty';
+}
+
+export function isApiSettingsBootstrapPending(dirtyMarker, metadataSyncState = null) {
+    return dirtyMarker?.reason === API_SETTINGS_BOOTSTRAP_DIRTY_REASON &&
+        !hasSyncedMetadataBaseline(normalizeMetadataSyncState(metadataSyncState).apiSettings);
+}
+
+export function resolveApiSettingsBootstrapSource({
+    syncApiConfig = false,
+    dirtyMarker = null,
+    metadataSyncState = null,
+    manifest = null,
+    localApiSettings = undefined
+}) {
+    if (!syncApiConfig || !isApiSettingsBootstrapPending(dirtyMarker, metadataSyncState)) {
+        return null;
+    }
+
+    const remoteApiSettingsMode = getManifestApiSettingsMode(manifest);
+    if (remoteApiSettingsMode === 'configured' || remoteApiSettingsMode === 'cleared') {
+        return 'remote';
+    }
+
+    return hasMeaningfulApiSettings(localApiSettings) ? 'local' : 'none';
 }
 
 export function buildHashedChatIndexEntry(source, hash) {
@@ -513,18 +574,31 @@ export async function buildUploadMetadataPayload({
 
     let manifestApiSettings = undefined;
     let manifestApiSettingsEncrypted = false;
+    let manifestApiSettingsCleared = false;
     let apiSettingsUpdatedAt = null;
     const hasPendingApiSettingsChange = Boolean(normalizedState.apiSettings.modifiedAt);
+    const previousManifestApiSettingsMode = getManifestApiSettingsMode(previousManifest);
+    const hasPreviousApiSettingsState =
+        previousManifestApiSettingsMode === 'configured' ||
+        previousManifestApiSettingsMode === 'cleared';
+    const hasLocalMeaningfulApiSettings = hasMeaningfulApiSettings(apiSettings);
+    const hasSyncedApiSettingsBaseline = hasSyncedMetadataBaseline(normalizedState.apiSettings);
 
-    if (syncApiConfig && apiSettings !== undefined) {
-        const shouldWriteLocalApiSettings = hasPendingApiSettingsChange || previousManifest?.apiSettings === undefined;
+    if (syncApiConfig) {
+        const nextApiSettingsUpdatedAt = normalizedState.apiSettings.modifiedAt ||
+            normalizedState.apiSettings.lastSyncedAt ||
+            previousManifest?.apiSettingsUpdatedAt ||
+            previousManifest?.timestamp ||
+            now;
+        const shouldWriteLocalApiSettings = hasLocalMeaningfulApiSettings &&
+            (hasPendingApiSettingsChange || !hasPreviousApiSettingsState);
+        const shouldWriteClearedApiSettings = !hasLocalMeaningfulApiSettings &&
+            hasPendingApiSettingsChange &&
+            (hasPreviousApiSettingsState || hasSyncedApiSettingsBaseline);
+
         if (shouldWriteLocalApiSettings) {
             manifestApiSettings = apiSettings;
-            apiSettingsUpdatedAt = normalizedState.apiSettings.modifiedAt ||
-                normalizedState.apiSettings.lastSyncedAt ||
-                previousManifest?.apiSettingsUpdatedAt ||
-                previousManifest?.timestamp ||
-                now;
+            apiSettingsUpdatedAt = nextApiSettingsUpdatedAt;
 
             if (encryptApiKeys) {
                 if (!encryptionPassword) {
@@ -536,9 +610,18 @@ export async function buildUploadMetadataPayload({
                 manifestApiSettings = await encryptValue(apiSettings, encryptionPassword);
                 manifestApiSettingsEncrypted = true;
             }
-        } else if (previousManifest?.apiSettings !== undefined) {
+        } else if (shouldWriteClearedApiSettings) {
+            manifestApiSettingsCleared = true;
+            apiSettingsUpdatedAt = nextApiSettingsUpdatedAt;
+        } else if (previousManifestApiSettingsMode === 'configured') {
             manifestApiSettings = previousManifest.apiSettings;
             manifestApiSettingsEncrypted = Boolean(previousManifest.apiSettingsEncrypted);
+            apiSettingsUpdatedAt = previousManifest.apiSettingsUpdatedAt ||
+                previousManifest.timestamp ||
+                normalizedState.apiSettings.lastSyncedAt ||
+                now;
+        } else if (previousManifestApiSettingsMode === 'cleared') {
+            manifestApiSettingsCleared = true;
             apiSettingsUpdatedAt = previousManifest.apiSettingsUpdatedAt ||
                 previousManifest.timestamp ||
                 normalizedState.apiSettings.lastSyncedAt ||
@@ -551,6 +634,7 @@ export async function buildUploadMetadataPayload({
         quickChatOptionsUpdatedAt,
         manifestApiSettings,
         manifestApiSettingsEncrypted,
+        manifestApiSettingsCleared,
         apiSettingsUpdatedAt
     };
 }
@@ -954,6 +1038,7 @@ export async function uploadManifestSnapshot({
     quickChatOptions,
     quickChatOptionsUpdatedAt = null,
     apiSettings,
+    apiSettingsCleared = false,
     apiSettingsEncrypted = false,
     apiSettingsUpdatedAt = null,
     uploadConcurrency = UPLOAD_CONCURRENCY,
@@ -1006,6 +1091,11 @@ export async function uploadManifestSnapshot({
         }
         if (apiSettingsEncrypted) {
             manifest.apiSettingsEncrypted = true;
+        }
+    } else if (apiSettingsCleared) {
+        manifest.apiSettingsCleared = true;
+        if (apiSettingsUpdatedAt) {
+            manifest.apiSettingsUpdatedAt = apiSettingsUpdatedAt;
         }
     }
 
@@ -1084,7 +1174,8 @@ export async function performStorageBackedCloseSyncUpload({
     const tombstones = Array.isArray(dirtyState[WEBDAV_DELETED_CHAT_IDS_KEY])
         ? dirtyState[WEBDAV_DELETED_CHAT_IDS_KEY]
         : [];
-    const localDataDirty = Boolean(dirtyState[WEBDAV_LOCAL_DATA_DIRTY_KEY]);
+    const dirtyMarker = dirtyState[WEBDAV_LOCAL_DATA_DIRTY_KEY] || null;
+    const localDataDirty = Boolean(dirtyMarker);
 
     const chatKeys = dirtyIds.map(id => `${CHAT_KEY_PREFIX}${id}`);
     const localSnapshot = await localStorageArea.get([
@@ -1098,10 +1189,6 @@ export async function performStorageBackedCloseSyncUpload({
 
     const cachedManifest = localSnapshot[WEBDAV_CACHED_MANIFEST_KEY];
     const metadataSyncState = normalizeMetadataSyncState(localSnapshot[WEBDAV_METADATA_SYNC_STATE_KEY]);
-    const hasPendingMetadataChanges = Boolean(
-        metadataSyncState.quickChatOptions.modifiedAt ||
-        metadataSyncState.apiSettings.modifiedAt
-    );
     const hashTable = new Map(Object.entries(localSnapshot[WEBDAV_LOCAL_CHAT_HASHES_KEY] || {}));
     const storedChatIndex = Array.isArray(localSnapshot[CHAT_INDEX_KEY])
         ? localSnapshot[CHAT_INDEX_KEY]
@@ -1134,6 +1221,18 @@ export async function performStorageBackedCloseSyncUpload({
         : undefined;
     const quickChatOptionsForHash = Array.isArray(quickChatOptions) ? quickChatOptions : [];
     const apiSettingsForHash = config.syncApiConfig ? normalizeApiSettings(syncMetadata) : undefined;
+    const apiSettingsBootstrapSource = resolveApiSettingsBootstrapSource({
+        syncApiConfig: config.syncApiConfig,
+        dirtyMarker,
+        metadataSyncState,
+        manifest: cachedManifest,
+        localApiSettings: apiSettingsForHash
+    });
+    const preserveRemoteApiSettingsDuringBootstrap = apiSettingsBootstrapSource === 'remote';
+    const hasPendingMetadataChanges = Boolean(
+        metadataSyncState.quickChatOptions.modifiedAt ||
+        metadataSyncState.apiSettings.modifiedAt
+    ) || apiSettingsBootstrapSource === 'local';
 
     const knownDirectories = Array.isArray(localSnapshot[WEBDAV_KNOWN_DIRS_KEY])
         ? localSnapshot[WEBDAV_KNOWN_DIRS_KEY]
@@ -1183,6 +1282,23 @@ export async function performStorageBackedCloseSyncUpload({
         return { skipped: true, reason: 'no-changes' };
     }
 
+    if (preserveRemoteApiSettingsDuringBootstrap &&
+        plannedUploadItems.length === 0 &&
+        !tombstonesChanged &&
+        !hasPendingMetadataChanges) {
+        const currentDirtyResult = await localStorageArea.get(DIRTY_CHAT_IDS_KEY);
+        const currentDirty = Array.isArray(currentDirtyResult[DIRTY_CHAT_IDS_KEY])
+            ? currentDirtyResult[DIRTY_CHAT_IDS_KEY]
+            : [];
+        const processedDirtyIds = new Set(dirtyIds);
+        const remainingDirtyIds = currentDirty.filter(id => !processedDirtyIds.has(id));
+        await localStorageArea.set({
+            [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
+            [WEBDAV_LOCAL_DATA_DIRTY_KEY]: dirtyMarker
+        });
+        return { skipped: true, reason: 'pending-api-bootstrap' };
+    }
+
     if (noChanges && !hasPendingMetadataChanges) {
         const currentDirtyResult = await localStorageArea.get(DIRTY_CHAT_IDS_KEY);
         const currentDirty = Array.isArray(currentDirtyResult[DIRTY_CHAT_IDS_KEY])
@@ -1196,7 +1312,7 @@ export async function performStorageBackedCloseSyncUpload({
         await Promise.all([
             localStorageArea.set({
                 [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
-                [WEBDAV_LOCAL_DATA_DIRTY_KEY]: null
+                [WEBDAV_LOCAL_DATA_DIRTY_KEY]: preserveRemoteApiSettingsDuringBootstrap ? dirtyMarker : null
             }),
             syncStorageArea.set({
                 [WEBDAV_LAST_SYNC_KEY]: lastSync
@@ -1220,6 +1336,7 @@ export async function performStorageBackedCloseSyncUpload({
     let quickChatOptionsUpdatedAt;
     let manifestApiSettings;
     let manifestApiSettingsEncrypted = false;
+    let manifestApiSettingsCleared = false;
     let apiSettingsUpdatedAt = null;
 
     try {
@@ -1228,6 +1345,7 @@ export async function performStorageBackedCloseSyncUpload({
             quickChatOptionsUpdatedAt,
             manifestApiSettings,
             manifestApiSettingsEncrypted,
+            manifestApiSettingsCleared,
             apiSettingsUpdatedAt
         } = await buildUploadMetadataPayload({
             metadataSyncState,
@@ -1254,6 +1372,7 @@ export async function performStorageBackedCloseSyncUpload({
         quickChatOptions: quickChatOptionsForManifest,
         quickChatOptionsUpdatedAt,
         apiSettings: manifestApiSettings,
+        apiSettingsCleared: manifestApiSettingsCleared,
         apiSettingsEncrypted: manifestApiSettingsEncrypted,
         apiSettingsUpdatedAt,
         uploadConcurrency
@@ -1274,6 +1393,9 @@ export async function performStorageBackedCloseSyncUpload({
             ? (manifest.apiSettingsUpdatedAt || apiSettingsUpdatedAt || manifest.timestamp)
             : null
     });
+    if (preserveRemoteApiSettingsDuringBootstrap) {
+        nextMetadataSyncState.apiSettings = metadataSyncState.apiSettings;
+    }
 
     await persistStorageBackedSyncState({
         localStorageArea,
@@ -1289,7 +1411,7 @@ export async function performStorageBackedCloseSyncUpload({
     });
     await localStorageArea.set({
         [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
-        [WEBDAV_LOCAL_DATA_DIRTY_KEY]: null
+        [WEBDAV_LOCAL_DATA_DIRTY_KEY]: preserveRemoteApiSettingsDuringBootstrap ? dirtyMarker : null
     });
 
     return {

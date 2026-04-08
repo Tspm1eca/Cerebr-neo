@@ -23,6 +23,7 @@ import {
     hasStoredActiveStreams
 } from '../utils/active-streams.js';
 import {
+    API_SETTINGS_BOOTSTRAP_DIRTY_REASON,
     CHAT_DIRECTORY as SHARED_CHAT_DIRECTORY,
     UPLOAD_CONCURRENCY as SHARED_UPLOAD_CONCURRENCY,
     buildManifestUploadPlan,
@@ -35,8 +36,12 @@ import {
     createWebDAVSyncBusyError,
     computeStructuredHash,
     createDefaultMetadataSyncState,
+    getManifestApiSettingsMode,
     getManifestDeletedChatIds,
+    hasMeaningfulApiSettings,
+    hasSyncedMetadataBaseline,
     isWebDAVSyncBusyError,
+    resolveApiSettingsBootstrapSource,
     normalizeMetadataSyncState,
     normalizeApiSettings as normalizeSharedApiSettings,
     persistStorageBackedSyncState,
@@ -190,21 +195,6 @@ class WebDAVSyncManager {
         return syncStateChanged || encryptionModeChanged || encryptionPasswordChanged;
     }
 
-    _hasMeaningfulApiSettings(raw) {
-        if (raw === undefined) {
-            return false;
-        }
-
-        const normalized = this._normalizeApiSettings(raw);
-        return Boolean(
-            (Array.isArray(normalized.apiConfigs) && normalized.apiConfigs.length > 0) ||
-            normalized.tavilyApiKey ||
-            normalized.tavilyApiUrl ||
-            normalized.exaApiKey ||
-            normalized.exaApiUrl
-        );
-    }
-
     /**
      * 保存 checkSyncStatus 結果到記憶體快取及跨分頁共享存儲
      * @param {Object} result - checkSyncStatus 結果
@@ -284,9 +274,13 @@ class WebDAVSyncManager {
         await storageAdapter.remove([WEBDAV_LOCAL_DATA_DIRTY_KEY]);
     }
 
-    async hasLocalDataDirty() {
+    async getLocalDataDirtyMarker() {
         const result = await storageAdapter.get(WEBDAV_LOCAL_DATA_DIRTY_KEY);
-        return Boolean(result[WEBDAV_LOCAL_DATA_DIRTY_KEY]);
+        return result[WEBDAV_LOCAL_DATA_DIRTY_KEY] || null;
+    }
+
+    async hasLocalDataDirty() {
+        return Boolean(await this.getLocalDataDirtyMarker());
     }
 
     async hasActiveStreams() {
@@ -299,6 +293,31 @@ class WebDAVSyncManager {
 
     _hasPendingLocalApiSettingsChange(metadataSyncState) {
         return Boolean(metadataSyncState?.apiSettings?.modifiedAt);
+    }
+
+    _hasApiSettingsSyncBaseline(metadataSyncState) {
+        return hasSyncedMetadataBaseline(metadataSyncState?.apiSettings);
+    }
+
+    _resolveApiSettingsBootstrapSource({
+        dirtyMarker = null,
+        metadataSyncState = null,
+        manifest = null,
+        localApiSettings = undefined
+    } = {}) {
+        return resolveApiSettingsBootstrapSource({
+            syncApiConfig: this.config.syncApiConfig,
+            dirtyMarker,
+            metadataSyncState,
+            manifest,
+            localApiSettings
+        });
+    }
+
+    _buildApiSettingsAttentionMessage(canKeepLocalApiSettings) {
+        return canKeepLocalApiSettings
+            ? '远端 API 配置无法解密，已保留本地配置'
+            : '远端 API 配置无法解密，请检查加密密码后重试';
     }
 
     async loadMetadataSyncState() {
@@ -488,8 +507,17 @@ class WebDAVSyncManager {
     }
 
     async _resolveManifestApiSettings(manifest, { suppressDecryptError = false } = {}) {
-        if (!manifest || manifest.apiSettings === undefined) {
-            return { value: undefined, decryptError: null };
+        const manifestApiSettingsMode = getManifestApiSettingsMode(manifest);
+        if (manifestApiSettingsMode === 'missing' || manifestApiSettingsMode === 'empty') {
+            return { value: undefined, decryptError: null, mode: manifestApiSettingsMode };
+        }
+
+        if (manifestApiSettingsMode === 'cleared') {
+            return {
+                value: this._normalizeApiSettings(),
+                decryptError: null,
+                mode: manifestApiSettingsMode
+            };
         }
 
         let apiSettings = manifest.apiSettings;
@@ -499,7 +527,7 @@ class WebDAVSyncManager {
                 if (!suppressDecryptError) {
                     throw error;
                 }
-                return { value: undefined, decryptError: error };
+                return { value: undefined, decryptError: error, mode: manifestApiSettingsMode };
             }
             try {
                 apiSettings = await decrypt(apiSettings, this.config.encryptionPassword);
@@ -509,13 +537,14 @@ class WebDAVSyncManager {
                     throw error;
                 }
                 console.warn('[WebDAV] 遠端 API 配置無法解密，將保留本地 API 配置');
-                return { value: undefined, decryptError: error };
+                return { value: undefined, decryptError: error, mode: manifestApiSettingsMode };
             }
         }
 
         return {
             value: this._normalizeApiSettings(apiSettings),
-            decryptError: null
+            decryptError: null,
+            mode: manifestApiSettingsMode
         };
     }
 
@@ -871,7 +900,43 @@ class WebDAVSyncManager {
         }
 
         if (this._didApiSyncConfigChange(previousConfig, this.config)) {
-            await this.markLocalDataDirty('api-config');
+            let shouldMarkDirty = true;
+            let dirtyReason = 'api-config';
+
+            if (this.config.syncApiConfig) {
+                const [metadataSyncState, cachedManifest, apiConfigResult] = await Promise.all([
+                    this.loadMetadataSyncState(),
+                    this.loadCachedManifest(),
+                    syncStorageAdapter.get([
+                        'apiConfigs',
+                        'selectedConfigIndex',
+                        'searchProvider',
+                        'tavilyApiKey',
+                        'tavilyApiUrl',
+                        'exaApiKey',
+                        'exaApiUrl'
+                    ])
+                ]);
+
+                if (!this._hasApiSettingsSyncBaseline(metadataSyncState)) {
+                    const bootstrapSource = this._resolveApiSettingsBootstrapSource({
+                        dirtyMarker: { reason: API_SETTINGS_BOOTSTRAP_DIRTY_REASON },
+                        metadataSyncState,
+                        manifest: cachedManifest,
+                        localApiSettings: this._normalizeApiSettings(apiConfigResult)
+                    });
+
+                    if (bootstrapSource === 'remote') {
+                        dirtyReason = API_SETTINGS_BOOTSTRAP_DIRTY_REASON;
+                    } else if (bootstrapSource === 'none') {
+                        shouldMarkDirty = false;
+                    }
+                }
+            }
+
+            if (shouldMarkDirty) {
+                await this.markLocalDataDirty(dirtyReason);
+            }
         }
     }
 
@@ -908,7 +973,8 @@ class WebDAVSyncManager {
             try {
             // 快照當前 dirty IDs，同步完成後只清除這些（保留同步期間新增的）
             const dirtySnapshot = new Set(chatManager.getDirtyChatIds());
-            const hasDirtyLocalData = await this.hasLocalDataDirty();
+            const dirtyMarker = await this.getLocalDataDirtyMarker();
+            const hasDirtyLocalData = Boolean(dirtyMarker);
 
             const { data: localData, hash: localHash, chatIndex: prebuiltChatIndex, localChatHashes } =
                 await this.getLocalSyncData();
@@ -936,6 +1002,7 @@ class WebDAVSyncManager {
                 initialChatIndex,
                 uploadItems,
                 tombstones,
+                tombstonesChanged,
                 noChanges
             } = buildManifestUploadPlan({
                 initialChatIndex: [...prebuiltChatIndex, ...remoteOnlyEntries],
@@ -948,15 +1015,30 @@ class WebDAVSyncManager {
                 getChatById: (chatId) => localChatMap.get(chatId) || null
             });
             const metadataSyncState = await this.loadMetadataSyncState();
+            const apiSettingsBootstrapSource = this._resolveApiSettingsBootstrapSource({
+                dirtyMarker,
+                metadataSyncState,
+                manifest: previousManifest,
+                localApiSettings: localData.apiSettings
+            });
+            const preserveRemoteApiSettingsDuringBootstrap = apiSettingsBootstrapSource === 'remote';
             const hasPendingMetadataChanges = Boolean(
                 metadataSyncState.quickChatOptions.modifiedAt ||
                 metadataSyncState.apiSettings.modifiedAt
-            );
+            ) || apiSettingsBootstrapSource === 'local';
+
+            if (preserveRemoteApiSettingsDuringBootstrap &&
+                uploadItems.length === 0 &&
+                !tombstonesChanged &&
+                !hasPendingMetadataChanges) {
+                chatManager.clearDirtyChatIds(dirtySnapshot);
+                return { success: true, message: t('webdav.noChanges'), timestamp: null };
+            }
 
             // 短路：聊天/metadata/tombstone 均無變更 → 跳過上傳
             if (noChanges && !hasPendingMetadataChanges) {
                 chatManager.clearDirtyChatIds(dirtySnapshot);
-                if (hasDirtyLocalData) {
+                if (hasDirtyLocalData && !preserveRemoteApiSettingsDuringBootstrap) {
                     await this.clearLocalDataDirty();
                 }
                 const lastSync = new Date().toISOString();
@@ -978,6 +1060,7 @@ class WebDAVSyncManager {
             let quickChatOptionsUpdatedAt;
             let manifestApiSettings;
             let manifestApiSettingsEncrypted = false;
+            let manifestApiSettingsCleared = false;
             let apiSettingsUpdatedAt = null;
             try {
                 ({
@@ -985,6 +1068,7 @@ class WebDAVSyncManager {
                     quickChatOptionsUpdatedAt,
                     manifestApiSettings,
                     manifestApiSettingsEncrypted,
+                    manifestApiSettingsCleared,
                     apiSettingsUpdatedAt
                 } = await buildUploadMetadataPayload({
                     metadataSyncState,
@@ -1015,6 +1099,7 @@ class WebDAVSyncManager {
                 quickChatOptions: quickChatOptionsForManifest,
                 quickChatOptionsUpdatedAt,
                 apiSettings: manifestApiSettings,
+                apiSettingsCleared: manifestApiSettingsCleared,
                 apiSettingsEncrypted: manifestApiSettingsEncrypted,
                 apiSettingsUpdatedAt,
                 uploadConcurrency: SHARED_UPLOAD_CONCURRENCY
@@ -1034,6 +1119,9 @@ class WebDAVSyncManager {
                     ? (manifest.apiSettingsUpdatedAt || apiSettingsUpdatedAt || manifest.timestamp)
                     : null
             });
+            if (preserveRemoteApiSettingsDuringBootstrap) {
+                syncedMetadataState.apiSettings = metadataSyncState.apiSettings;
+            }
             await this._batchSavePostSyncState({
                 manifest,
                 localChatHashes,
@@ -1043,7 +1131,9 @@ class WebDAVSyncManager {
                 lastSync,
                 metadataSyncState: syncedMetadataState
             });
-            await this.clearLocalDataDirty();
+            if (!preserveRemoteApiSettingsDuringBootstrap) {
+                await this.clearLocalDataDirty();
+            }
             await this._runOrphanCleanupIfNeeded(manifest);
 
             this.notifyListeners('sync-complete', {
@@ -1051,14 +1141,18 @@ class WebDAVSyncManager {
                 timestamp: lastSync,
                 chatCount: manifest.chatIndex.length,
                 changedChatCount: uploadItems.length,
-                includesApiConfig: this.config.syncApiConfig
+                includesApiConfig: this.config.syncApiConfig &&
+                    !preserveRemoteApiSettingsDuringBootstrap &&
+                    (manifestApiSettings !== undefined || manifestApiSettingsCleared)
             });
 
             let message = `已上传 ${manifest.chatIndex.length} 个对话`;
             if (uploadItems.length < manifest.chatIndex.length) {
                 message += `（${uploadItems.length} 个有变更）`;
             }
-            if (this.config.syncApiConfig) {
+            if (this.config.syncApiConfig &&
+                !preserveRemoteApiSettingsDuringBootstrap &&
+                (manifestApiSettings !== undefined || manifestApiSettingsCleared)) {
                 message += '<br>（含 API 配置）';
             }
 
@@ -1140,8 +1234,18 @@ class WebDAVSyncManager {
                     'tavilyApiKey', 'tavilyApiUrl', 'exaApiKey', 'exaApiUrl'
                 ]))
                 : undefined;
-            const canKeepLocalApiSettings = this._hasMeaningfulApiSettings(localApiSettings);
+            const canKeepLocalApiSettings = hasMeaningfulApiSettings(localApiSettings);
+            const remoteApiSettingsMode = this.config.syncApiConfig
+                ? getManifestApiSettingsMode(syncData)
+                : 'missing';
+            const dirtyMarker = await this.getLocalDataDirtyMarker();
             const metadataSyncState = await this.loadMetadataSyncState();
+            const apiSettingsBootstrapSource = this._resolveApiSettingsBootstrapSource({
+                dirtyMarker,
+                metadataSyncState,
+                manifest: syncData,
+                localApiSettings
+            });
 
             // 載入 per-chat hash table（用查表取代重新計算 hash）
             const localChatHashes = await this.loadLocalChatHashes();
@@ -1234,13 +1338,20 @@ class WebDAVSyncManager {
             let apiConfigAttentionRequired = false;
             let apiConfigWarningMessage = null;
             let effectiveApiSettings = undefined;
+            const apiConfigAttentionMessage = this._buildApiSettingsAttentionMessage(canKeepLocalApiSettings);
             const syncMetadataUpdates = {};
             if (hasRemoteQuickChatOptions) {
                 syncMetadataUpdates.quickChatOptions = effectiveQuickChatOptions;
             }
-            if (this.config.syncApiConfig && syncData.apiSettings) {
+            if (this.config.syncApiConfig && apiSettingsBootstrapSource === 'local') {
+                effectiveApiSettings = localApiSettings;
+            } else if (
+                this.config.syncApiConfig &&
+                remoteApiSettingsMode !== 'missing' &&
+                remoteApiSettingsMode !== 'empty'
+            ) {
                 const resolvedRemoteApiSettings = await this._resolveManifestApiSettings(syncData, {
-                    suppressDecryptError: canKeepLocalApiSettings
+                    suppressDecryptError: true
                 });
 
                 if (resolvedRemoteApiSettings.decryptError) {
@@ -1279,7 +1390,10 @@ class WebDAVSyncManager {
                     ? (syncData.apiSettingsUpdatedAt || syncData.timestamp || lastSync)
                     : (this.config.syncApiConfig ? metadataSyncState.apiSettings.lastSyncedAt : null)
             });
-            if (apiConfigAttentionRequired) {
+            const shouldPreservePendingApiBootstrap =
+                apiSettingsBootstrapSource === 'local' ||
+                (apiSettingsBootstrapSource === 'remote' && !apiConfigSynced && !apiConfigAttentionRequired);
+            if (apiConfigAttentionRequired || shouldPreservePendingApiBootstrap) {
                 syncedMetadataState.apiSettings = metadataSyncState.apiSettings;
             }
             await this._batchSavePostSyncState({
@@ -1292,7 +1406,9 @@ class WebDAVSyncManager {
                 metadataSyncState: syncedMetadataState,
                 syncStorageData: Object.keys(syncMetadataUpdates).length > 0 ? syncMetadataUpdates : null
             });
-            await this.clearLocalDataDirty();
+            if (!shouldPreservePendingApiBootstrap) {
+                await this.clearLocalDataDirty();
+            }
 
             const remoteOnlyCount = mergedChats.filter(c => c._remoteOnly).length;
             this.notifyListeners('sync-complete', {
@@ -1308,7 +1424,7 @@ class WebDAVSyncManager {
             if (apiConfigSynced) {
                 message += '<br>（含 API 配置）';
             } else if (apiConfigAttentionRequired) {
-                message += '<br>（远端 API 配置无法解密，已保留本地配置）';
+                message += `<br>（${apiConfigAttentionMessage}）`;
             }
 
             return {
@@ -1343,6 +1459,7 @@ class WebDAVSyncManager {
             try {
             // 1. 快照當前 dirty IDs
             const dirtySnapshot = new Set(chatManager.getDirtyChatIds());
+            const dirtyMarker = await this.getLocalDataDirtyMarker();
             const currentChatId = options.currentChatId || null;
             let currentRemoteChatRequest = null;
             const loadCurrentRemoteChat = async () => {
@@ -1405,53 +1522,97 @@ class WebDAVSyncManager {
             };
             let manifestApiSettings = undefined;
             let manifestApiSettingsEncrypted = false;
+            let manifestApiSettingsCleared = false;
             let manifestApiSettingsUpdatedAt = null;
+            let apiSettingsBootstrapSource = null;
+            let hasPendingLocalApiSettingsChange = false;
+            let canKeepLocalApiSettings = false;
+            let remoteApiSettingsMode = 'missing';
             if (this.config.syncApiConfig) {
                 const localApiSettings = this._normalizeApiSettings(localData.apiSettings);
-                const hasPendingLocalApiSettingsChange = this._hasPendingLocalApiSettingsChange(metadataSyncState);
-                const canKeepLocalApiSettings = this._hasMeaningfulApiSettings(localApiSettings);
-                const resolvedRemoteApiSettings = await this._resolveManifestApiSettings(remoteManifest, {
-                    suppressDecryptError: canKeepLocalApiSettings
+                apiSettingsBootstrapSource = this._resolveApiSettingsBootstrapSource({
+                    dirtyMarker,
+                    metadataSyncState,
+                    manifest: remoteManifest,
+                    localApiSettings
                 });
+                hasPendingLocalApiSettingsChange = this._hasPendingLocalApiSettingsChange(metadataSyncState);
+                canKeepLocalApiSettings = hasMeaningfulApiSettings(localApiSettings);
+                remoteApiSettingsMode = getManifestApiSettingsMode(remoteManifest);
 
-                if (resolvedRemoteApiSettings.decryptError) {
+                if (apiSettingsBootstrapSource === 'local') {
+                    apiSettingsMerge = {
+                        value: localApiSettings,
+                        source: 'local',
+                        updatedAt: metadataSyncState.apiSettings.modifiedAt ||
+                            new Date().toISOString(),
+                        conflictResolved: false
+                    };
                     effectiveApiSettings = localApiSettings;
-                    apiConfigAttentionRequired = true;
-                    apiConfigWarningMessage = resolvedRemoteApiSettings.decryptError.message;
+                } else if (remoteApiSettingsMode !== 'missing' && remoteApiSettingsMode !== 'empty') {
+                    const resolvedRemoteApiSettings = await this._resolveManifestApiSettings(remoteManifest, {
+                        suppressDecryptError: true
+                    });
 
-                    if (hasPendingLocalApiSettingsChange) {
+                    if (resolvedRemoteApiSettings.decryptError) {
+                        effectiveApiSettings = localApiSettings;
+                        apiConfigAttentionRequired = true;
+                        apiConfigWarningMessage = resolvedRemoteApiSettings.decryptError.message;
+
+                        if (hasPendingLocalApiSettingsChange) {
+                            apiSettingsMerge = {
+                                value: localApiSettings,
+                                source: 'local',
+                                updatedAt: metadataSyncState.apiSettings.modifiedAt ||
+                                    metadataSyncState.apiSettings.lastSyncedAt ||
+                                    new Date().toISOString(),
+                                conflictResolved: true
+                            };
+                        } else {
+                            apiSettingsMerge = {
+                                value: localApiSettings,
+                                source: 'preserve-remote',
+                                updatedAt: remoteManifest.apiSettingsUpdatedAt ||
+                                    remoteManifest.timestamp ||
+                                    metadataSyncState.apiSettings.lastSyncedAt ||
+                                    null,
+                                conflictResolved: false
+                            };
+                            manifestApiSettings = remoteManifest.apiSettings;
+                            manifestApiSettingsEncrypted = Boolean(remoteManifest.apiSettingsEncrypted);
+                            manifestApiSettingsUpdatedAt = remoteManifest.apiSettingsUpdatedAt || remoteManifest.timestamp || null;
+                        }
+                    } else if (apiSettingsBootstrapSource === 'remote') {
                         apiSettingsMerge = {
-                            value: localApiSettings,
-                            source: 'local',
-                            updatedAt: metadataSyncState.apiSettings.modifiedAt ||
-                                metadataSyncState.apiSettings.lastSyncedAt ||
-                                new Date().toISOString(),
-                            conflictResolved: true
-                        };
-                    } else {
-                        apiSettingsMerge = {
-                            value: localApiSettings,
-                            source: 'preserve-remote',
+                            value: resolvedRemoteApiSettings.value,
+                            source: 'remote',
                             updatedAt: remoteManifest.apiSettingsUpdatedAt ||
                                 remoteManifest.timestamp ||
-                                metadataSyncState.apiSettings.lastSyncedAt ||
-                                null,
+                                new Date().toISOString(),
                             conflictResolved: false
                         };
-                        manifestApiSettings = remoteManifest.apiSettings;
-                        manifestApiSettingsEncrypted = Boolean(remoteManifest.apiSettingsEncrypted);
-                        manifestApiSettingsUpdatedAt = remoteManifest.apiSettingsUpdatedAt || remoteManifest.timestamp || null;
+                        effectiveApiSettings = resolvedRemoteApiSettings.value;
+                    } else {
+                        apiSettingsMerge = this._mergeMetadataValue({
+                            localValue: localData.apiSettings,
+                            remoteValue: resolvedRemoteApiSettings.value,
+                            baseHash: metadataSyncState.apiSettings.baseHash,
+                            localModifiedAt: metadataSyncState.apiSettings.modifiedAt,
+                            remoteUpdatedAt: remoteManifest.apiSettingsUpdatedAt || remoteManifest.timestamp,
+                            normalize: (value) => value === undefined ? undefined : this._normalizeApiSettings(value)
+                        });
+                        effectiveApiSettings = apiSettingsMerge.value;
                     }
                 } else {
-                    apiSettingsMerge = this._mergeMetadataValue({
-                        localValue: localData.apiSettings,
-                        remoteValue: resolvedRemoteApiSettings.value,
-                        baseHash: metadataSyncState.apiSettings.baseHash,
-                        localModifiedAt: metadataSyncState.apiSettings.modifiedAt,
-                        remoteUpdatedAt: remoteManifest.apiSettingsUpdatedAt || remoteManifest.timestamp,
-                        normalize: (value) => value === undefined ? undefined : this._normalizeApiSettings(value)
-                    });
-                    effectiveApiSettings = apiSettingsMerge.value;
+                    apiSettingsMerge = {
+                        value: localApiSettings,
+                        source: hasPendingLocalApiSettingsChange ? 'local' : 'same',
+                        updatedAt: hasPendingLocalApiSettingsChange
+                            ? (metadataSyncState.apiSettings.modifiedAt || new Date().toISOString())
+                            : metadataSyncState.apiSettings.lastSyncedAt,
+                        conflictResolved: false
+                    };
+                    effectiveApiSettings = localApiSettings;
                 }
             }
 
@@ -1605,12 +1766,30 @@ class WebDAVSyncManager {
             }
 
             let apiConfigSynced = false;
-            if (this.config.syncApiConfig && apiSettingsMerge.source === 'remote' && effectiveApiSettings) {
-                Object.assign(syncMetadataUpdates, effectiveApiSettings);
-                apiConfigSynced = true;
+            if (this.config.syncApiConfig && effectiveApiSettings !== undefined) {
+                if (apiSettingsMerge.source === 'remote') {
+                    Object.assign(syncMetadataUpdates, effectiveApiSettings);
+                    apiConfigSynced = true;
+                } else if (apiSettingsBootstrapSource === 'remote' && apiSettingsMerge.source === 'same') {
+                    apiConfigSynced = true;
+                }
             }
 
-            if (this.config.syncApiConfig && effectiveApiSettings && manifestApiSettings === undefined) {
+            const shouldPersistClearedApiSettings =
+                this.config.syncApiConfig &&
+                manifestApiSettings === undefined &&
+                !hasMeaningfulApiSettings(effectiveApiSettings) &&
+                (remoteApiSettingsMode === 'cleared' ||
+                    (apiSettingsMerge.source === 'local' && hasPendingLocalApiSettingsChange));
+
+            if (shouldPersistClearedApiSettings) {
+                manifestApiSettingsCleared = true;
+                manifestApiSettingsUpdatedAt = apiSettingsMerge.updatedAt;
+            } else if (
+                this.config.syncApiConfig &&
+                hasMeaningfulApiSettings(effectiveApiSettings) &&
+                manifestApiSettings === undefined
+            ) {
                 manifestApiSettings = effectiveApiSettings;
                 manifestApiSettingsUpdatedAt = apiSettingsMerge.updatedAt;
                 if (this.config.encryptApiKeys && this.config.encryptionPassword) {
@@ -1632,6 +1811,7 @@ class WebDAVSyncManager {
                 quickChatOptions: quickChatMerge.value,
                 quickChatOptionsUpdatedAt: quickChatMerge.updatedAt,
                 apiSettings: manifestApiSettings,
+                apiSettingsCleared: manifestApiSettingsCleared,
                 apiSettingsEncrypted: manifestApiSettingsEncrypted,
                 apiSettingsUpdatedAt: this.config.syncApiConfig
                     ? (manifestApiSettingsUpdatedAt || apiSettingsMerge.updatedAt)
@@ -1678,7 +1858,10 @@ class WebDAVSyncManager {
                     ? (manifest.apiSettingsUpdatedAt || apiSettingsMerge.updatedAt || manifest.timestamp)
                     : null
             });
-            if (apiConfigAttentionRequired && apiSettingsMerge.source === 'preserve-remote') {
+            const shouldPreservePendingApiBootstrap =
+                apiSettingsBootstrapSource === 'remote' && !apiConfigSynced && !apiConfigAttentionRequired;
+            if ((apiConfigAttentionRequired && apiSettingsMerge.source === 'preserve-remote') ||
+                shouldPreservePendingApiBootstrap) {
                 syncedMetadataState.apiSettings = metadataSyncState.apiSettings;
             }
             await this._batchSavePostSyncState({
@@ -1691,7 +1874,9 @@ class WebDAVSyncManager {
                 metadataSyncState: syncedMetadataState,
                 syncStorageData: Object.keys(syncMetadataUpdates).length > 0 ? syncMetadataUpdates : null
             });
-            await this.clearLocalDataDirty();
+            if (!shouldPreservePendingApiBootstrap) {
+                await this.clearLocalDataDirty();
+            }
             await this._runOrphanCleanupIfNeeded(manifest);
 
             this.notifyListeners('sync-complete', {
@@ -1708,7 +1893,9 @@ class WebDAVSyncManager {
 
             const message = `智能合并：${uploadItems.length} 个上传，${downloadCount} 个下载` +
                 (conflictCount > 0 ? `，${conflictCount} 个冲突自动解决` : '') +
-                (apiConfigAttentionRequired ? '；远端 API 配置无法解密，已保留本地配置' : '');
+                (apiConfigAttentionRequired
+                    ? `；${this._buildApiSettingsAttentionMessage(canKeepLocalApiSettings)}`
+                    : '');
 
             return {
                 success: true,
@@ -1906,7 +2093,8 @@ class WebDAVSyncManager {
             // 使用 dirty flag 快速判斷本地是否有變更（零 hash 計算）
             const dirtyChatIds = chatManager.getDirtyChatIds();
             const hasDirtyChats = dirtyChatIds.size > 0;
-            const hasDirtyLocalData = await this.hasLocalDataDirty();
+            const dirtyMarker = await this.getLocalDataDirtyMarker();
+            const hasDirtyLocalData = Boolean(dirtyMarker);
             const hasPendingLocalChanges = hasDirtyChats || hasDirtyLocalData;
 
             const now = Date.now();
@@ -1985,6 +2173,36 @@ class WebDAVSyncManager {
 
             if (!lastRemoteETag) {
                 return this._cacheCheckResult({ needsSync: true, direction: 'download', reason: '首次同步检查，需要建立基准' });
+            }
+
+            let apiSettingsBootstrapSource = null;
+            if (this.config.syncApiConfig && dirtyMarker) {
+                const [metadataSyncState, cachedManifest, apiConfigResult] = await Promise.all([
+                    this.loadMetadataSyncState(),
+                    this.loadCachedManifest(),
+                    syncStorageAdapter.get([
+                        'apiConfigs',
+                        'selectedConfigIndex',
+                        'searchProvider',
+                        'tavilyApiKey',
+                        'tavilyApiUrl',
+                        'exaApiKey',
+                        'exaApiUrl'
+                    ])
+                ]);
+                apiSettingsBootstrapSource = this._resolveApiSettingsBootstrapSource({
+                    dirtyMarker,
+                    metadataSyncState,
+                    manifest: cachedManifest,
+                    localApiSettings: this._normalizeApiSettings(apiConfigResult)
+                });
+            }
+            if (!hasDirtyChats && apiSettingsBootstrapSource === 'remote') {
+                return this._cacheCheckResult({
+                    needsSync: true,
+                    direction: 'download',
+                    reason: 'API 同步配置已更新，需先下载远端 API 配置建立基线'
+                });
             }
 
             if (!localChanged && !remoteChanged) {

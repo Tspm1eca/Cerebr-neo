@@ -28,6 +28,13 @@ function showToast(message, type = 'success') {
     }, 3000);
 }
 
+function getSyncResultToastConfig(result, fallbackMessage = t('webdav.syncSuccess')) {
+    return {
+        message: result?.message || fallbackMessage,
+        type: result?.apiConfigAttentionRequired ? 'error' : 'success'
+    };
+}
+
 /**
  * 格式化时间戳为可读格式
  * @param {string} timestamp - ISO 时间戳
@@ -525,19 +532,23 @@ class WebDAVSettingsController {
             if (!status.needsSync) {
                 // 没有检测到差异，强制上传本地数据
                 const result = await webdavSyncManager.syncToRemote();
-                showToast(result.message, 'success');
+                const toastConfig = getSyncResultToastConfig(result);
+                showToast(toastConfig.message, toastConfig.type);
             } else if (status.direction === 'conflict') {
                 const result = await webdavSyncManager.bidirectionalSync();
-                showToast(result.message || t('webdav.syncSuccess'), 'success');
+                const toastConfig = getSyncResultToastConfig(result);
+                showToast(toastConfig.message, toastConfig.type);
                 if (result.needsReload && this.callbacks.onDataReload) {
                     await this.callbacks.onDataReload(result);
                 }
             } else if (status.direction === 'upload') {
                 const result = await webdavSyncManager.syncToRemote();
-                showToast(result.message, 'success');
+                const toastConfig = getSyncResultToastConfig(result);
+                showToast(toastConfig.message, toastConfig.type);
             } else if (status.direction === 'download') {
                 const result = await webdavSyncManager.syncFromRemote();
-                showToast(result.message, 'success');
+                const toastConfig = getSyncResultToastConfig(result);
+                showToast(toastConfig.message, toastConfig.type);
                 if (result.needsReload && this.callbacks.onDataReload) {
                     await this.callbacks.onDataReload(result);
                 }
@@ -578,7 +589,8 @@ class WebDAVSettingsController {
 
             // 智能合併結果
             if (syncResult.direction === 'merge' && syncResult.result) {
-                showToast(syncResult.result.message, 'success');
+                const toastConfig = getSyncResultToastConfig(syncResult.result);
+                showToast(toastConfig.message, toastConfig.type);
                 if (syncResult.result.needsReload && this.callbacks.onDataReload) {
                     await this.callbacks.onDataReload(syncResult.result);
                 }
@@ -592,6 +604,11 @@ class WebDAVSettingsController {
                     if (this.callbacks.onDataReload) {
                         await this.callbacks.onDataReload(syncResult.result);
                     }
+                }
+
+                if (syncResult.result?.apiConfigAttentionRequired) {
+                    const toastConfig = getSyncResultToastConfig(syncResult.result);
+                    showToast(toastConfig.message, toastConfig.type);
                 }
             }
             return syncResult;
