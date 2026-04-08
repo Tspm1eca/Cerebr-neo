@@ -19,6 +19,7 @@ export const HTTP_STATUS = {
 export const DEFAULT_TIMEOUT = 30000;
 export const CHAT_DIRECTORY = 'chats';
 export const UPLOAD_CONCURRENCY = 5;
+export const API_SETTINGS_BOOTSTRAP_DIRTY_REASON = 'api-sync-config';
 export const DEFAULT_METADATA_SYNC_STATE = Object.freeze({
     quickChatOptions: Object.freeze({
         baseHash: null,
@@ -365,6 +366,10 @@ export function normalizeMetadataSyncState(rawState) {
     return nextState;
 }
 
+export function hasSyncedMetadataBaseline(syncState) {
+    return Boolean(syncState?.lastSyncedAt);
+}
+
 export function computeStructuredHash(value) {
     const hashSource = JSON.stringify(value === undefined ? null : value);
     let hash = 5381;
@@ -385,6 +390,44 @@ export function normalizeApiSettings(raw = {}) {
         exaApiKey: raw.exaApiKey || '',
         exaApiUrl: raw.exaApiUrl || ''
     };
+}
+
+export function hasMeaningfulApiSettings(raw) {
+    if (raw === undefined) {
+        return false;
+    }
+
+    const normalized = normalizeApiSettings(raw);
+    return Boolean(
+        (Array.isArray(normalized.apiConfigs) && normalized.apiConfigs.length > 0) ||
+        normalized.tavilyApiKey ||
+        normalized.tavilyApiUrl ||
+        normalized.exaApiKey ||
+        normalized.exaApiUrl
+    );
+}
+
+export function isApiSettingsBootstrapPending(dirtyMarker, metadataSyncState = null) {
+    return dirtyMarker?.reason === API_SETTINGS_BOOTSTRAP_DIRTY_REASON &&
+        !hasSyncedMetadataBaseline(normalizeMetadataSyncState(metadataSyncState).apiSettings);
+}
+
+export function resolveApiSettingsBootstrapSource({
+    syncApiConfig = false,
+    dirtyMarker = null,
+    metadataSyncState = null,
+    manifest = null,
+    localApiSettings = undefined
+}) {
+    if (!syncApiConfig || !isApiSettingsBootstrapPending(dirtyMarker, metadataSyncState)) {
+        return null;
+    }
+
+    if (manifest?.apiSettings !== undefined) {
+        return 'remote';
+    }
+
+    return hasMeaningfulApiSettings(localApiSettings) ? 'local' : 'none';
 }
 
 export function buildHashedChatIndexEntry(source, hash) {
@@ -1084,7 +1127,8 @@ export async function performStorageBackedCloseSyncUpload({
     const tombstones = Array.isArray(dirtyState[WEBDAV_DELETED_CHAT_IDS_KEY])
         ? dirtyState[WEBDAV_DELETED_CHAT_IDS_KEY]
         : [];
-    const localDataDirty = Boolean(dirtyState[WEBDAV_LOCAL_DATA_DIRTY_KEY]);
+    const dirtyMarker = dirtyState[WEBDAV_LOCAL_DATA_DIRTY_KEY] || null;
+    const localDataDirty = Boolean(dirtyMarker);
 
     const chatKeys = dirtyIds.map(id => `${CHAT_KEY_PREFIX}${id}`);
     const localSnapshot = await localStorageArea.get([
@@ -1098,10 +1142,6 @@ export async function performStorageBackedCloseSyncUpload({
 
     const cachedManifest = localSnapshot[WEBDAV_CACHED_MANIFEST_KEY];
     const metadataSyncState = normalizeMetadataSyncState(localSnapshot[WEBDAV_METADATA_SYNC_STATE_KEY]);
-    const hasPendingMetadataChanges = Boolean(
-        metadataSyncState.quickChatOptions.modifiedAt ||
-        metadataSyncState.apiSettings.modifiedAt
-    );
     const hashTable = new Map(Object.entries(localSnapshot[WEBDAV_LOCAL_CHAT_HASHES_KEY] || {}));
     const storedChatIndex = Array.isArray(localSnapshot[CHAT_INDEX_KEY])
         ? localSnapshot[CHAT_INDEX_KEY]
@@ -1134,6 +1174,18 @@ export async function performStorageBackedCloseSyncUpload({
         : undefined;
     const quickChatOptionsForHash = Array.isArray(quickChatOptions) ? quickChatOptions : [];
     const apiSettingsForHash = config.syncApiConfig ? normalizeApiSettings(syncMetadata) : undefined;
+    const apiSettingsBootstrapSource = resolveApiSettingsBootstrapSource({
+        syncApiConfig: config.syncApiConfig,
+        dirtyMarker,
+        metadataSyncState,
+        manifest: cachedManifest,
+        localApiSettings: apiSettingsForHash
+    });
+    const preserveRemoteApiSettingsDuringBootstrap = apiSettingsBootstrapSource === 'remote';
+    const hasPendingMetadataChanges = Boolean(
+        metadataSyncState.quickChatOptions.modifiedAt ||
+        metadataSyncState.apiSettings.modifiedAt
+    ) || apiSettingsBootstrapSource === 'local';
 
     const knownDirectories = Array.isArray(localSnapshot[WEBDAV_KNOWN_DIRS_KEY])
         ? localSnapshot[WEBDAV_KNOWN_DIRS_KEY]
@@ -1183,6 +1235,23 @@ export async function performStorageBackedCloseSyncUpload({
         return { skipped: true, reason: 'no-changes' };
     }
 
+    if (preserveRemoteApiSettingsDuringBootstrap &&
+        plannedUploadItems.length === 0 &&
+        !tombstonesChanged &&
+        !hasPendingMetadataChanges) {
+        const currentDirtyResult = await localStorageArea.get(DIRTY_CHAT_IDS_KEY);
+        const currentDirty = Array.isArray(currentDirtyResult[DIRTY_CHAT_IDS_KEY])
+            ? currentDirtyResult[DIRTY_CHAT_IDS_KEY]
+            : [];
+        const processedDirtyIds = new Set(dirtyIds);
+        const remainingDirtyIds = currentDirty.filter(id => !processedDirtyIds.has(id));
+        await localStorageArea.set({
+            [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
+            [WEBDAV_LOCAL_DATA_DIRTY_KEY]: dirtyMarker
+        });
+        return { skipped: true, reason: 'pending-api-bootstrap' };
+    }
+
     if (noChanges && !hasPendingMetadataChanges) {
         const currentDirtyResult = await localStorageArea.get(DIRTY_CHAT_IDS_KEY);
         const currentDirty = Array.isArray(currentDirtyResult[DIRTY_CHAT_IDS_KEY])
@@ -1196,7 +1265,7 @@ export async function performStorageBackedCloseSyncUpload({
         await Promise.all([
             localStorageArea.set({
                 [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
-                [WEBDAV_LOCAL_DATA_DIRTY_KEY]: null
+                [WEBDAV_LOCAL_DATA_DIRTY_KEY]: preserveRemoteApiSettingsDuringBootstrap ? dirtyMarker : null
             }),
             syncStorageArea.set({
                 [WEBDAV_LAST_SYNC_KEY]: lastSync
@@ -1274,6 +1343,9 @@ export async function performStorageBackedCloseSyncUpload({
             ? (manifest.apiSettingsUpdatedAt || apiSettingsUpdatedAt || manifest.timestamp)
             : null
     });
+    if (preserveRemoteApiSettingsDuringBootstrap) {
+        nextMetadataSyncState.apiSettings = metadataSyncState.apiSettings;
+    }
 
     await persistStorageBackedSyncState({
         localStorageArea,
@@ -1289,7 +1361,7 @@ export async function performStorageBackedCloseSyncUpload({
     });
     await localStorageArea.set({
         [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
-        [WEBDAV_LOCAL_DATA_DIRTY_KEY]: null
+        [WEBDAV_LOCAL_DATA_DIRTY_KEY]: preserveRemoteApiSettingsDuringBootstrap ? dirtyMarker : null
     });
 
     return {
