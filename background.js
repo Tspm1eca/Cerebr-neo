@@ -1,5 +1,6 @@
 import {
   encrypt,
+  decrypt,
   decryptPasswordFromStorage,
   isEncryptedPassword
 } from './src/utils/crypto.js';
@@ -743,6 +744,7 @@ async function performWebDAVSyncUpload() {
                 localStorageArea: chrome.storage.local,
                 syncStorageArea: syncStorage,
                 encryptValue: encrypt,
+                decryptValue: decrypt,
                 tombstoneMaxAgeMs: TOMBSTONE_MAX_AGE_MS
             });
             if (result.skipped) return;

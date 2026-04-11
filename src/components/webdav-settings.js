@@ -523,7 +523,10 @@ class WebDAVSettingsController {
         syncNow.disabled = true;
 
         try {
-            const status = await webdavSyncManager.checkSyncStatus({ forceFresh: true });
+            const status = await webdavSyncManager.checkSyncStatus({
+                forceFresh: true,
+                allowRemoteRetry: true
+            });
 
             if (status.direction === 'unknown') {
                 throw new Error(status.reason || t('webdav.syncStatusUnknown'));

@@ -1,3 +1,4 @@
+import { isEncrypted } from '../utils/crypto.js';
 import { computeChatHash } from '../utils/chat-hash.js';
 import { t } from '../utils/i18n.js';
 
@@ -20,6 +21,17 @@ export const DEFAULT_TIMEOUT = 30000;
 export const CHAT_DIRECTORY = 'chats';
 export const UPLOAD_CONCURRENCY = 5;
 export const API_SETTINGS_BOOTSTRAP_DIRTY_REASON = 'api-sync-config';
+export const API_SETTINGS_REMOTE_RETRY_DIRTY_REASON = 'api-sync-remote-retry';
+export const API_SETTINGS_SYNC_CONFIG_DIRTY_REASON = 'api-sync-config-rewrite';
+export const API_SETTINGS_STORAGE_KEYS = Object.freeze([
+    'apiConfigs',
+    'selectedConfigIndex',
+    'searchProvider',
+    'tavilyApiKey',
+    'tavilyApiUrl',
+    'exaApiKey',
+    'exaApiUrl'
+]);
 export const DEFAULT_METADATA_SYNC_STATE = Object.freeze({
     quickChatOptions: Object.freeze({
         baseHash: null,
@@ -47,6 +59,15 @@ const WEBDAV_LOCAL_HASH_KEY = 'webdav_local_hash';
 const WEBDAV_LAST_SYNC_KEY = 'webdav_last_sync';
 export const WEBDAV_SYNC_LOCK_NAME = 'webdav_sync_lock';
 export const WEBDAV_SYNC_ERROR_CODE_BUSY = 'WEBDAV_SYNC_BUSY';
+const DEFAULT_API_SETTINGS = Object.freeze({
+    apiConfigs: Object.freeze([]),
+    selectedConfigIndex: 0,
+    searchProvider: 'tavily',
+    tavilyApiKey: '',
+    tavilyApiUrl: '',
+    exaApiKey: '',
+    exaApiUrl: ''
+});
 
 const DEFAULT_CLIENT_CONFIG = {
     serverUrl: '',
@@ -380,15 +401,21 @@ export function computeStructuredHash(value) {
     return Math.abs(hash).toString(16);
 }
 
+export function computeApiSettingsRetryPasswordFingerprint(encryptionPassword = '') {
+    return encryptionPassword
+        ? computeStructuredHash({ encryptionPassword })
+        : null;
+}
+
 export function normalizeApiSettings(raw = {}) {
     return {
-        apiConfigs: raw.apiConfigs || [],
-        selectedConfigIndex: raw.selectedConfigIndex ?? 0,
-        searchProvider: raw.searchProvider || 'tavily',
-        tavilyApiKey: raw.tavilyApiKey || '',
-        tavilyApiUrl: raw.tavilyApiUrl || '',
-        exaApiKey: raw.exaApiKey || '',
-        exaApiUrl: raw.exaApiUrl || ''
+        apiConfigs: Array.isArray(raw.apiConfigs) ? [...raw.apiConfigs] : [...DEFAULT_API_SETTINGS.apiConfigs],
+        selectedConfigIndex: raw.selectedConfigIndex ?? DEFAULT_API_SETTINGS.selectedConfigIndex,
+        searchProvider: raw.searchProvider || DEFAULT_API_SETTINGS.searchProvider,
+        tavilyApiKey: raw.tavilyApiKey || DEFAULT_API_SETTINGS.tavilyApiKey,
+        tavilyApiUrl: raw.tavilyApiUrl || DEFAULT_API_SETTINGS.tavilyApiUrl,
+        exaApiKey: raw.exaApiKey || DEFAULT_API_SETTINGS.exaApiKey,
+        exaApiUrl: raw.exaApiUrl || DEFAULT_API_SETTINGS.exaApiUrl
     };
 }
 
@@ -400,6 +427,8 @@ export function hasMeaningfulApiSettings(raw) {
     const normalized = normalizeApiSettings(raw);
     return Boolean(
         (Array.isArray(normalized.apiConfigs) && normalized.apiConfigs.length > 0) ||
+        normalized.selectedConfigIndex !== DEFAULT_API_SETTINGS.selectedConfigIndex ||
+        normalized.searchProvider !== DEFAULT_API_SETTINGS.searchProvider ||
         normalized.tavilyApiKey ||
         normalized.tavilyApiUrl ||
         normalized.exaApiKey ||
@@ -407,27 +436,169 @@ export function hasMeaningfulApiSettings(raw) {
     );
 }
 
+export function normalizeSyncableApiSettings(raw = undefined) {
+    if (raw === undefined) {
+        return undefined;
+    }
+
+    const normalized = normalizeApiSettings(raw);
+    return hasMeaningfulApiSettings(normalized) ? normalized : undefined;
+}
+
+export function buildApiSettingsStoragePayload(raw = undefined) {
+    const normalized = normalizeApiSettings(raw);
+    return {
+        apiConfigs: [...normalized.apiConfigs],
+        selectedConfigIndex: normalized.selectedConfigIndex,
+        searchProvider: normalized.searchProvider,
+        tavilyApiKey: normalized.tavilyApiKey,
+        tavilyApiUrl: normalized.tavilyApiUrl,
+        exaApiKey: normalized.exaApiKey,
+        exaApiUrl: normalized.exaApiUrl
+    };
+}
+
 export function isApiSettingsBootstrapPending(dirtyMarker, metadataSyncState = null) {
     return dirtyMarker?.reason === API_SETTINGS_BOOTSTRAP_DIRTY_REASON &&
         !hasSyncedMetadataBaseline(normalizeMetadataSyncState(metadataSyncState).apiSettings);
 }
 
-export function resolveApiSettingsBootstrapSource({
+export function isApiSettingsRemoteRetryPending(dirtyMarker) {
+    return dirtyMarker?.reason === API_SETTINGS_REMOTE_RETRY_DIRTY_REASON;
+}
+
+export function isApiSettingsSyncConfigDirty(dirtyMarker) {
+    return dirtyMarker?.reason === API_SETTINGS_SYNC_CONFIG_DIRTY_REASON;
+}
+
+export function buildApiSettingsRemoteRetryContext({
+    dirtyMarker = null,
+    encryptionPassword = '',
+    remoteEtag = undefined,
+    preserveExistingRetryContext = false
+} = {}) {
+    const hasExistingRetryContext = isApiSettingsRemoteRetryPending(dirtyMarker);
+    const shouldPreserveExistingRetryContext =
+        preserveExistingRetryContext &&
+        hasExistingRetryContext;
+
+    return {
+        passwordFingerprint: shouldPreserveExistingRetryContext
+            ? (dirtyMarker?.passwordFingerprint ?? null)
+            : computeApiSettingsRetryPasswordFingerprint(encryptionPassword),
+        remoteEtag: remoteEtag !== undefined
+            ? remoteEtag
+            : (hasExistingRetryContext ? (dirtyMarker?.remoteEtag ?? null) : null)
+    };
+}
+
+export function shouldAttemptApiSettingsRemoteRetry(dirtyMarker, {
+    encryptionPassword = '',
+    remoteEtag = null,
+    allowManualRetry = false
+} = {}) {
+    if (!isApiSettingsRemoteRetryPending(dirtyMarker)) {
+        return false;
+    }
+
+    if (allowManualRetry) {
+        return true;
+    }
+
+    const currentPasswordFingerprint = computeApiSettingsRetryPasswordFingerprint(encryptionPassword);
+    const passwordChanged = Boolean(currentPasswordFingerprint) &&
+        currentPasswordFingerprint !== (dirtyMarker?.passwordFingerprint ?? null);
+    const remoteChanged = Boolean(remoteEtag) &&
+        Boolean(dirtyMarker?.remoteEtag) &&
+        remoteEtag !== dirtyMarker.remoteEtag;
+
+    return passwordChanged || remoteChanged;
+}
+
+export function resolveApiSettingsSyncPlan({
     syncApiConfig = false,
     dirtyMarker = null,
     metadataSyncState = null,
     manifest = null,
     localApiSettings = undefined
 }) {
-    if (!syncApiConfig || !isApiSettingsBootstrapPending(dirtyMarker, metadataSyncState)) {
-        return null;
+    const normalizedState = normalizeMetadataSyncState(metadataSyncState);
+    const normalizedLocalApiSettings = normalizeSyncableApiSettings(localApiSettings);
+    const bootstrapPending = syncApiConfig &&
+        isApiSettingsBootstrapPending(dirtyMarker, normalizedState);
+    const remoteRetryPending = syncApiConfig &&
+        isApiSettingsRemoteRetryPending(dirtyMarker);
+    const syncConfigDirty = isApiSettingsSyncConfigDirty(dirtyMarker);
+    const hasRemoteApiSettings = manifest?.apiSettings !== undefined;
+
+    let bootstrapSource = null;
+    if (bootstrapPending) {
+        if (hasRemoteApiSettings) {
+            bootstrapSource = 'remote';
+        } else if (normalizedLocalApiSettings !== undefined) {
+            bootstrapSource = 'local';
+        } else {
+            bootstrapSource = 'none';
+        }
     }
 
-    if (manifest?.apiSettings !== undefined) {
-        return 'remote';
+    return {
+        metadataSyncState: normalizedState,
+        localApiSettings: normalizedLocalApiSettings,
+        hasLocalApiSettings: normalizedLocalApiSettings !== undefined,
+        hasRemoteApiSettings,
+        hasPendingLocalApiSettingsChange: Boolean(normalizedState.apiSettings.modifiedAt),
+        bootstrapPending,
+        remoteRetryPending,
+        syncConfigDirty,
+        bootstrapSource,
+        shouldBootstrapFromRemote: bootstrapSource === 'remote',
+        shouldBootstrapFromLocal: bootstrapSource === 'local',
+        shouldRetryRemotePull: remoteRetryPending,
+        shouldForceWriteLocalApiSettings: syncConfigDirty,
+        hasPendingMetadataChanges: Boolean(normalizedState.apiSettings.modifiedAt) ||
+            bootstrapSource === 'local' ||
+            syncConfigDirty
+    };
+}
+
+export async function resolveManifestApiSettings(manifest, {
+    decryptValue = null,
+    encryptionPassword = '',
+    suppressDecryptError = false
+} = {}) {
+    if (!manifest || manifest.apiSettings === undefined) {
+        return { value: undefined, decryptError: null };
     }
 
-    return hasMeaningfulApiSettings(localApiSettings) ? 'local' : 'none';
+    let apiSettings = manifest.apiSettings;
+    if (manifest.apiSettingsEncrypted && isEncrypted(apiSettings)) {
+        if (!encryptionPassword) {
+            const error = new Error(t('webdav.remoteApiConfigEncrypted'));
+            if (!suppressDecryptError) {
+                throw error;
+            }
+            return { value: undefined, decryptError: error };
+        }
+        if (typeof decryptValue !== 'function') {
+            throw new Error('WebDAV manifest API settings decryption is unavailable');
+        }
+        try {
+            apiSettings = await decryptValue(apiSettings, encryptionPassword);
+        } catch {
+            const error = new Error(t('webdav.decryptApiConfigFailed'));
+            if (!suppressDecryptError) {
+                throw error;
+            }
+            console.warn('[WebDAV] 遠端 API 配置無法解密，將保留本地 API 配置');
+            return { value: undefined, decryptError: error };
+        }
+    }
+
+    return {
+        value: normalizeSyncableApiSettings(apiSettings),
+        decryptError: null
+    };
 }
 
 export function buildHashedChatIndexEntry(source, hash) {
@@ -544,6 +715,7 @@ export async function buildUploadMetadataPayload({
     encryptApiKeys = false,
     encryptionPassword = '',
     encryptValue = null,
+    forceWriteApiSettings = false,
     now = new Date().toISOString()
 }) {
     const normalizedState = normalizeMetadataSyncState(metadataSyncState);
@@ -557,26 +729,29 @@ export async function buildUploadMetadataPayload({
     let manifestApiSettings = undefined;
     let manifestApiSettingsEncrypted = false;
     let apiSettingsUpdatedAt = null;
-    const hasPendingApiSettingsChange = Boolean(normalizedState.apiSettings.modifiedAt);
+    const normalizedApiSettings = normalizeSyncableApiSettings(apiSettings);
+    const hasPendingApiSettingsChange = Boolean(normalizedState.apiSettings.modifiedAt) || forceWriteApiSettings;
 
-    if (syncApiConfig && apiSettings !== undefined) {
+    if (syncApiConfig) {
         const shouldWriteLocalApiSettings = hasPendingApiSettingsChange || previousManifest?.apiSettings === undefined;
         if (shouldWriteLocalApiSettings) {
-            manifestApiSettings = apiSettings;
-            apiSettingsUpdatedAt = normalizedState.apiSettings.modifiedAt ||
-                normalizedState.apiSettings.lastSyncedAt ||
-                previousManifest?.apiSettingsUpdatedAt ||
-                previousManifest?.timestamp ||
-                now;
+            manifestApiSettings = normalizedApiSettings;
+            if (normalizedApiSettings !== undefined) {
+                apiSettingsUpdatedAt = normalizedState.apiSettings.modifiedAt ||
+                    normalizedState.apiSettings.lastSyncedAt ||
+                    previousManifest?.apiSettingsUpdatedAt ||
+                    previousManifest?.timestamp ||
+                    now;
+            }
 
-            if (encryptApiKeys) {
+            if (manifestApiSettings !== undefined && encryptApiKeys) {
                 if (!encryptionPassword) {
                     throw new Error(t('webdav.encryptionPasswordMissing'));
                 }
                 if (typeof encryptValue !== 'function') {
                     throw new Error('WebDAV upload metadata encryption is unavailable');
                 }
-                manifestApiSettings = await encryptValue(apiSettings, encryptionPassword);
+                manifestApiSettings = await encryptValue(normalizedApiSettings, encryptionPassword);
                 manifestApiSettingsEncrypted = true;
             }
         } else if (previousManifest?.apiSettings !== undefined) {
@@ -1109,6 +1284,7 @@ export async function performStorageBackedCloseSyncUpload({
     localStorageArea,
     syncStorageArea,
     encryptValue = null,
+    decryptValue = null,
     tombstoneMaxAgeMs = Number.POSITIVE_INFINITY,
     uploadConcurrency = UPLOAD_CONCURRENCY
 }) {
@@ -1161,31 +1337,26 @@ export async function performStorageBackedCloseSyncUpload({
 
     const syncMetadata = await syncStorageArea.get([
         'quickChatOptions',
-        'apiConfigs',
-        'selectedConfigIndex',
-        'searchProvider',
-        'tavilyApiKey',
-        'tavilyApiUrl',
-        'exaApiKey',
-        'exaApiUrl'
+        ...API_SETTINGS_STORAGE_KEYS
     ]);
     const quickChatOptions = Array.isArray(syncMetadata.quickChatOptions)
         ? syncMetadata.quickChatOptions
         : undefined;
     const quickChatOptionsForHash = Array.isArray(quickChatOptions) ? quickChatOptions : [];
-    const apiSettingsForHash = config.syncApiConfig ? normalizeApiSettings(syncMetadata) : undefined;
-    const apiSettingsBootstrapSource = resolveApiSettingsBootstrapSource({
-        syncApiConfig: config.syncApiConfig,
+    const apiSettingsPlan = resolveApiSettingsSyncPlan({
+        syncApiConfig: Boolean(config.syncApiConfig),
         dirtyMarker,
         metadataSyncState,
         manifest: cachedManifest,
-        localApiSettings: apiSettingsForHash
+        localApiSettings: syncMetadata
     });
-    const preserveRemoteApiSettingsDuringBootstrap = apiSettingsBootstrapSource === 'remote';
-    const hasPendingMetadataChanges = Boolean(
-        metadataSyncState.quickChatOptions.modifiedAt ||
-        metadataSyncState.apiSettings.modifiedAt
-    ) || apiSettingsBootstrapSource === 'local';
+    const apiSettingsForHash = config.syncApiConfig ? apiSettingsPlan.localApiSettings : undefined;
+    const preserveRemoteApiSettingsDuringBootstrap = apiSettingsPlan.shouldBootstrapFromRemote;
+    const preserveRemoteApiSettingsState =
+        preserveRemoteApiSettingsDuringBootstrap ||
+        apiSettingsPlan.shouldRetryRemotePull;
+    const hasPendingMetadataChanges = Boolean(metadataSyncState.quickChatOptions.modifiedAt) ||
+        apiSettingsPlan.hasPendingMetadataChanges;
 
     const knownDirectories = Array.isArray(localSnapshot[WEBDAV_KNOWN_DIRS_KEY])
         ? localSnapshot[WEBDAV_KNOWN_DIRS_KEY]
@@ -1235,7 +1406,7 @@ export async function performStorageBackedCloseSyncUpload({
         return { skipped: true, reason: 'no-changes' };
     }
 
-    if (preserveRemoteApiSettingsDuringBootstrap &&
+    if (preserveRemoteApiSettingsState &&
         plannedUploadItems.length === 0 &&
         !tombstonesChanged &&
         !hasPendingMetadataChanges) {
@@ -1265,7 +1436,7 @@ export async function performStorageBackedCloseSyncUpload({
         await Promise.all([
             localStorageArea.set({
                 [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
-                [WEBDAV_LOCAL_DATA_DIRTY_KEY]: preserveRemoteApiSettingsDuringBootstrap ? dirtyMarker : null
+                [WEBDAV_LOCAL_DATA_DIRTY_KEY]: preserveRemoteApiSettingsState ? dirtyMarker : null
             }),
             syncStorageArea.set({
                 [WEBDAV_LAST_SYNC_KEY]: lastSync
@@ -1290,6 +1461,7 @@ export async function performStorageBackedCloseSyncUpload({
     let manifestApiSettings;
     let manifestApiSettingsEncrypted = false;
     let apiSettingsUpdatedAt = null;
+    let shouldKeepRemoteApiRetry = apiSettingsPlan.shouldRetryRemotePull;
 
     try {
         ({
@@ -1306,13 +1478,33 @@ export async function performStorageBackedCloseSyncUpload({
             syncApiConfig: config.syncApiConfig,
             encryptApiKeys: config.encryptApiKeys,
             encryptionPassword: config.encryptionPassword,
-            encryptValue
+            encryptValue,
+            forceWriteApiSettings: apiSettingsPlan.shouldForceWriteLocalApiSettings
         }));
     } catch (encryptError) {
         if (config.syncApiConfig && apiSettingsForHash && config.encryptApiKeys) {
             throw new Error(t('webdav.encryptApiConfigFailed', { error: encryptError.message }));
         }
         throw encryptError;
+    }
+
+    if (config.syncApiConfig && cachedManifest?.apiSettings !== undefined) {
+        const resolvedRemoteApiSettings = await resolveManifestApiSettings(cachedManifest, {
+            decryptValue,
+            encryptionPassword: config.encryptionPassword,
+            suppressDecryptError: true
+        });
+
+        if (resolvedRemoteApiSettings.decryptError &&
+            (apiSettingsPlan.hasPendingLocalApiSettingsChange || apiSettingsPlan.shouldForceWriteLocalApiSettings)) {
+            shouldKeepRemoteApiRetry = true;
+            manifestApiSettings = cachedManifest.apiSettings;
+            manifestApiSettingsEncrypted = Boolean(cachedManifest.apiSettingsEncrypted);
+            apiSettingsUpdatedAt = cachedManifest.apiSettingsUpdatedAt ||
+                cachedManifest.timestamp ||
+                metadataSyncState.apiSettings.lastSyncedAt ||
+                null;
+        }
     }
 
     const { manifest, uploadResult, persistedTombstones, uploadedIds } = await uploadManifestSnapshot({
@@ -1343,7 +1535,7 @@ export async function performStorageBackedCloseSyncUpload({
             ? (manifest.apiSettingsUpdatedAt || apiSettingsUpdatedAt || manifest.timestamp)
             : null
     });
-    if (preserveRemoteApiSettingsDuringBootstrap) {
+    if (preserveRemoteApiSettingsDuringBootstrap || shouldKeepRemoteApiRetry) {
         nextMetadataSyncState.apiSettings = metadataSyncState.apiSettings;
     }
 
@@ -1361,7 +1553,21 @@ export async function performStorageBackedCloseSyncUpload({
     });
     await localStorageArea.set({
         [DIRTY_CHAT_IDS_KEY]: remainingDirtyIds,
-        [WEBDAV_LOCAL_DATA_DIRTY_KEY]: preserveRemoteApiSettingsDuringBootstrap ? dirtyMarker : null
+        [WEBDAV_LOCAL_DATA_DIRTY_KEY]: (preserveRemoteApiSettingsDuringBootstrap || shouldKeepRemoteApiRetry)
+            ? {
+                at: new Date().toISOString(),
+                reason: shouldKeepRemoteApiRetry
+                    ? API_SETTINGS_REMOTE_RETRY_DIRTY_REASON
+                    : dirtyMarker?.reason,
+                ...(shouldKeepRemoteApiRetry
+                    ? buildApiSettingsRemoteRetryContext({
+                        dirtyMarker,
+                        encryptionPassword: config.encryptionPassword,
+                        remoteEtag: uploadResult.etag || null
+                    })
+                    : {})
+            }
+            : null
     });
 
     return {
