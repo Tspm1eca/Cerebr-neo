@@ -167,6 +167,30 @@ function upsertUiContext(context, sender = null) {
   return normalizedContext;
 }
 
+function findEquivalentUiContextIds(context) {
+  if (!context?.contextId) {
+    return [];
+  }
+
+  const duplicateIds = [];
+  for (const [contextId, existingContext] of uiContexts.entries()) {
+    if (contextId === context.contextId) {
+      continue;
+    }
+    if (existingContext?.uiType !== context.uiType) {
+      continue;
+    }
+    if (existingContext?.tabId !== context.tabId) {
+      continue;
+    }
+    if (existingContext?.windowId !== context.windowId) {
+      continue;
+    }
+    duplicateIds.push(contextId);
+  }
+  return duplicateIds;
+}
+
 function removeUiContext(contextId) {
   if (!contextId) return null;
   const removedContext = uiContexts.get(contextId) || null;
@@ -205,6 +229,56 @@ async function cleanupActiveStreamsByOwnerContextIds(contextIds = []) {
   }
 
   return changed || normalizedResult.changed;
+}
+
+async function cleanupOrphanedActiveStreams(liveContextIds = new Set(uiContexts.keys())) {
+  if (!chrome.storage?.session) {
+    return false;
+  }
+
+  const result = await chrome.storage.session.get(ACTIVE_STREAMS_BY_TAB_KEY);
+  const normalizedResult = normalizeActiveStreamsSnapshot(result[ACTIVE_STREAMS_BY_TAB_KEY]);
+  const snapshot = normalizedResult.snapshot;
+  if (!snapshot || typeof snapshot !== 'object') {
+    return normalizedResult.changed;
+  }
+
+  const nextSnapshot = {};
+  let changed = false;
+
+  for (const [scopeKey, streamRecord] of Object.entries(snapshot)) {
+    if (streamRecord?.ownerContextId && !liveContextIds.has(streamRecord.ownerContextId)) {
+      changed = true;
+      continue;
+    }
+    nextSnapshot[scopeKey] = streamRecord;
+  }
+
+  if (changed || normalizedResult.changed) {
+    await chrome.storage.session.set({
+      [ACTIVE_STREAMS_BY_TAB_KEY]: nextSnapshot
+    });
+  }
+
+  return changed || normalizedResult.changed;
+}
+
+async function syncUiContextState(context, sender = null) {
+  const normalizedContext = upsertUiContext(context, sender);
+  if (!normalizedContext) {
+    return null;
+  }
+
+  const duplicateContextIds = findEquivalentUiContextIds(normalizedContext);
+  if (duplicateContextIds.length > 0) {
+    duplicateContextIds.forEach((contextId) => {
+      uiContexts.delete(contextId);
+    });
+    await cleanupActiveStreamsByOwnerContextIds(duplicateContextIds);
+  }
+
+  await cleanupOrphanedActiveStreams(new Set(uiContexts.keys()));
+  return normalizedContext;
 }
 
 async function hasActiveStreamsInSession() {
@@ -280,15 +354,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'REGISTER_UI_CONTEXT') {
-    const context = upsertUiContext(message.context, sender);
-    sendResponse({ success: true, context });
-    return false;
+    (async () => {
+      const context = await syncUiContextState(message.context, sender);
+      sendResponse({ success: true, context });
+    })().catch((error) => {
+      console.warn('注册 UI context 失败:', error);
+      sendResponse({ success: false, error: error?.message || String(error) });
+    });
+    return true;
   }
 
   if (message.type === 'UPDATE_UI_CONTEXT') {
-    const context = upsertUiContext(message.context, sender);
-    sendResponse({ success: true, context });
-    return false;
+    (async () => {
+      const context = await syncUiContextState(message.context, sender);
+      sendResponse({ success: true, context });
+    })().catch((error) => {
+      console.warn('更新 UI context 失败:', error);
+      sendResponse({ success: false, error: error?.message || String(error) });
+    });
+    return true;
   }
 
   if (message.type === 'UNREGISTER_UI_CONTEXT') {
@@ -298,6 +382,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await cleanupActiveStreamsByOwnerContextIds([
           removedContext?.contextId ?? message.contextId
         ]);
+        await cleanupOrphanedActiveStreams(new Set(uiContexts.keys()));
       } catch (error) {
         console.warn('清理 UI context 关联的 stream ownership 失败:', error);
       }
@@ -553,6 +638,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   cleanupActiveStreamsByOwnerContextIds(removedContextIds).catch((error) => {
     console.warn('标签页关闭后清理 stream ownership 失败:', error);
   });
+  cleanupOrphanedActiveStreams(new Set(uiContexts.keys())).catch((error) => {
+    console.warn('标签页关闭后清理 orphan stream 失败:', error);
+  });
 });
 
 chrome.windows.onRemoved.addListener((windowId) => {
@@ -565,6 +653,9 @@ chrome.windows.onRemoved.addListener((windowId) => {
   }
   cleanupActiveStreamsByOwnerContextIds(removedContextIds).catch((error) => {
     console.warn('窗口关闭后清理 stream ownership 失败:', error);
+  });
+  cleanupOrphanedActiveStreams(new Set(uiContexts.keys())).catch((error) => {
+    console.warn('窗口关闭后清理 orphan stream 失败:', error);
   });
 });
 

@@ -6,6 +6,11 @@ function hasNonEmptyString(value) {
     return typeof value === 'string' && value.trim().length > 0;
 }
 
+export function isTransientAssistantState(state) {
+    return state === TRANSIENT_ASSISTANT_STATE_WAITING ||
+        state === TRANSIENT_ASSISTANT_STATE_SEARCHING;
+}
+
 export function hasRenderableMessageContent(message) {
     if (!message) {
         return false;
@@ -27,12 +32,17 @@ export function isTransientAssistantMessage(message) {
         return false;
     }
 
-    if (
-        message.transientState === TRANSIENT_ASSISTANT_STATE_WAITING ||
-        message.transientState === TRANSIENT_ASSISTANT_STATE_SEARCHING
-    ) {
+    if (isTransientAssistantState(message.transientState)) {
         return true;
     }
 
     return Boolean(message.updating && !hasRenderableMessageContent(message));
+}
+
+export function isTransientAssistantStatusPayload(message) {
+    if (!message) {
+        return false;
+    }
+
+    return isTransientAssistantState(message.transientState);
 }

@@ -567,17 +567,6 @@ export function transitionExtractionToWaiting(extractionMsg, chatContainer, opti
 }
 
 /**
- * 為等待訊息添加搜索標記樣式
- * @param {HTMLElement} chatContainer - 聊天容器元素
- */
-export function markWaitingMessageAsSearchUsed(chatContainer) {
-    const waitingMessage = chatContainer.querySelector('.message.ai-message.waiting');
-    if (waitingMessage && !waitingMessage.classList.contains('search-used')) {
-        waitingMessage.classList.add('search-used');
-    }
-}
-
-/**
  * 更新AI消息内容
  * @param {Object} params - 参数对象
  * @param {Object} params.text - 新的消息文本对象，包含content和reasoningContent
@@ -600,16 +589,6 @@ export async function updateAIMessage({
         text !== null &&
         Object.prototype.hasOwnProperty.call(text, 'isError');
     const isError = hasErrorFlag && text.isError === true;
-
-    // 特殊處理：如果內容為空且只有 isSearchUsed 標記，則只更新等待訊息的樣式
-    // 這用於 "on" 模式下搜索完成後立即標記等待訊息
-    if (typeof text === 'object' && text.isSearchUsed && !textContent && !reasoningContent) {
-        const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting');
-        if (waitingMsg && !waitingMsg.classList.contains('search-used')) {
-            waitingMsg.classList.add('search-used');
-        }
-        return true;
-    }
 
     // 检查是否是等待动画标记
     const isWaitingAnimation = textContent === WAITING_ANIMATION_MARKER;

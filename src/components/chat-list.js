@@ -1,6 +1,5 @@
 import { appendMessage, createWaitingMessage, syncStreamAnimationPhase } from '../handlers/message-handler.js';
 import { browserAdapter, isExtensionEnvironment } from '../utils/storage-adapter.js';
-import { chatManager } from '../utils/chat-manager.js';
 import { toggleQuickChatOptions } from './quick-chat.js';
 import { resetWebpageSwitchesForCurrentContext } from './webpage-menu.js';
 import { t } from '../utils/i18n.js';
@@ -122,11 +121,11 @@ export async function renderChatList(chatManager, chatCards, searchTerm = '') {
 }
 
 // 加载对话内容
-export async function loadChatContent(chat, chatContainer) {
+export async function loadChatContent(chat, chatContainer, chatManager) {
     chatContainer.innerHTML = '';
-    const activeStream = chat?.id ? chatManager.getActiveStreamForChat(chat.id) : null;
+    const activeStream = chat?.id ? chatManager?.getActiveStreamForChat(chat.id) : null;
     const hasActiveStream = Boolean(activeStream);
-    if (!hasActiveStream && chat?.id) {
+    if (!hasActiveStream && chat?.id && chatManager) {
         await chatManager.removeTrailingTransientAssistant(chat.id);
     }
     const messages = Array.isArray(chat?.messages) ? chat.messages : [];
@@ -190,7 +189,7 @@ export async function switchToChat(chatId, chatManager, loadChatContentFn = load
     // console.log('switchToChat', chatId);
     const chat = await chatManager.switchChat(chatId);
     if (chat) {
-        await loadChatContentFn(chat, document.getElementById('chat-container'));
+        await loadChatContentFn(chat, document.getElementById('chat-container'), chatManager);
 
         // 根据对话是否有消息来显示或隐藏选项按钮区域
         const hasMessages = chat.messages && chat.messages.length > 0;
@@ -286,7 +285,7 @@ export function initChatListEvents({
             // 如果删除的是当前对话，重新加载聊天内容
             const currentChat = chatManager.getCurrentChat();
             if (currentChat) {
-                await loadChatContentFn(currentChat, document.getElementById('chat-container'));
+                await loadChatContentFn(currentChat, document.getElementById('chat-container'), chatManager);
             }
         } catch (error) {
             console.error('删除对话后刷新失败:', error);
@@ -420,7 +419,7 @@ export function initializeChatList({
                 renderChatList(chatManager, chatCards);
 
                 // 加載新對話內容
-                await loadChatContentFn(newChat, document.getElementById('chat-container'));
+                await loadChatContentFn(newChat, document.getElementById('chat-container'), chatManager);
 
                 // 隱藏對話列表頁面
                 hideChatList(chatListPage);

@@ -17,6 +17,8 @@ import {
 import { webSearch, formatSearchResultsForPrompt } from './web-search.js';
 import { t } from '../utils/i18n.js';
 import {
+    isTransientAssistantState,
+    isTransientAssistantStatusPayload,
     TRANSIENT_ASSISTANT_STATE_SEARCHING,
     TRANSIENT_ASSISTANT_STATE_WAITING,
     WAITING_ANIMATION_MARKER
@@ -1461,8 +1463,7 @@ export async function callAPI({
                 } catch (error) {
                     console.error('处理 web_search tool call 失败:', error);
                     const normalizedToolError = normalizeAPIError(error);
-                    const wasTransientStatus = currentMessage.transientState === TRANSIENT_ASSISTANT_STATE_WAITING ||
-                        currentMessage.transientState === TRANSIENT_ASSISTANT_STATE_SEARCHING;
+                    const wasTransientStatus = isTransientAssistantState(currentMessage.transientState);
                     currentMessage.isError = true;
                     currentMessage.transientState = null;
                     if (wasTransientStatus) {
@@ -1483,7 +1484,12 @@ export async function callAPI({
             controller.abort();
 
             // 無論錯誤類型，都嘗試保存已接收的部分內容，避免資料遺失
-            if (chatManager && chatId && (currentMessage.content || currentMessage.reasoning_content)) {
+            if (
+                chatManager &&
+                chatId &&
+                (currentMessage.content || currentMessage.reasoning_content) &&
+                !isTransientAssistantStatusPayload(currentMessage)
+            ) {
                 try {
                     const partialMessage = createRestoredMessage(currentMessage, idToUrlMap);
                     // 不使用 isFinalUpdate=true，避免在錯誤路徑觸發標題生成 API

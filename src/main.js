@@ -509,7 +509,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     // 加载当前对话内容
     const currentChat = chatManager.getCurrentChat();
     if (currentChat) {
-        await loadChatContent(currentChat, chatContainer);
+        await loadChatContent(currentChat, chatContainer, chatManager);
         const hasMessages = currentChat.messages && currentChat.messages.length > 0;
         toggleQuickChatOptions(!hasMessages);
     }
@@ -861,6 +861,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             if (currentRequestId === activeRequestId && isRequestChatVisible()) {
                 cleanupActiveStreamingMessages(chatContainer);
             }
+            if (currentRequestId === activeRequestId) {
+                activeRequestId = null;
+            }
         }
     }
 
@@ -1079,6 +1082,9 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             // 只有当仍然是当前活动的请求时才清理状态
             if (currentRequestId === activeRequestId && isRequestChatVisible()) {
                 cleanupActiveStreamingMessages(chatContainer);
+            }
+            if (currentRequestId === activeRequestId) {
+                activeRequestId = null;
             }
         }
     }
@@ -2251,7 +2257,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         const currentChat = chatManager.getCurrentChat();
         if (refreshCurrentChat) {
             if (currentChat) {
-                await loadChatContent(currentChat, chatContainer);
+                await loadChatContent(currentChat, chatContainer, chatManager);
                 toggleQuickChatOptions(!(currentChat.messages && currentChat.messages.length > 0));
             } else {
                 chatContainer.innerHTML = '';
