@@ -29,6 +29,7 @@ import {
     USER_QUESTION_HISTORY_STORAGE_KEY,
     sanitizeUserQuestions
 } from './utils/question-history.js';
+import { TRANSIENT_ASSISTANT_STATE_WAITING } from './constants/assistant-state.js';
 
 // 存储用户的问题历史
 let userQuestions = [];
@@ -322,6 +323,13 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
         tick();
     });
+
+    const removeTrailingTransientAssistantPlaceholder = async (chatId) => {
+        if (!chatId) {
+            return false;
+        }
+        return (await chatManager.removeTrailingTransientAssistant(chatId)) > 0;
+    };
 
     const removeActiveWaitingMessage = () => {
         const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
@@ -753,7 +761,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 requestId: currentRequestId
             });
 
-            const messagesToResend = currentChat.messages;
+            const messagesToResend = [...currentChat.messages];
 
             // 准备API调用参数
             // 当传送网页开启时，强制关闭 auto 模式（避免 tool_choice 冲突）
@@ -765,6 +773,12 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             createWaitingMessage(chatContainer, {
                 isSearchUsed: effectiveWebSearchMode === 'on'
             });
+            await chatManager.updateLastMessage(requestChatId, {
+                content: '',
+                reasoning_content: '',
+                isSearchUsed: effectiveWebSearchMode === 'on',
+                transientState: TRANSIENT_ASSISTANT_STATE_WAITING
+            }, false);
 
             const apiParams = {
                 messages: messagesToResend,
@@ -792,6 +806,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         } catch (error) {
             if (error.name === 'AbortError') {
                 console.log('用户手动停止更新');
+                await removeTrailingTransientAssistantPlaceholder(requestChatId);
                 // 如果是手动停止，也要移除等待消息
                 if (currentRequestId === activeRequestId && isRequestChatVisible()) {
                     const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
@@ -814,6 +829,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 return;
             }
             console.error('重新生成消息失败:', error);
+            await removeTrailingTransientAssistantPlaceholder(requestChatId);
             // 只有当仍然是当前活动的请求时才显示错误
             if (currentRequestId === activeRequestId && isRequestChatVisible()) {
                 // 移除等待動畫（如果存在，包括 YouTube 提取狀態）
@@ -950,6 +966,12 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             await chatManager.addMessageToCurrentChat(userMessage, null);
             const persistedChat = chatManager.getChat(requestChatId);
             const messages = persistedChat ? [...persistedChat.messages] : [];
+            await chatManager.updateLastMessage(requestChatId, {
+                content: '',
+                reasoning_content: '',
+                isSearchUsed: webSearchMode === 'on',
+                transientState: TRANSIENT_ASSISTANT_STATE_WAITING
+            }, false);
 
             if (wasNewChat) {
                 const chatCards = chatListPage.querySelector('.chat-cards');
@@ -1000,6 +1022,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         } catch (error) {
             if (error.name === 'AbortError') {
                 console.log('用户手动停止更新');
+                await removeTrailingTransientAssistantPlaceholder(requestChatId);
                 // 如果是手动停止，也要移除等待消息（如果在等待阶段停止）
                 if (currentRequestId === activeRequestId && isRequestChatVisible()) {
                     const waitingMsg = chatContainer.querySelector('.message.ai-message.waiting, .message.ai-message.updating');
@@ -1022,6 +1045,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 return;
             }
             console.error('发送消息失败:', error);
+            await removeTrailingTransientAssistantPlaceholder(requestChatId);
 
             // 只有当仍然是当前活动的请求时才处理错误
             if (currentRequestId === activeRequestId) {
@@ -1048,18 +1072,6 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                         chatContainer,
                         skipHistory: true,
                     });
-                }
-                const requestChat = chatManager.getChat(requestChatId);
-                const messages = requestChat?.messages || [];
-                if (messages.length > 0) {
-                    const lastMsg = messages[messages.length - 1];
-                    const hasAssistantContent = Boolean(
-                        lastMsg?.content?.trim?.() ||
-                        lastMsg?.reasoning_content?.trim?.()
-                    );
-                    if (lastMsg?.role === 'assistant' && !hasAssistantContent) {
-                        await chatManager.popMessage(requestChatId);
-                    }
                 }
             }
         } finally {
@@ -2633,10 +2645,28 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         // pagehide 事件在頁面被卸載時觸發
         // persisted 為 true 表示頁面可能被緩存（bfcache）
         if (!event.persisted) {
-            const currentChatId = chatManager.getCurrentChat()?.id;
-            if (currentChatId && chatManager.canFlushChat(currentChatId)) {
-                chatManager.flushSaveChat(currentChatId).catch(() => {});
+            const teardownRequestId = pendingLocalRequestId || activeRequestId;
+            const teardownChatId = pendingLocalRequestChatId || chatManager.getCurrentChat()?.id;
+
+            abortControllerRef.pendingAbort = true;
+            const controllerToAbort = currentController || abortControllerRef.current;
+            if (controllerToAbort) {
+                controllerToAbort.abort();
             }
+            currentController = null;
+            abortControllerRef.current = null;
+
+            if (teardownRequestId) {
+                releaseLocalRequestProtection({ requestId: teardownRequestId }).catch(() => {});
+            }
+
+            if (teardownChatId) {
+                chatManager.discardTrailingTransientAssistant(teardownChatId);
+            }
+            if (teardownChatId && chatManager.canFlushChat(teardownChatId)) {
+                chatManager.flushSaveChat(teardownChatId).catch(() => {});
+            }
+
             browserAdapter.unregisterUiContext().catch(() => {});
             // 委託給 service worker（訊息傳遞幾乎瞬間完成，SW 可在頁面關閉後繼續執行）
             chrome.runtime.sendMessage({ type: 'WEBDAV_SYNC_UPLOAD' }).catch(() => {});

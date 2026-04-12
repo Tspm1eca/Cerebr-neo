@@ -23,6 +23,13 @@
     contain: layout style paint;
 }
 
+.message.stream-state-restored {
+    opacity: 1;
+    transform: none;
+    animation: none;
+    will-change: auto;
+}
+
 /* 消息中的图片样式 */
 .message img {
     display: block;
@@ -300,12 +307,22 @@
                breathing-glow 2s ease-in-out infinite;
 }
 
+.message.ai-message.waiting.stream-state-restored,
+.message.ai-message.updating.stream-state-restored {
+    animation: breathing-glow 2s ease-in-out infinite;
+}
+
 /* YouTube 字幕模式的紫色呼吸光暈 */
 .message.ai-message.waiting.youtube-chat,
 .message.ai-message.updating.youtube-chat {
     border-color: rgba(160, 100, 220, 0.5);
     animation: messageAppear 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards,
                breathing-glow-youtube 2s ease-in-out infinite;
+}
+
+.message.ai-message.waiting.youtube-chat.stream-state-restored,
+.message.ai-message.updating.youtube-chat.stream-state-restored {
+    animation: breathing-glow-youtube 2s ease-in-out infinite;
 }
 
 /* 確保搜索標記和錯誤標記的優先級高於呼吸光暈 */
@@ -316,10 +333,20 @@
                breathing-glow-search 2s ease-in-out infinite;
 }
 
+.message.ai-message.waiting.search-used.stream-state-restored,
+.message.ai-message.updating.search-used.stream-state-restored {
+    animation: breathing-glow-search 2s ease-in-out infinite;
+}
+
 .message.ai-message.waiting.error,
 .message.ai-message.updating.error {
     border-color: var(--cerebr-error-border);
     animation: messageAppear 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.message.ai-message.waiting.error.stream-state-restored,
+.message.ai-message.updating.error.stream-state-restored {
+    animation: none;
 }
 
 /* 光暈收縮進氣泡的過渡效果 */

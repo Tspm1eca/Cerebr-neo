@@ -1,10 +1,15 @@
-import { appendMessage } from '../handlers/message-handler.js';
+import { appendMessage, createWaitingMessage, syncStreamAnimationPhase } from '../handlers/message-handler.js';
 import { browserAdapter, isExtensionEnvironment } from '../utils/storage-adapter.js';
+import { chatManager } from '../utils/chat-manager.js';
 import { toggleQuickChatOptions } from './quick-chat.js';
 import { resetWebpageSwitchesForCurrentContext } from './webpage-menu.js';
 import { t } from '../utils/i18n.js';
 import { HISTORY_LIMIT_THRESHOLD } from '../constants/history.js';
 import { hideMenuWithAnimation } from '../utils/menu-animation.js';
+import {
+    hasRenderableMessageContent,
+    TRANSIENT_ASSISTANT_STATE_WAITING
+} from '../constants/assistant-state.js';
 
 function showToast(message, type = 'success') {
     const toast = document.createElement('div');
@@ -119,29 +124,57 @@ export async function renderChatList(chatManager, chatCards, searchTerm = '') {
 // 加载对话内容
 export async function loadChatContent(chat, chatContainer) {
     chatContainer.innerHTML = '';
-    // Determine message range
-    const messages = chat.messages;
+    const activeStream = chat?.id ? chatManager.getActiveStreamForChat(chat.id) : null;
+    const hasActiveStream = Boolean(activeStream);
+    if (!hasActiveStream && chat?.id) {
+        await chatManager.removeTrailingTransientAssistant(chat.id);
+    }
+    const messages = Array.isArray(chat?.messages) ? chat.messages : [];
     // console.log('loadChatContent', JSON.stringify(messages));
 
     // Use DocumentFragment to reduce reflow
     const fragment = document.createDocumentFragment();
+    let pendingWaitingMessage = null;
 
     for (let i = 0; i < messages.length; i++) {
         const message = messages[i];
-        const hasRenderableContent = Boolean(message.content) || Boolean(message.reasoning_content);
+        const hasRenderableContent = hasRenderableMessageContent(message);
+        const isPendingAssistant = hasActiveStream &&
+            message.role === 'assistant' &&
+            message.updating &&
+            (!hasRenderableContent || message.transientState === TRANSIENT_ASSISTANT_STATE_WAITING);
+
+        if (isPendingAssistant) {
+            pendingWaitingMessage = message;
+            continue;
+        }
+
         if (hasRenderableContent) {
-            await appendMessage({
+            const messageElement = await appendMessage({
                 text: message,
                 sender: message.role === 'user' ? 'user' : 'ai',
                 chatContainer,
                 skipHistory: true,
                 fragment,
             });
+            if (hasActiveStream && message.role === 'assistant' && message.updating) {
+                messageElement.classList.add('updating', 'stream-state-restored', 'rendered');
+                syncStreamAnimationPhase(messageElement, activeStream?.startedAt);
+            }
         }
     }
 
     // Insert all messages into DOM once
     chatContainer.appendChild(fragment);
+
+    if (hasActiveStream && pendingWaitingMessage) {
+        createWaitingMessage(chatContainer, {
+            isSearchUsed: pendingWaitingMessage.isSearchUsed === true,
+            restored: true,
+            shouldScroll: false,
+            streamStartedAt: activeStream?.startedAt
+        });
+    }
 
     // Show batch messages without entry animation
     requestAnimationFrame(() => {

@@ -10,6 +10,7 @@ import {
     pruneStoredActiveStreams,
     touchActiveStreamRecord
 } from './active-streams.js';
+import { isTransientAssistantMessage } from '../constants/assistant-state.js';
 
 export const CHAT_KEY_PREFIX = 'cerebr_chat_'; // Per-chat key 前綴
 export const CHAT_INDEX_KEY = 'cerebr_chat_index'; // 輕量索引
@@ -1357,12 +1358,20 @@ export class ChatManager {
                 delete lastMessage.isError;
             }
         }
+        if (Object.prototype.hasOwnProperty.call(message, 'transientState')) {
+            if (typeof message.transientState === 'string' && message.transientState) {
+                lastMessage.transientState = message.transientState;
+            } else {
+                delete lastMessage.transientState;
+            }
+        }
 
         this.markChatDirty(chatId);
 
         // 当流式响应结束时，触发标题生成
         if (isFinalUpdate) {
             delete lastMessage.updating;
+            delete lastMessage.transientState;
             this._touchChatUpdatedAt(chatId);
             // 检查是否是第一次AI回复（即对话中只有两条消息，一条user，一条assistant）
             if (currentChat.messages.length === 2) {
@@ -1389,6 +1398,43 @@ export class ChatManager {
         this._touchChatUpdatedAt(currentChat.id);
         this.markChatDirty(currentChat.id);
         await this.saveChat(chatId);
+    }
+
+    discardTrailingTransientAssistant(chatId = this.currentChatId) {
+        if (!chatId) {
+            return false;
+        }
+
+        const currentChat = this.chats.get(chatId);
+        if (!currentChat || !Array.isArray(currentChat.messages) || currentChat.messages.length === 0) {
+            return false;
+        }
+
+        const lastMessage = currentChat.messages[currentChat.messages.length - 1];
+        if (!isTransientAssistantMessage(lastMessage)) {
+            return false;
+        }
+
+        currentChat.messages.pop();
+        this._touchChatUpdatedAt(currentChat.id);
+        this.markChatDirty(currentChat.id);
+        return true;
+    }
+
+    async removeTrailingTransientAssistant(chatId = this.currentChatId) {
+        if (!chatId || !this.canFlushChat(chatId)) {
+            return 0;
+        }
+
+        let removedCount = 0;
+        while (this.discardTrailingTransientAssistant(chatId)) {
+            removedCount++;
+        }
+
+        if (removedCount > 0) {
+            await this.saveChat(chatId);
+        }
+        return removedCount;
     }
 
     async clearCurrentChat() {

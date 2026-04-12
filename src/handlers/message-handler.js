@@ -7,12 +7,48 @@ import { extractCitationText, isCitationLink } from '../../htmd/citation.js';
 import { isTimestampLink } from '../../htmd/timestamp.js';
 import { storageAdapter } from '../utils/storage-adapter.js';
 import { t } from '../utils/i18n.js';
+import { WAITING_ANIMATION_MARKER } from '../constants/assistant-state.js';
 
 const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
+const THINKING_DOTS_CYCLE_MS = 1400;
+const THINKING_DOTS_BASE_DELAYS_MS = [-320, -160, 0];
+const STREAM_GLOW_CYCLE_MS = 2000;
 
 function isYouTubeChat() {
     const chat = chatManager.getCurrentChat();
     return chat?.webpageUrls?.some(url => YT_WATCH_RE.test(url)) ?? false;
+}
+
+function getAnimationOffsetMs(startedAt, cycleMs) {
+    const normalizedStartedAt = Number(startedAt);
+    if (!Number.isFinite(normalizedStartedAt) || normalizedStartedAt <= 0 || cycleMs <= 0) {
+        return 0;
+    }
+
+    const elapsedMs = Math.max(0, Date.now() - normalizedStartedAt);
+    return elapsedMs % cycleMs;
+}
+
+export function syncStreamAnimationPhase(messageEl, startedAt) {
+    if (!messageEl) {
+        return;
+    }
+
+    const glowOffsetMs = getAnimationOffsetMs(startedAt, STREAM_GLOW_CYCLE_MS);
+    if (glowOffsetMs > 0) {
+        messageEl.style.animationDelay = `-${glowOffsetMs}ms`;
+    }
+
+    const dotSpans = messageEl.querySelectorAll('.thinking-dots span');
+    if (dotSpans.length === 0) {
+        return;
+    }
+
+    const dotsOffsetMs = getAnimationOffsetMs(startedAt, THINKING_DOTS_CYCLE_MS);
+    dotSpans.forEach((span, index) => {
+        const baseDelayMs = THINKING_DOTS_BASE_DELAYS_MS[index] ?? 0;
+        span.style.animationDelay = `${baseDelayMs - dotsOffsetMs}ms`;
+    });
 }
 
 // 氣泡拉伸動畫參數（欠阻尼彈簧 F = -k*x - c*v, ζ = c/(2√k)）
@@ -387,10 +423,19 @@ export async function appendMessage({
  * @returns {HTMLElement} 创建的等待消息元素
  */
 export function createWaitingMessage(chatContainer, options = {}) {
-    const { isSearchUsed = false, isYouTube = false } = options;
+    const {
+        isSearchUsed = false,
+        isYouTube = false,
+        restored = false,
+        shouldScroll = true,
+        streamStartedAt = null
+    } = options;
 
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message ai-message waiting';
+    if (restored) {
+        messageDiv.classList.add('stream-state-restored', 'rendered');
+    }
 
     // YouTube 字幕模式標記（用於紫色光暈）
     if (isYouTube || isYouTubeChat()) {
@@ -408,10 +453,15 @@ export function createWaitingMessage(chatContainer, options = {}) {
     messageDiv.appendChild(thinkingDots);
 
     chatContainer.appendChild(messageDiv);
-    chatContainer.scrollTo({
-        top: chatContainer.scrollHeight,
-        behavior: 'smooth'
-    });
+    if (restored) {
+        syncStreamAnimationPhase(messageDiv, streamStartedAt);
+    }
+    if (shouldScroll) {
+        chatContainer.scrollTo({
+            top: chatContainer.scrollHeight,
+            behavior: 'smooth'
+        });
+    }
 
     return messageDiv;
 }
@@ -538,8 +588,6 @@ export function markWaitingMessageAsSearchUsed(chatContainer) {
  * @returns {Promise<boolean>} 返回是否成功更新了消息
  */
 // 等待动画的特殊标记
-const WAITING_ANIMATION_MARKER = '{{WAITING_ANIMATION}}';
-
 export async function updateAIMessage({
     text,
     chatContainer,

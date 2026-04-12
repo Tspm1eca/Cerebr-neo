@@ -16,6 +16,11 @@ import {
 } from './remote-prompts.js';
 import { webSearch, formatSearchResultsForPrompt } from './web-search.js';
 import { t } from '../utils/i18n.js';
+import {
+    TRANSIENT_ASSISTANT_STATE_SEARCHING,
+    TRANSIENT_ASSISTANT_STATE_WAITING,
+    WAITING_ANIMATION_MARKER
+} from '../constants/assistant-state.js';
 
 // 超時配置（毫秒）
 const STREAM_TIMEOUT = 45000; // 流式響應超時：上次收到有效內容後 45 秒內無新內容則超時
@@ -733,6 +738,9 @@ function createRestoredMessage(msg, idToUrlMap) {
     const copy = { ...msg };
     if (copy.content) copy.content = restoreUrls(copy.content, idToUrlMap);
     if (copy.reasoning_content) copy.reasoning_content = restoreUrls(copy.reasoning_content, idToUrlMap);
+    if (!Object.prototype.hasOwnProperty.call(copy, 'transientState')) {
+        copy.transientState = null;
+    }
     return copy;
 }
 
@@ -878,7 +886,8 @@ export async function callAPI({
             const searchingStatusMessage = {
                 content: t('service.searching', { query: extractedQuery }),
                 reasoning_content: '',
-                isSearchUsed: true
+                isSearchUsed: true,
+                transientState: TRANSIENT_ASSISTANT_STATE_SEARCHING
             };
             chatManager.updateLastMessage(chatId, searchingStatusMessage, false);
             onMessageUpdate(chatId, searchingStatusMessage);
@@ -913,8 +922,16 @@ export async function callAPI({
         } finally {
             // 搜索結束後切回等待動畫，保持與 auto 模式一致的過渡體驗
             if (chatManager && chatId) {
-                chatManager.updateLastMessage(chatId, { isSearchUsed: true }, false);
-                onMessageUpdate(chatId, { content: '{{WAITING_ANIMATION}}', reasoning_content: '', isSearchUsed: true });
+                chatManager.updateLastMessage(chatId, {
+                    isSearchUsed: true,
+                    transientState: TRANSIENT_ASSISTANT_STATE_WAITING
+                }, false);
+                onMessageUpdate(chatId, {
+                    content: WAITING_ANIMATION_MARKER,
+                    reasoning_content: '',
+                    isSearchUsed: true,
+                    transientState: TRANSIENT_ASSISTANT_STATE_WAITING
+                });
             }
         }
     } else if (webSearchMode === 'on' && !currentApiKey) {
@@ -990,7 +1007,8 @@ export async function callAPI({
             content: '',
             reasoning_content: '',
             // 如果是 'on' 模式且已執行搜索，則初始化為 true
-            isSearchUsed: searchUsedInOnMode
+            isSearchUsed: searchUsedInOnMode,
+            transientState: null
         };
 
         try {
@@ -1149,6 +1167,7 @@ export async function callAPI({
 
                             // 优先处理原生reasoning_content
                             if (delta?.reasoning_content) {
+                                currentMessage.transientState = null;
                                 currentMessage.reasoning_content += delta.reasoning_content;
                                 hasUpdate = true;
                                 hasNewStreamContentInChunk = true;
@@ -1156,6 +1175,7 @@ export async function callAPI({
                             }
 
                             if (delta?.content) {
+                                currentMessage.transientState = null;
                                 let contentBuffer = delta.content;
                                 while (contentBuffer.length > 0) {
                                     if (!isThinking) {
@@ -1245,6 +1265,7 @@ export async function callAPI({
                             // 显示搜索状态
                             currentMessage.content = t('service.searching', { query: searchQuery });
                             currentMessage.isSearchUsed = true;
+                            currentMessage.transientState = TRANSIENT_ASSISTANT_STATE_SEARCHING;
                             dispatchUpdate();
 
                             // 执行网络搜索（使用統一入口）
@@ -1269,7 +1290,8 @@ export async function callAPI({
                     }
 
                     // 搜索完成，显示等待 AI 回复的动画（使用特殊标记）
-                    currentMessage.content = '{{WAITING_ANIMATION}}';
+                    currentMessage.content = WAITING_ANIMATION_MARKER;
+                    currentMessage.transientState = TRANSIENT_ASSISTANT_STATE_WAITING;
                     dispatchUpdate();
 
                     // 构建包含搜索结果的新消息列表（普通请求格式，不包含 tool prompt）
@@ -1306,6 +1328,7 @@ export async function callAPI({
                     const secondReader = secondResponse.body.getReader();
                     let secondBuffer = '';
                     currentMessage.content = ''; // 清空等待动画，准备接收 AI 回复
+                    currentMessage.transientState = null;
 
                     // 第二次流的超時控制
                     let isSecondFirstChunk = true;
@@ -1360,6 +1383,7 @@ export async function callAPI({
                                     let hasUpdate = false;
 
                                     if (secondDelta?.reasoning_content) {
+                                        currentMessage.transientState = null;
                                         currentMessage.reasoning_content += secondDelta.reasoning_content;
                                         hasUpdate = true;
                                         hasSecondNewStreamContentInChunk = true;
@@ -1367,6 +1391,7 @@ export async function callAPI({
                                     }
 
                                     if (secondDelta?.content) {
+                                        currentMessage.transientState = null;
                                         let contentBuffer = secondDelta.content;
                                         while (contentBuffer.length > 0) {
                                             if (!isThinking) {
@@ -1436,8 +1461,15 @@ export async function callAPI({
                 } catch (error) {
                     console.error('处理 web_search tool call 失败:', error);
                     const normalizedToolError = normalizeAPIError(error);
+                    const wasTransientStatus = currentMessage.transientState === TRANSIENT_ASSISTANT_STATE_WAITING ||
+                        currentMessage.transientState === TRANSIENT_ASSISTANT_STATE_SEARCHING;
                     currentMessage.isError = true;
-                    currentMessage.content += `\n\n${formatAIErrorMessage(normalizedToolError)}`;
+                    currentMessage.transientState = null;
+                    if (wasTransientStatus) {
+                        currentMessage.content = formatAIErrorMessage(normalizedToolError);
+                    } else {
+                        currentMessage.content += `\n\n${formatAIErrorMessage(normalizedToolError)}`;
+                    }
                     dispatchUpdate();
                 }
             }
