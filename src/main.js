@@ -539,6 +539,12 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         messageInput.focus();
     };
 
+    const notifyParentIframeReady = () => {
+        if (uiType === 'iframe' && window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'CEREBR_IFRAME_READY' }, '*');
+        }
+    };
+
     // 监听来自 content script 的消息
     window.addEventListener('message', (event) => {
         // 使用消息输入组件的窗口消息处理函数
@@ -566,6 +572,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
             }
         });
     }
+
+    notifyParentIframeReady();
 
     // 新增：带重试逻辑的API调用函数
     async function callAPIWithRetry(apiParams, chatManager, chatId, requestId, onMessageUpdate, maxRetries = 10) {
