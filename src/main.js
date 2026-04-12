@@ -7,7 +7,7 @@ import { hideContextMenu } from './components/context-menu.js';
 import { initChatContainer } from './components/chat-container.js';
 import { showImagePreview, hideImagePreview } from './utils/ui.js';
 import { initAPICard } from './components/api-card.js';
-import { storageAdapter, syncStorageAdapter, browserAdapter, isExtensionEnvironment, initSyncMode } from './utils/storage-adapter.js';
+import { storageAdapter, syncStorageAdapter, browserAdapter, isExtensionEnvironment, initSyncMode, SYNC_MODE_FLAG_KEY } from './utils/storage-adapter.js';
 import { initMessageInput, getFormattedMessageContent, buildMessageContent, clearMessageInput, handleWindowMessage, updatePermanentPlaceholder } from './components/message-input.js';
 import './utils/viewport.js';
 import { HISTORY_LIMIT_THRESHOLD } from './constants/history.js';
@@ -2094,6 +2094,19 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         }
     }
 
+    function syncModelSelectorUiFromCurrentModel() {
+        const selectedModelName = apiConfigs[selectedConfigIndex]?.modelName || '';
+        const modelSearchInput = modelSelectorMenu?.querySelector('.model-search-input');
+        if (modelSearchInput) {
+            modelSearchInput.placeholder = selectedModelName || t('input.searchModel');
+        }
+
+        const modelSelectorItems = modelSelectorMenu.querySelectorAll('.model-selector-item');
+        modelSelectorItems.forEach((item) => {
+            item.classList.toggle('selected', item.textContent === selectedModelName);
+        });
+    }
+
     // API 卡片控制器引用
     let apiCardController = null;
 
@@ -2174,6 +2187,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 await apiCardController.updateConfigs(apiConfigs, selectedConfigIndex);
             }
             updatePlaceholderWithCurrentModel();
+            syncModelSelectorUiFromCurrentModel();
             chatManager.setApiConfig(apiConfigs[selectedConfigIndex]); // 初始化时设置API配置
         } catch (error) {
             console.error('加载 API 配置失败:', error);
@@ -2195,6 +2209,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 await apiCardController.updateConfigs(apiConfigs, selectedConfigIndex);
             }
             updatePlaceholderWithCurrentModel();
+            syncModelSelectorUiFromCurrentModel();
             chatManager.setApiConfig(apiConfigs[selectedConfigIndex]); // 初始化时设置API配置
         }
     }
@@ -2369,6 +2384,42 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         }, delayMs);
     };
 
+    let apiConfigStorageSyncTimer = null;
+
+    const areApiConfigValuesEqual = (left, right) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+
+    const shouldSyncApiConfigState = (changes) => {
+        if (!changes || typeof changes !== 'object') {
+            return false;
+        }
+
+        if (
+            Object.prototype.hasOwnProperty.call(changes, 'apiConfigs') &&
+            !areApiConfigValuesEqual(changes.apiConfigs?.newValue ?? [], apiConfigs)
+        ) {
+            return true;
+        }
+
+        if (
+            Object.prototype.hasOwnProperty.call(changes, 'selectedConfigIndex') &&
+            (changes.selectedConfigIndex?.newValue ?? 0) !== selectedConfigIndex
+        ) {
+            return true;
+        }
+
+        return false;
+    };
+
+    const scheduleApiConfigStorageSync = (delayMs = 0) => {
+        clearTimeout(apiConfigStorageSyncTimer);
+        apiConfigStorageSyncTimer = setTimeout(() => {
+            apiConfigStorageSyncTimer = null;
+            loadAPIConfigs(true).catch((error) => {
+                console.warn('同步 API 配置失败:', error);
+            });
+        }, delayMs);
+    };
+
     browserAdapter.onTabActivated(async (payload) => {
         if (!isSidePanel) {
             return;
@@ -2411,6 +2462,19 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
     if (isExtensionEnvironment && chrome.storage?.onChanged) {
         chrome.storage.onChanged.addListener((changes, areaName) => {
+            const hasSyncModeChanged = areaName === 'local' && Object.prototype.hasOwnProperty.call(changes, SYNC_MODE_FLAG_KEY);
+            if (hasSyncModeChanged) {
+                initSyncMode()
+                    .then(() => {
+                        scheduleApiConfigStorageSync();
+                    })
+                    .catch((error) => {
+                        console.warn('同步 sync 模式状态失败:', error);
+                    });
+            } else if ((areaName === 'local' || areaName === 'sync') && shouldSyncApiConfigState(changes)) {
+                scheduleApiConfigStorageSync();
+            }
+
             if (areaName === 'session' && Object.prototype.hasOwnProperty.call(changes, ACTIVE_STREAMS_BY_TAB_KEY)) {
                 handleActiveStreamsChanged(changes[ACTIVE_STREAMS_BY_TAB_KEY].newValue);
             }
