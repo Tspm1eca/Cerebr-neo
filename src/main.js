@@ -1555,7 +1555,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     const searchProviderSwitch = document.getElementById('search-provider-switch');
 
     // 网络搜索模式状态
-    let webSearchMode = 'off'; // 'off' | 'auto' | 'on'
+    let webSearchMode = 'auto'; // 'off' | 'auto' | 'on'
     let savedWebSearchMode = null; // 保存禁用前的网络搜索模式
 
     const sidePanelToggle = document.getElementById('side-panel-toggle');
@@ -1660,7 +1660,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     async function initWebSearchSwitch() {
         try {
             const result = await syncStorageAdapter.get('webSearchMode');
-            // 默认为 'off'，兼容旧版本的 enableWebSearch
+            // 默认为 'auto'，兼容旧版本的 enableWebSearch
             if (result.webSearchMode) {
                 webSearchMode = result.webSearchMode;
             } else {
@@ -1669,13 +1669,13 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 if (oldResult.enableWebSearch === true) {
                     webSearchMode = 'on';
                 } else {
-                    webSearchMode = 'off';
+                    webSearchMode = 'auto';
                 }
             }
             updateWebSearchSwitchUI();
         } catch (error) {
             console.error('初始化"网络搜索"开关失败:', error);
-            webSearchMode = 'off';
+            webSearchMode = 'auto';
             updateWebSearchSwitchUI();
         }
     }
