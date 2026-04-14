@@ -1180,10 +1180,8 @@ export class ChatManager {
                 // 清理 dirty flags，避免 WebDAV 同步嘗試同步已刪除的聊天
                 this.clearDirtyChatIds(deletedIds);
 
-                // 通知 WebDAV 同步記錄刪除
-                for (const id of deletedIds) {
-                    document.dispatchEvent(new CustomEvent('chat-deleted', { detail: { chatId: id } }));
-                }
+                // 通知 WebDAV 同步記錄刪除（批次發送一次事件，避免逐條放大寫入次數）
+                document.dispatchEvent(new CustomEvent('chats-deleted', { detail: { chatIds: deletedIds } }));
 
                 const pendingWrites = [
                     this._commitChatStorage({
@@ -1454,7 +1452,7 @@ export class ChatManager {
         // 通知 WebDAV 同步記錄所有刪除（批次發送一次事件）
         const allIds = Array.from(this.chats.keys());
         if (allIds.length > 0) {
-            document.dispatchEvent(new CustomEvent('chats-cleared', { detail: { chatIds: allIds } }));
+            document.dispatchEvent(new CustomEvent('chats-deleted', { detail: { chatIds: allIds } }));
         }
 
         // 清除記憶體

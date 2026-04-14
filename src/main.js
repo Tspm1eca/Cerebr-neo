@@ -2571,24 +2571,29 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     // WebDAV 按需下載：當用戶切換到 _remoteOnly 聊天時從 WebDAV 下載
     chatManager.setOnDemandLoader((chatId) => webdavSyncManager.downloadChatFile(chatId));
 
-    // 監聯聊天刪除事件，記錄 tombstone 以便 WebDAV 同步
-    document.addEventListener('chat-deleted', async (e) => {
-        const { chatId } = e.detail;
-        if (webdavSyncManager.getConfig().enabled) {
-            await webdavSyncManager.addDeletedChatId(chatId);
-            await webdavSyncManager.markLocalDataDirty('chat-delete');
-            await webdavSyncManager.markOrphanCleanupPending();
+    const handleDeletedChatsForWebDAV = async (chatIds) => {
+        if (!webdavSyncManager.getConfig().enabled) {
+            return;
         }
+
+        const normalizedChatIds = [...new Set((Array.isArray(chatIds) ? chatIds : [chatIds]).filter(Boolean))];
+        if (normalizedChatIds.length === 0) {
+            return;
+        }
+
+        await webdavSyncManager.addDeletedChatIds(normalizedChatIds);
+        await webdavSyncManager.markLocalDataDirty('chat-delete');
+        await webdavSyncManager.markOrphanCleanupPending();
+    };
+
+    // 監聽單筆聊天刪除事件
+    document.addEventListener('chat-deleted', async (e) => {
+        await handleDeletedChatsForWebDAV(e.detail?.chatId);
     });
 
-    // 監聽批次清除事件
-    document.addEventListener('chats-cleared', async (e) => {
-        const { chatIds } = e.detail;
-        if (webdavSyncManager.getConfig().enabled) {
-            await webdavSyncManager.addDeletedChatIds(chatIds);
-            await webdavSyncManager.markLocalDataDirty('chat-delete');
-            await webdavSyncManager.markOrphanCleanupPending();
-        }
+    // 監聽批次刪除事件（清空全部與自動清理歷史都走這條路）
+    document.addEventListener('chats-deleted', async (e) => {
+        await handleDeletedChatsForWebDAV(e.detail?.chatIds);
     });
 
     // WebDAV 同步函數 - 當用戶通過 Alt+Z 開啟插件時調用
