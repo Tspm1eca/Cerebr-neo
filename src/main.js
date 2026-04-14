@@ -471,12 +471,10 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     // 初始化常用聊天選項
     const quickChatController = await initQuickChat({
         quickChatContainer,
-        messageInput,
         settingsPage: quickChatSettingsPage,
         settingsButton,
         settingsMenu,
-        sendMessage,
-        uiConfig
+        sendMessage
     });
 
     // 初始化ChatManager
@@ -867,7 +865,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         }
     }
 
-    async function sendMessage() {
+    async function sendMessage({ directText = null } = {}) {
         // 生成新的请求ID
         const currentRequestId = Date.now().toString();
         activeRequestId = currentRequestId;
@@ -894,8 +892,20 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         }
         if (abortControllerRef) abortControllerRef.pendingAbort = false;
 
+        const usingDirectText = typeof directText === 'string';
+
         // 获取格式化后的消息内容
-        const { message, imageTags, previewImages } = getFormattedMessageContent(messageInput);
+        const {
+            message,
+            imageTags,
+            previewImages
+        } = usingDirectText
+            ? {
+                message: directText,
+                imageTags: [],
+                previewImages: []
+            }
+            : getFormattedMessageContent(messageInput);
 
         if (!message.trim() && imageTags.length === 0 && previewImages.length === 0) return;
 

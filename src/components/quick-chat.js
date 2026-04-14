@@ -4,7 +4,6 @@
  */
 
 import { syncStorageAdapter } from '../utils/storage-adapter.js';
-import { clearMessageInput } from './message-input.js';
 import { getDefaultQuickChatOptions } from '../services/remote-prompts.js';
 import { webdavSyncManager } from '../services/webdav-sync.js';
 import { t } from '../utils/i18n.js';
@@ -30,21 +29,17 @@ async function resolveQuickChatOptions({ persistIfMissing = false } = {}) {
  * 初始化常用聊天選項
  * @param {Object} config - 配置對象
  * @param {HTMLElement} config.quickChatContainer - 常用選項容器
- * @param {HTMLElement} config.messageInput - 消息輸入框
  * @param {HTMLElement} config.settingsPage - 設置頁面
  * @param {HTMLElement} config.settingsButton - 設置按鈕
  * @param {HTMLElement} config.settingsMenu - 設置菜單
  * @param {Function} config.sendMessage - 發送消息的函數
- * @param {Object} config.uiConfig - UI配置對象
  */
 export async function initQuickChat({
     quickChatContainer,
-    messageInput,
     settingsPage,
     settingsButton,
     settingsMenu,
-    sendMessage,
-    uiConfig
+    sendMessage
 }) {
     let quickChatOptions = [];
     const quickChatOptionsElement = document.getElementById('quick-chat-options');
@@ -115,22 +110,7 @@ export async function initQuickChat({
 
     // 處理常用選項點擊
     function handleQuickChatClick(option) {
-        if (!messageInput || !sendMessage) return;
-
-        // 清空輸入框
-        clearMessageInput(messageInput, uiConfig);
-
-        // 設置輸入框內容
-        messageInput.textContent = option.prompt;
-
-        // 觸發輸入事件以調整高度
-        messageInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-        // 聚焦輸入框
-        messageInput.focus();
-
-        // 移動光標到末尾
-        moveCaretToEnd(messageInput);
+        if (!sendMessage) return;
 
         // 隱藏選項按鈕區域（帶動畫效果）
         if (quickChatOptionsElement) {
@@ -145,17 +125,7 @@ export async function initQuickChat({
         }
 
         // 自動發送消息
-        sendMessage();
-    }
-
-    // 將光標移動到元素末尾
-    function moveCaretToEnd(element) {
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        range.collapse(false);
-        const selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
+        sendMessage({ directText: option.prompt });
     }
 
     // 初始化設置頁面
