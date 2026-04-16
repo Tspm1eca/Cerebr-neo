@@ -2,7 +2,7 @@
 import { isExtensionEnvironment } from '../utils/storage-adapter.js';
 
 const SESSION_KEY = 'cerebr_remote_prompts';
-const REMOTE_URL = 'https://raw.githubusercontent.com/Tspm1eca/Cerebr-neo/Dev/src/constants/prompts.json';
+const REMOTE_URL = 'https://raw.githubusercontent.com/Tspm1eca/Cerebr-neo/main/src/constants/prompts.json';
 const LOCAL_JSON_PATH = 'src/constants/prompts.json';
 const FETCH_TIMEOUT_MS = 8000;
 
