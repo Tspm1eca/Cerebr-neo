@@ -25,7 +25,9 @@ import {
 import {
     API_SETTINGS_STORAGE_KEYS,
     CHAT_DIRECTORY as SHARED_CHAT_DIRECTORY,
+    DIRTY_CHAT_IDS_KEY,
     UPLOAD_CONCURRENCY as SHARED_UPLOAD_CONCURRENCY,
+    WEBDAV_AUTO_SYNC_PENDING_KEY,
     buildApiSettingsStoragePayload,
     buildManifestUploadPlan,
     buildHashedChatIndexEntry,
@@ -39,6 +41,7 @@ import {
     getManifestDeletedChatIds,
     hasPendingApiSettingsLocalChange,
     isWebDAVSyncBusyError,
+    normalizeWebDAVAutoSyncPendingState,
     normalizeSyncableApiSettings,
     normalizeMetadataSyncState,
     persistStorageBackedSyncState,
@@ -279,6 +282,63 @@ class WebDAVSyncManager {
         } catch {
             return false;
         }
+    }
+
+    async loadAutoSyncPendingState() {
+        try {
+            const result = await storageAdapter.get(WEBDAV_AUTO_SYNC_PENDING_KEY);
+            return normalizeWebDAVAutoSyncPendingState(result[WEBDAV_AUTO_SYNC_PENDING_KEY]);
+        } catch {
+            return null;
+        }
+    }
+
+    async saveAutoSyncPendingState(pendingState) {
+        const normalizedPendingState = normalizeWebDAVAutoSyncPendingState(pendingState);
+        if (!normalizedPendingState) {
+            await storageAdapter.remove([WEBDAV_AUTO_SYNC_PENDING_KEY]);
+            return null;
+        }
+
+        await storageAdapter.set({
+            [WEBDAV_AUTO_SYNC_PENDING_KEY]: normalizedPendingState
+        });
+        return normalizedPendingState;
+    }
+
+    async clearAutoSyncPendingState() {
+        await storageAdapter.remove([WEBDAV_AUTO_SYNC_PENDING_KEY]);
+    }
+
+    async _hasRemainingAutoSyncWork() {
+        try {
+            const dirtyState = await storageAdapter.get([
+                DIRTY_CHAT_IDS_KEY,
+                WEBDAV_DELETED_CHAT_IDS_KEY,
+                WEBDAV_LOCAL_DATA_DIRTY_KEY
+            ]);
+            const dirtyChatIds = Array.isArray(dirtyState[DIRTY_CHAT_IDS_KEY])
+                ? dirtyState[DIRTY_CHAT_IDS_KEY]
+                : [];
+            const deletedChatIds = Array.isArray(dirtyState[WEBDAV_DELETED_CHAT_IDS_KEY])
+                ? dirtyState[WEBDAV_DELETED_CHAT_IDS_KEY]
+                : [];
+
+            return dirtyChatIds.length > 0 ||
+                deletedChatIds.length > 0 ||
+                Boolean(dirtyState[WEBDAV_LOCAL_DATA_DIRTY_KEY]);
+        } catch {
+            return true;
+        }
+    }
+
+    async completeAutoSyncPendingIfResolved() {
+        if (await this._hasRemainingAutoSyncWork()) {
+            return false;
+        }
+
+        await this.clearAutoSyncPendingState();
+        return true;
     }
 
     _normalizeSyncableApiSettings(raw) {
@@ -894,6 +954,10 @@ class WebDAVSyncManager {
                     await this.markLocalDataDirty('webdav-config');
                 }
             }
+        }
+
+        if (!this.config.enabled) {
+            await this.clearAutoSyncPendingState().catch(() => {});
         }
     }
 
@@ -2275,6 +2339,19 @@ class WebDAVSyncManager {
             return { synced: false, direction: null, result: null, error: null, conflict: null };
         }
 
+        const pendingAutoSyncState = await this.loadAutoSyncPendingState();
+        const requiresForegroundSync = options.requiresForegroundSync === true ||
+            pendingAutoSyncState?.requiresForegroundSync === true;
+        const forceFresh = options.forceFresh === true || requiresForegroundSync;
+        const allowRemoteRetry = options.allowRemoteRetry === true || requiresForegroundSync;
+        const finalizePendingIfNeeded = async () => {
+            if (!pendingAutoSyncState) {
+                return false;
+            }
+
+            return await this.completeAutoSyncPendingIfResolved();
+        };
+
         // 加密已启用但未设置密码时，跳过自动同步
         if (this._isEncryptionIncomplete()) {
             console.log('[WebDAV] syncOnOpen 跳过：加密已启用但未设置加密密码');
@@ -2287,7 +2364,10 @@ class WebDAVSyncManager {
         }
 
         try {
-            const status = await this.checkSyncStatus();
+            const status = await this.checkSyncStatus({
+                forceFresh,
+                allowRemoteRetry
+            });
 
             if (status.direction === 'unknown') {
                 console.warn('[WebDAV] syncOnOpen 跳過：', status.reason);
@@ -2301,6 +2381,7 @@ class WebDAVSyncManager {
             }
 
             if (!status.needsSync) {
+                await finalizePendingIfNeeded();
                 return this._finalizeSyncOnOpenResult({
                     synced: false,
                     direction: null,
@@ -2316,6 +2397,7 @@ class WebDAVSyncManager {
                 const result = await this.bidirectionalSync({
                     currentChatId: options.currentChatId
                 });
+                await finalizePendingIfNeeded();
                 return this._finalizeSyncOnOpenResult({
                     synced: true,
                     direction: 'merge',
@@ -2327,6 +2409,7 @@ class WebDAVSyncManager {
 
             if (direction === 'upload') {
                 const result = await this.syncToRemote();
+                await finalizePendingIfNeeded();
                 return this._finalizeSyncOnOpenResult({
                     synced: true,
                     direction: 'upload',
@@ -2338,6 +2421,7 @@ class WebDAVSyncManager {
                 const result = await this.syncFromRemote({
                     currentChatId: options.currentChatId
                 });
+                await finalizePendingIfNeeded();
                 return this._finalizeSyncOnOpenResult({
                     synced: true,
                     direction: 'download',

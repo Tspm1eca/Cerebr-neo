@@ -11,6 +11,10 @@ import { t } from '../utils/i18n.js';
 // 存儲鍵名
 const QUICK_CHAT_OPTIONS_KEY = 'quickChatOptions';
 
+function serializeQuickChatOptionsSnapshot(options) {
+    return JSON.stringify(Array.isArray(options) ? options : null);
+}
+
 async function resolveQuickChatOptions({ persistIfMissing = false } = {}) {
     const result = await syncStorageAdapter.get(QUICK_CHAT_OPTIONS_KEY);
     if (Array.isArray(result.quickChatOptions)) {
@@ -43,10 +47,32 @@ export async function initQuickChat({
 }) {
     let quickChatOptions = [];
     const quickChatOptionsElement = document.getElementById('quick-chat-options');
+    const pendingOwnStorageSnapshots = new Map();
 
     // 設置頁面渲染函數引用（用於外部調用）
     let renderSettingsOptionsRef = null;
     let updateAddButtonStateRef = null;
+
+    function rememberOwnStorageSnapshot(snapshot) {
+        pendingOwnStorageSnapshots.set(snapshot, (pendingOwnStorageSnapshots.get(snapshot) || 0) + 1);
+    }
+
+    function releaseOwnStorageSnapshot(snapshot) {
+        const pendingCount = pendingOwnStorageSnapshots.get(snapshot) || 0;
+        if (pendingCount <= 1) {
+            pendingOwnStorageSnapshots.delete(snapshot);
+            return;
+        }
+        pendingOwnStorageSnapshots.set(snapshot, pendingCount - 1);
+    }
+
+    function consumeOwnStorageSnapshot(snapshot) {
+        if (!pendingOwnStorageSnapshots.has(snapshot)) {
+            return false;
+        }
+        releaseOwnStorageSnapshot(snapshot);
+        return true;
+    }
 
     // 加載常用選項配置
     async function loadQuickChatOptions() {
@@ -68,12 +94,23 @@ export async function initQuickChat({
 
     // 保存常用選項配置
     async function saveQuickChatOptions() {
+        const snapshot = serializeQuickChatOptionsSnapshot(quickChatOptions);
+        rememberOwnStorageSnapshot(snapshot);
         try {
             await syncStorageAdapter.set({ [QUICK_CHAT_OPTIONS_KEY]: quickChatOptions });
             await webdavSyncManager.markLocalDataDirty('quick-chat-options');
         } catch (error) {
+            releaseOwnStorageSnapshot(snapshot);
             console.error('保存常用聊天选项失败:', error);
         }
+    }
+
+    function shouldReloadQuickChatOptionsFromStorage(nextOptions) {
+        const nextSnapshot = serializeQuickChatOptionsSnapshot(nextOptions);
+        if (consumeOwnStorageSnapshot(nextSnapshot)) {
+            return false;
+        }
+        return nextSnapshot !== serializeQuickChatOptionsSnapshot(quickChatOptions);
     }
 
     // 渲染常用選項
@@ -597,7 +634,8 @@ export async function initQuickChat({
     return {
         loadQuickChatOptions,
         saveQuickChatOptions,
-        renderQuickChatOptions
+        renderQuickChatOptions,
+        shouldReloadQuickChatOptionsFromStorage
     };
 }
 

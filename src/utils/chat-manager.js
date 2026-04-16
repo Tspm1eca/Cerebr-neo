@@ -1314,6 +1314,8 @@ export class ChatManager {
         const newTitle = await generateTitle(chat.messages, this.apiConfig);
         if (newTitle && newTitle !== chat.title) {
             chat.title = newTitle;
+            // 以標題真正落地的當下為準：
+            // 若原本那次同步已經完成，這裡需要重新標記 dirty，確保標題能補傳到 WebDAV。
             await this.persistModifiedChat(chat.id);
             // 通知UI更新
             document.dispatchEvent(new CustomEvent('chat-title-updated', { detail: { chatId: chat.id, newTitle } }));

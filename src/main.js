@@ -22,6 +22,9 @@ import { initWebpageMenu, getEnabledTabsContent, resetWebpageSwitchesForCurrentC
 import { initQuickChat, toggleQuickChatOptions } from './components/quick-chat.js';
 import { initWebDAVSettings, showToast as showWebDAVToast } from './components/webdav-settings.js';
 import { webdavSyncManager } from './services/webdav-sync.js';
+import {
+    WEBDAV_AUTO_SYNC_PENDING_KEY
+} from './services/webdav-sync-shared.js';
 import { initI18n, t } from './utils/i18n.js';
 import { fetchAndCacheRemotePrompts, getDefaultSystemPrompt } from './services/remote-prompts.js';
 import { hideMenuWithAnimation, showMenuWithAnimation } from './utils/menu-animation.js';
@@ -2284,7 +2287,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         refreshChatList: false,
         refreshCurrentChat: false
     };
-    const ACTIVE_STREAM_IDLE_SYNC_DELAY_MS = 15000;
+    const ACTIVE_STREAM_IDLE_SYNC_DELAY_MS = 12000;
     let deferredWebDAVSyncTimer = null;
     let hasPendingDeferredWebDAVSync = false;
 
@@ -2421,6 +2424,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     };
 
     let apiConfigStorageSyncTimer = null;
+    let searchSettingsStorageSyncTimer = null;
+    let quickChatStorageSyncTimer = null;
 
     const areApiConfigValuesEqual = (left, right) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 
@@ -2454,6 +2459,98 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 console.warn('同步 API 配置失败:', error);
             });
         }, delayMs);
+    };
+
+    const shouldSyncSearchSettingsState = (changes) => {
+        if (!changes || typeof changes !== 'object') {
+            return false;
+        }
+
+        if (
+            Object.prototype.hasOwnProperty.call(changes, 'searchProvider') &&
+            (changes.searchProvider?.newValue || 'tavily') !== searchProvider
+        ) {
+            return true;
+        }
+
+        if (
+            Object.prototype.hasOwnProperty.call(changes, 'tavilyApiKey') &&
+            (changes.tavilyApiKey?.newValue || '') !== tavilyApiKey
+        ) {
+            return true;
+        }
+
+        if (
+            Object.prototype.hasOwnProperty.call(changes, 'tavilyApiUrl') &&
+            (changes.tavilyApiUrl?.newValue || '') !== tavilyApiUrl
+        ) {
+            return true;
+        }
+
+        if (
+            Object.prototype.hasOwnProperty.call(changes, 'exaApiKey') &&
+            (changes.exaApiKey?.newValue || '') !== exaApiKey
+        ) {
+            return true;
+        }
+
+        if (
+            Object.prototype.hasOwnProperty.call(changes, 'exaApiUrl') &&
+            (changes.exaApiUrl?.newValue || '') !== exaApiUrl
+        ) {
+            return true;
+        }
+
+        return false;
+    };
+
+    const shouldSyncQuickChatState = (changes) => {
+        if (!changes || typeof changes !== 'object') {
+            return false;
+        }
+
+        if (!Object.prototype.hasOwnProperty.call(changes, 'quickChatOptions')) {
+            return false;
+        }
+
+        if (
+            JSON.stringify(changes.quickChatOptions?.oldValue ?? null) ===
+            JSON.stringify(changes.quickChatOptions?.newValue ?? null)
+        ) {
+            return false;
+        }
+
+        return quickChatController.shouldReloadQuickChatOptionsFromStorage(
+            changes.quickChatOptions?.newValue
+        );
+    };
+
+    const scheduleSearchSettingsStorageSync = (delayMs = 50) => {
+        clearTimeout(searchSettingsStorageSyncTimer);
+        searchSettingsStorageSyncTimer = setTimeout(() => {
+            searchSettingsStorageSyncTimer = null;
+            loadSearchSettings().catch((error) => {
+                console.warn('同步搜索设置失败:', error);
+            });
+        }, delayMs);
+    };
+
+    const scheduleQuickChatStorageSync = (delayMs = 50) => {
+        clearTimeout(quickChatStorageSyncTimer);
+        quickChatStorageSyncTimer = setTimeout(() => {
+            quickChatStorageSyncTimer = null;
+            quickChatController.loadQuickChatOptions().catch((error) => {
+                console.warn('同步快捷聊天设置失败:', error);
+            });
+        }, delayMs);
+    };
+
+    const shouldTriggerForegroundSyncFromPendingState = (changes, areaName) => {
+        if (areaName !== 'local' || !webdavSyncManager.getConfig().enabled) {
+            return false;
+        }
+
+        return changes[WEBDAV_AUTO_SYNC_PENDING_KEY]?.newValue?.requiresForegroundSync === true;
     };
 
     browserAdapter.onTabActivated(async (payload) => {
@@ -2503,16 +2600,32 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
                 initSyncMode()
                     .then(() => {
                         scheduleApiConfigStorageSync();
+                        scheduleSearchSettingsStorageSync();
+                        scheduleQuickChatStorageSync();
                     })
                     .catch((error) => {
                         console.warn('同步 sync 模式状态失败:', error);
                     });
-            } else if ((areaName === 'local' || areaName === 'sync') && shouldSyncApiConfigState(changes)) {
-                scheduleApiConfigStorageSync();
+            } else if (areaName === 'local' || areaName === 'sync') {
+                if (shouldSyncApiConfigState(changes)) {
+                    scheduleApiConfigStorageSync();
+                }
+                if (shouldSyncSearchSettingsState(changes)) {
+                    scheduleSearchSettingsStorageSync();
+                }
+                if (shouldSyncQuickChatState(changes)) {
+                    scheduleQuickChatStorageSync();
+                }
             }
 
             if (areaName === 'session' && Object.prototype.hasOwnProperty.call(changes, ACTIVE_STREAMS_BY_TAB_KEY)) {
                 handleActiveStreamsChanged(changes[ACTIVE_STREAMS_BY_TAB_KEY].newValue);
+            }
+
+            if (document.visibilityState === 'visible') {
+                if (shouldTriggerForegroundSyncFromPendingState(changes, areaName)) {
+                    requestDeferredWebDAVSync(1000);
+                }
             }
 
             const chatSyncImpact = chatManager.getChatStorageSyncImpact(changes, areaName);

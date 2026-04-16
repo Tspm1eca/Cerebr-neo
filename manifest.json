@@ -15,6 +15,7 @@
   },
   "permissions": [
     "storage",
+    "alarms",
     "commands",
     "scripting",
     "sidePanel",

@@ -42,18 +42,19 @@ export const DEFAULT_METADATA_SYNC_STATE = Object.freeze({
     })
 });
 
-const DIRTY_CHAT_IDS_KEY = 'cerebr_dirty_chat_ids';
+export const DIRTY_CHAT_IDS_KEY = 'cerebr_dirty_chat_ids';
 const CHAT_INDEX_KEY = 'cerebr_chat_index';
 const CHAT_KEY_PREFIX = 'cerebr_chat_';
-const WEBDAV_DELETED_CHAT_IDS_KEY = 'webdav_deleted_chat_ids';
-const WEBDAV_CACHED_MANIFEST_KEY = 'webdav_cached_manifest';
-const WEBDAV_LOCAL_CHAT_HASHES_KEY = 'webdav_local_chat_hashes';
-const WEBDAV_LOCAL_DATA_DIRTY_KEY = 'webdav_local_data_dirty';
-const WEBDAV_KNOWN_DIRS_KEY = 'webdav_known_directories';
-const WEBDAV_METADATA_SYNC_STATE_KEY = 'webdav_metadata_sync_state';
-const WEBDAV_REMOTE_ETAG_KEY = 'webdav_remote_etag';
-const WEBDAV_LOCAL_HASH_KEY = 'webdav_local_hash';
-const WEBDAV_LAST_SYNC_KEY = 'webdav_last_sync';
+export const WEBDAV_DELETED_CHAT_IDS_KEY = 'webdav_deleted_chat_ids';
+export const WEBDAV_CACHED_MANIFEST_KEY = 'webdav_cached_manifest';
+export const WEBDAV_LOCAL_CHAT_HASHES_KEY = 'webdav_local_chat_hashes';
+export const WEBDAV_LOCAL_DATA_DIRTY_KEY = 'webdav_local_data_dirty';
+export const WEBDAV_KNOWN_DIRS_KEY = 'webdav_known_directories';
+export const WEBDAV_METADATA_SYNC_STATE_KEY = 'webdav_metadata_sync_state';
+export const WEBDAV_REMOTE_ETAG_KEY = 'webdav_remote_etag';
+export const WEBDAV_LOCAL_HASH_KEY = 'webdav_local_hash';
+export const WEBDAV_LAST_SYNC_KEY = 'webdav_last_sync';
+export const WEBDAV_AUTO_SYNC_PENDING_KEY = 'webdav_auto_sync_pending';
 export const WEBDAV_SYNC_LOCK_NAME = 'webdav_sync_lock';
 export const WEBDAV_SYNC_ERROR_CODE_BUSY = 'WEBDAV_SYNC_BUSY';
 const DEFAULT_API_SETTINGS = Object.freeze({
@@ -238,6 +239,14 @@ function normalizeTimestampToMs(value) {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeNonNegativeInteger(value, fallback = 0) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return fallback;
+    }
+    return Math.floor(parsed);
+}
+
 function normalizeCompactTimestampToIso(value) {
     if (typeof value !== 'string' || !/^[0-9a-z]{6,}$/i.test(value)) {
         return null;
@@ -383,6 +392,46 @@ export function normalizeMetadataSyncState(rawState) {
         };
     }
     return nextState;
+}
+
+export function normalizeWebDAVAutoSyncPendingState(rawState) {
+    if (!rawState || typeof rawState !== 'object') {
+        return null;
+    }
+
+    return {
+        reason: typeof rawState.reason === 'string' && rawState.reason
+            ? rawState.reason
+            : 'local-change',
+        attempt: normalizeNonNegativeInteger(rawState.attempt, 0),
+        nextRunAt: normalizeTimestampToIso(rawState.nextRunAt),
+        requiresForegroundSync: rawState.requiresForegroundSync === true,
+        lastError: typeof rawState.lastError === 'string' && rawState.lastError
+            ? rawState.lastError
+            : null,
+        updatedAt: normalizeTimestampToIso(rawState.updatedAt)
+    };
+}
+
+export function createWebDAVAutoSyncPendingState(overrides = {}) {
+    const normalized = normalizeWebDAVAutoSyncPendingState({
+        reason: 'local-change',
+        attempt: 0,
+        nextRunAt: null,
+        requiresForegroundSync: false,
+        lastError: null,
+        updatedAt: new Date().toISOString(),
+        ...overrides
+    });
+
+    return normalized ? normalized : {
+        reason: 'local-change',
+        attempt: 0,
+        nextRunAt: null,
+        requiresForegroundSync: false,
+        lastError: null,
+        updatedAt: new Date().toISOString()
+    };
 }
 
 export function hasSyncedMetadataBaseline(syncState) {
@@ -1146,6 +1195,72 @@ export class WebDAVClient {
 
         return response.headers.get('ETag') || response.headers.get('Last-Modified') || null;
     }
+}
+
+export async function canRunStorageBackedUploadFromBackground({
+    client,
+    syncStorageArea,
+    filename = 'cerebr.json'
+}) {
+    if (!client?.getRemoteETag) {
+        throw new Error('WebDAV client is required for background safety checks');
+    }
+    if (!syncStorageArea?.get || !syncStorageArea?.set) {
+        throw new Error('syncStorageArea is required for background safety checks');
+    }
+
+    const etagResult = await syncStorageArea.get(WEBDAV_REMOTE_ETAG_KEY);
+    let baselineEtag = etagResult[WEBDAV_REMOTE_ETAG_KEY] || null;
+    const remoteEtag = await client.getRemoteETag(filename);
+    let baselineRefreshed = false;
+
+    if (
+        remoteEtag &&
+        typeof baselineEtag === 'string' &&
+        baselineEtag.startsWith('__needs_refresh_')
+    ) {
+        baselineEtag = remoteEtag;
+        baselineRefreshed = true;
+        await syncStorageArea.set({ [WEBDAV_REMOTE_ETAG_KEY]: remoteEtag });
+    }
+
+    if (remoteEtag === null) {
+        return {
+            safe: true,
+            reason: 'remote-missing',
+            remoteEtag: null,
+            baselineEtag,
+            baselineRefreshed
+        };
+    }
+
+    if (!baselineEtag) {
+        return {
+            safe: false,
+            reason: 'missing-baseline',
+            remoteEtag,
+            baselineEtag: null,
+            baselineRefreshed
+        };
+    }
+
+    if (remoteEtag === baselineEtag) {
+        return {
+            safe: true,
+            reason: 'etag-match',
+            remoteEtag,
+            baselineEtag,
+            baselineRefreshed
+        };
+    }
+
+    return {
+        safe: false,
+        reason: 'remote-changed',
+        remoteEtag,
+        baselineEtag,
+        baselineRefreshed
+    };
 }
 
 export async function uploadManifestSnapshot({

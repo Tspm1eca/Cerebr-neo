@@ -557,6 +557,7 @@ class WebDAVSettingsController {
                 }
             }
 
+            await webdavSyncManager.completeAutoSyncPendingIfResolved();
             await this.updateLastSyncTimeDisplay();
         } catch (error) {
             showToast(t('webdav.syncFailed') + '<br>' + error.message, 'error');
@@ -575,7 +576,10 @@ class WebDAVSettingsController {
     async performSyncOnOpen(options = {}) {
         try {
             const syncResult = await webdavSyncManager.syncOnOpen({
-                currentChatId: options.currentChatId
+                currentChatId: options.currentChatId,
+                forceFresh: options.forceFresh,
+                allowRemoteRetry: options.allowRemoteRetry,
+                requiresForegroundSync: options.requiresForegroundSync
             });
 
             // 開啟時的自動同步以安靜為主：狀態探測失敗時先略過這一輪，

@@ -6,6 +6,15 @@ import {
 } from './src/utils/crypto.js';
 import { SYNC_MODE_FLAG_KEY } from './src/utils/storage-adapter.js';
 import {
+  WebDAVClient,
+  WEBDAV_AUTO_SYNC_PENDING_KEY,
+  WEBDAV_DELETED_CHAT_IDS_KEY,
+  WEBDAV_KNOWN_DIRS_KEY,
+  WEBDAV_LOCAL_DATA_DIRTY_KEY,
+  canRunStorageBackedUploadFromBackground,
+  createWebDAVAutoSyncPendingState,
+  DIRTY_CHAT_IDS_KEY,
+  normalizeWebDAVAutoSyncPendingState,
   performStorageBackedCloseSyncUpload,
   withWebDAVSyncLock,
 } from './src/services/webdav-sync-shared.js';
@@ -17,6 +26,433 @@ import {
 } from './src/utils/active-streams.js';
 
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const WEBDAV_CONFIG_KEY = 'webdav_config';
+const WEBDAV_ENCRYPTION_PASSWORD_KEY = 'webdav_encryption_password';
+const WEBDAV_AUTO_SYNC_ALARM_NAME = 'webdav_auto_sync_alarm';
+const WEBDAV_AUTO_SYNC_MIN_DELAY_MS = 30 * 1000;
+const WEBDAV_AUTO_SYNC_MAX_RETRY_DELAY_MS = 5 * 60 * 1000;
+
+function normalizeAutoSyncDelayMs(delayMs, fallback = WEBDAV_AUTO_SYNC_MIN_DELAY_MS) {
+  const parsedDelay = Number(delayMs);
+  if (!Number.isFinite(parsedDelay) || parsedDelay <= 0) {
+    return fallback;
+  }
+  return Math.max(WEBDAV_AUTO_SYNC_MIN_DELAY_MS, Math.floor(parsedDelay));
+}
+
+function computeWebDAVAutoSyncRetryDelayMs(attempt = 1) {
+  if (attempt <= 1) {
+    return WEBDAV_AUTO_SYNC_MIN_DELAY_MS;
+  }
+  if (attempt === 2) {
+    return 60 * 1000;
+  }
+  if (attempt === 3) {
+    return 2 * 60 * 1000;
+  }
+  return WEBDAV_AUTO_SYNC_MAX_RETRY_DELAY_MS;
+}
+
+function hasAnyActiveStreamRecord(snapshotValue) {
+  const normalized = normalizeActiveStreamsSnapshot(snapshotValue);
+  const snapshot = normalized.snapshot;
+  return Boolean(snapshot && Object.keys(snapshot).length > 0);
+}
+
+function getDirtyReasonFromSnapshot(dirtySnapshot, fallbackReason = 'local-change') {
+  if (dirtySnapshot?.dirtyMarker?.reason) {
+    return dirtySnapshot.dirtyMarker.reason;
+  }
+  if ((dirtySnapshot?.deletedChatIds?.length || 0) > 0) {
+    return 'chat-delete';
+  }
+  if ((dirtySnapshot?.dirtyChatIds?.length || 0) > 0) {
+    return 'chat-update';
+  }
+  return fallbackReason;
+}
+
+function shouldPauseWebDAVAutoSyncForError(error) {
+  const status = Number(error?.status);
+  return status === 401 || status === 403;
+}
+
+async function loadWebDAVDirtySnapshot() {
+  const result = await chrome.storage.local.get([
+    DIRTY_CHAT_IDS_KEY,
+    WEBDAV_DELETED_CHAT_IDS_KEY,
+    WEBDAV_LOCAL_DATA_DIRTY_KEY
+  ]);
+  const dirtyChatIds = Array.isArray(result[DIRTY_CHAT_IDS_KEY])
+    ? result[DIRTY_CHAT_IDS_KEY]
+    : [];
+  const deletedChatIds = Array.isArray(result[WEBDAV_DELETED_CHAT_IDS_KEY])
+    ? result[WEBDAV_DELETED_CHAT_IDS_KEY]
+    : [];
+  const dirtyMarker = result[WEBDAV_LOCAL_DATA_DIRTY_KEY] || null;
+
+  return {
+    dirtyChatIds,
+    deletedChatIds,
+    dirtyMarker,
+    hasDirty: dirtyChatIds.length > 0 || deletedChatIds.length > 0 || Boolean(dirtyMarker)
+  };
+}
+
+async function loadWebDAVAutoSyncPendingState() {
+  const result = await chrome.storage.local.get(WEBDAV_AUTO_SYNC_PENDING_KEY);
+  return normalizeWebDAVAutoSyncPendingState(result[WEBDAV_AUTO_SYNC_PENDING_KEY]);
+}
+
+async function saveWebDAVAutoSyncPendingState(pendingState) {
+  const normalizedPendingState = normalizeWebDAVAutoSyncPendingState(pendingState);
+  if (!normalizedPendingState) {
+    await chrome.storage.local.remove([WEBDAV_AUTO_SYNC_PENDING_KEY]);
+    return null;
+  }
+
+  await chrome.storage.local.set({
+    [WEBDAV_AUTO_SYNC_PENDING_KEY]: normalizedPendingState
+  });
+  return normalizedPendingState;
+}
+
+async function scheduleWebDAVAutoSyncAlarm(delayMs = WEBDAV_AUTO_SYNC_MIN_DELAY_MS) {
+  const normalizedDelayMs = normalizeAutoSyncDelayMs(delayMs);
+  const when = Date.now() + normalizedDelayMs;
+  await chrome.alarms.create(WEBDAV_AUTO_SYNC_ALARM_NAME, { when });
+  return when;
+}
+
+async function clearWebDAVAutoSyncAlarm() {
+  await chrome.alarms.clear(WEBDAV_AUTO_SYNC_ALARM_NAME);
+}
+
+async function markWebDAVAutoSyncPending({
+  reason = 'local-change',
+  delayMs = WEBDAV_AUTO_SYNC_MIN_DELAY_MS,
+  attempt = 0,
+  requiresForegroundSync = false,
+  lastError = null,
+  preserveForegroundRequirement = true
+} = {}) {
+  const existingPendingState = await loadWebDAVAutoSyncPendingState();
+  const nextRequiresForegroundSync = preserveForegroundRequirement
+    ? Boolean(existingPendingState?.requiresForegroundSync || requiresForegroundSync)
+    : Boolean(requiresForegroundSync);
+  const nextRunAt = nextRequiresForegroundSync || delayMs === null
+    ? null
+    : new Date(await scheduleWebDAVAutoSyncAlarm(delayMs)).toISOString();
+
+  if (nextRequiresForegroundSync || delayMs === null) {
+    await clearWebDAVAutoSyncAlarm();
+  }
+
+  return await saveWebDAVAutoSyncPendingState(createWebDAVAutoSyncPendingState({
+    reason: reason || existingPendingState?.reason || 'local-change',
+    attempt,
+    nextRunAt,
+    requiresForegroundSync: nextRequiresForegroundSync,
+    lastError,
+    updatedAt: new Date().toISOString()
+  }));
+}
+
+async function completeWebDAVAutoSyncPending() {
+  await Promise.all([
+    chrome.storage.local.remove([WEBDAV_AUTO_SYNC_PENDING_KEY]),
+    clearWebDAVAutoSyncAlarm()
+  ]);
+}
+
+async function loadWebDAVRuntimeConfig() {
+  const syncStorage = await getSyncStorage();
+  const [configResult, passwordResult, knownDirectoriesResult] = await Promise.all([
+    syncStorage.get(WEBDAV_CONFIG_KEY),
+    chrome.storage.local.get(WEBDAV_ENCRYPTION_PASSWORD_KEY),
+    chrome.storage.local.get(WEBDAV_KNOWN_DIRS_KEY)
+  ]);
+
+  const storedConfig = configResult[WEBDAV_CONFIG_KEY];
+  const storedPassword = passwordResult[WEBDAV_ENCRYPTION_PASSWORD_KEY];
+  let encryptionPassword = '';
+  if (storedPassword) {
+    if (isEncryptedPassword(storedPassword)) {
+      try {
+        encryptionPassword = await decryptPasswordFromStorage(storedPassword);
+      } catch (error) {
+        console.error('[WebDAV AutoSync] 解密本地加密密码失败:', error);
+        encryptionPassword = '';
+      }
+    } else {
+      encryptionPassword = storedPassword;
+    }
+  }
+
+  return {
+    syncStorage,
+    config: storedConfig ? { ...storedConfig, encryptionPassword } : null,
+    knownDirectories: Array.isArray(knownDirectoriesResult[WEBDAV_KNOWN_DIRS_KEY])
+      ? knownDirectoriesResult[WEBDAV_KNOWN_DIRS_KEY]
+      : []
+  };
+}
+
+async function refreshWebDAVAutoSyncPendingFromDirtyState(fallbackReason = 'local-change') {
+  const dirtySnapshot = await loadWebDAVDirtySnapshot();
+  if (!dirtySnapshot.hasDirty) {
+    await completeWebDAVAutoSyncPending();
+    return null;
+  }
+
+  const { config } = await loadWebDAVRuntimeConfig();
+  if (!config?.enabled) {
+    await completeWebDAVAutoSyncPending();
+    return null;
+  }
+
+  if (config.encryptApiKeys && !config.encryptionPassword) {
+    return await markWebDAVAutoSyncPending({
+      reason: getDirtyReasonFromSnapshot(dirtySnapshot, fallbackReason),
+      delayMs: null,
+      attempt: 0,
+      requiresForegroundSync: false,
+      lastError: 'Encryption password is missing for WebDAV auto sync',
+      preserveForegroundRequirement: false
+    });
+  }
+
+  const existingPendingState = await loadWebDAVAutoSyncPendingState();
+  if (existingPendingState?.requiresForegroundSync) {
+    return await saveWebDAVAutoSyncPendingState({
+      ...existingPendingState,
+      reason: getDirtyReasonFromSnapshot(dirtySnapshot, fallbackReason),
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  return await markWebDAVAutoSyncPending({
+    reason: getDirtyReasonFromSnapshot(dirtySnapshot, fallbackReason),
+    delayMs: WEBDAV_AUTO_SYNC_MIN_DELAY_MS,
+    attempt: 0,
+    requiresForegroundSync: false,
+    lastError: null,
+    preserveForegroundRequirement: false
+  });
+}
+
+async function rehydrateWebDAVAutoSyncAlarm() {
+  const dirtySnapshot = await loadWebDAVDirtySnapshot();
+  if (!dirtySnapshot.hasDirty) {
+    await completeWebDAVAutoSyncPending();
+    return null;
+  }
+
+  const { config } = await loadWebDAVRuntimeConfig();
+  if (!config?.enabled) {
+    await completeWebDAVAutoSyncPending();
+    return null;
+  }
+
+  let pendingState = await loadWebDAVAutoSyncPendingState();
+  if (!pendingState) {
+    pendingState = await saveWebDAVAutoSyncPendingState(createWebDAVAutoSyncPendingState({
+      reason: getDirtyReasonFromSnapshot(dirtySnapshot, 'local-change'),
+      attempt: 0,
+      nextRunAt: null,
+      requiresForegroundSync: false,
+      lastError: null,
+      updatedAt: new Date().toISOString()
+    }));
+  }
+
+  if (config.encryptApiKeys && !config.encryptionPassword) {
+    pendingState = await saveWebDAVAutoSyncPendingState({
+      ...pendingState,
+      reason: getDirtyReasonFromSnapshot(dirtySnapshot, pendingState.reason),
+      nextRunAt: null,
+      lastError: 'Encryption password is missing for WebDAV auto sync',
+      updatedAt: new Date().toISOString()
+    });
+    await clearWebDAVAutoSyncAlarm();
+    return pendingState;
+  }
+
+  if (pendingState.requiresForegroundSync) {
+    await clearWebDAVAutoSyncAlarm();
+    return pendingState;
+  }
+
+  const requestedRunAt = Date.parse(pendingState.nextRunAt || '');
+  const delayMs = Number.isFinite(requestedRunAt)
+    ? Math.max(WEBDAV_AUTO_SYNC_MIN_DELAY_MS, requestedRunAt - Date.now())
+    : WEBDAV_AUTO_SYNC_MIN_DELAY_MS;
+
+  return await markWebDAVAutoSyncPending({
+    reason: pendingState.reason || getDirtyReasonFromSnapshot(dirtySnapshot, 'local-change'),
+    delayMs,
+    attempt: pendingState.attempt || 0,
+    requiresForegroundSync: false,
+    lastError: pendingState.lastError,
+    preserveForegroundRequirement: false
+  });
+}
+
+async function runScheduledWebDAVAutoSync() {
+  const pendingState = await loadWebDAVAutoSyncPendingState();
+  if (!pendingState) {
+    await clearWebDAVAutoSyncAlarm();
+    return { skipped: true, reason: 'no-pending' };
+  }
+
+  const dirtySnapshot = await loadWebDAVDirtySnapshot();
+  if (!dirtySnapshot.hasDirty) {
+    await completeWebDAVAutoSyncPending();
+    return { skipped: true, reason: 'no-dirty' };
+  }
+
+  const dirtyReason = getDirtyReasonFromSnapshot(dirtySnapshot, pendingState.reason);
+  const { syncStorage, config, knownDirectories } = await loadWebDAVRuntimeConfig();
+
+  if (!config?.enabled) {
+    await completeWebDAVAutoSyncPending();
+    return { skipped: true, reason: 'disabled' };
+  }
+
+  if (config.encryptApiKeys && !config.encryptionPassword) {
+    await markWebDAVAutoSyncPending({
+      reason: dirtyReason,
+      delayMs: null,
+      attempt: pendingState.attempt || 0,
+      requiresForegroundSync: false,
+      lastError: 'Encryption password is missing for WebDAV auto sync'
+    });
+    return { skipped: true, reason: 'encryption-password-missing' };
+  }
+
+  if (pendingState.requiresForegroundSync) {
+    await clearWebDAVAutoSyncAlarm();
+    return { skipped: true, reason: 'foreground-sync-required' };
+  }
+
+  if (await hasActiveStreamsInSession()) {
+    await markWebDAVAutoSyncPending({
+      reason: dirtyReason,
+      delayMs: WEBDAV_AUTO_SYNC_MIN_DELAY_MS,
+      attempt: pendingState.attempt || 0,
+      requiresForegroundSync: false,
+      lastError: null,
+      preserveForegroundRequirement: false
+    });
+    return { skipped: true, reason: 'active-streams' };
+  }
+
+  const client = new WebDAVClient(config, knownDirectories);
+  client.updateConfig(config);
+
+  try {
+    return await withWebDAVSyncLock(async () => {
+      const latestDirtySnapshot = await loadWebDAVDirtySnapshot();
+      if (!latestDirtySnapshot.hasDirty) {
+        await completeWebDAVAutoSyncPending();
+        return { skipped: true, reason: 'no-dirty' };
+      }
+
+      if (await hasActiveStreamsInSession()) {
+        await markWebDAVAutoSyncPending({
+          reason: getDirtyReasonFromSnapshot(latestDirtySnapshot, dirtyReason),
+          delayMs: WEBDAV_AUTO_SYNC_MIN_DELAY_MS,
+          attempt: pendingState.attempt || 0,
+          requiresForegroundSync: false,
+          lastError: null,
+          preserveForegroundRequirement: false
+        });
+        return { skipped: true, reason: 'active-streams' };
+      }
+
+      const safetyCheck = await canRunStorageBackedUploadFromBackground({
+        client,
+        syncStorageArea: syncStorage
+      });
+
+      if (!safetyCheck.safe) {
+        await markWebDAVAutoSyncPending({
+          reason: getDirtyReasonFromSnapshot(latestDirtySnapshot, dirtyReason),
+          delayMs: null,
+          attempt: 0,
+          requiresForegroundSync: true,
+          lastError: safetyCheck.reason === 'missing-baseline'
+            ? 'Foreground sync is required before background upload can proceed'
+            : 'Remote manifest changed; foreground merge is required',
+          preserveForegroundRequirement: false
+        });
+        console.log('[WebDAV AutoSync] 偵測到遠端狀態已改變，交由 foreground 完整同步處理');
+        return {
+          skipped: true,
+          reason: safetyCheck.reason,
+          requiresForegroundSync: true
+        };
+      }
+
+      const result = await performStorageBackedCloseSyncUpload({
+        config,
+        client,
+        localStorageArea: chrome.storage.local,
+        syncStorageArea: syncStorage,
+        encryptValue: encrypt,
+        decryptValue: decrypt,
+        tombstoneMaxAgeMs: TOMBSTONE_MAX_AGE_MS
+      });
+
+      await refreshWebDAVAutoSyncPendingFromDirtyState(dirtyReason);
+
+      return {
+        skipped: Boolean(result.skipped),
+        reason: result.reason || null,
+        uploadedIds: result.uploadedIds || [],
+        persistedTombstones: result.persistedTombstones || []
+      };
+    }, {
+      logLabel: '[WebDAV AutoSync]',
+      onBusy: async () => {
+        await markWebDAVAutoSyncPending({
+          reason: dirtyReason,
+          delayMs: WEBDAV_AUTO_SYNC_MIN_DELAY_MS,
+          attempt: pendingState.attempt || 0,
+          requiresForegroundSync: false,
+          lastError: null,
+          preserveForegroundRequirement: false
+        });
+        return { skipped: true, reason: 'busy' };
+      }
+    });
+  } catch (error) {
+    const latestPendingState = await loadWebDAVAutoSyncPendingState();
+    const nextAttempt = (latestPendingState?.attempt ?? pendingState.attempt ?? 0) + 1;
+
+    if (shouldPauseWebDAVAutoSyncForError(error)) {
+      await markWebDAVAutoSyncPending({
+        reason: dirtyReason,
+        delayMs: null,
+        attempt: nextAttempt,
+        requiresForegroundSync: false,
+        lastError: error.message
+      });
+      return { skipped: true, reason: 'paused-error', error: error.message };
+    }
+
+    await markWebDAVAutoSyncPending({
+      reason: dirtyReason,
+      delayMs: computeWebDAVAutoSyncRetryDelayMs(nextAttempt),
+      attempt: nextAttempt,
+      requiresForegroundSync: false,
+      lastError: error.message,
+      preserveForegroundRequirement: false
+    });
+    console.warn('[WebDAV AutoSync] 背景自動同步失敗，已排入重試:', error);
+    return { skipped: false, reason: 'retry-scheduled', error: error.message };
+  }
+}
 
 // Helper: 根據 sync 模式 flag 取得正確的 storage area（Service Worker 可能隨時重啟）
 async function getSyncStorage() {
@@ -42,6 +478,7 @@ self.addEventListener('activate', (event) => {
         if (chrome.storage?.session) {
           await pruneStoredActiveStreams(chrome.storage.session);
         }
+        await rehydrateWebDAVAutoSyncAlarm();
       } catch (error) {
         // console.warn('clients.claim() 失败，但可以安全地忽略:', error);
       }
@@ -620,11 +1057,78 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
         const domains = { ...oldValue, ...newValue };
         chrome.storage.local.set({ webpageSwitchDomains: domains });
     }
+
+    if (
+      areaName === 'local' &&
+      (
+        Object.prototype.hasOwnProperty.call(changes, DIRTY_CHAT_IDS_KEY) ||
+        Object.prototype.hasOwnProperty.call(changes, WEBDAV_LOCAL_DATA_DIRTY_KEY) ||
+        Object.prototype.hasOwnProperty.call(changes, WEBDAV_DELETED_CHAT_IDS_KEY)
+      )
+    ) {
+      refreshWebDAVAutoSyncPendingFromDirtyState().catch((error) => {
+        console.warn('[WebDAV AutoSync] 根據 dirty state 更新 pending 失敗:', error);
+      });
+    }
+
+    if (
+      (areaName === 'local' || areaName === 'sync') &&
+      Object.prototype.hasOwnProperty.call(changes, WEBDAV_CONFIG_KEY)
+    ) {
+      rehydrateWebDAVAutoSyncAlarm().catch((error) => {
+        console.warn('[WebDAV AutoSync] WebDAV 設定變更後重建 alarm 失敗:', error);
+      });
+    }
+
+    if (
+      areaName === 'local' &&
+      (
+        Object.prototype.hasOwnProperty.call(changes, WEBDAV_ENCRYPTION_PASSWORD_KEY) ||
+        Object.prototype.hasOwnProperty.call(changes, SYNC_MODE_FLAG_KEY)
+      )
+    ) {
+      rehydrateWebDAVAutoSyncAlarm().catch((error) => {
+        console.warn('[WebDAV AutoSync] 本地同步條件變更後重建 alarm 失敗:', error);
+      });
+    }
+
+    if (
+      areaName === 'session' &&
+      Object.prototype.hasOwnProperty.call(changes, ACTIVE_STREAMS_BY_TAB_KEY)
+    ) {
+      const oldHasStreams = hasAnyActiveStreamRecord(changes[ACTIVE_STREAMS_BY_TAB_KEY]?.oldValue);
+      const newHasStreams = hasAnyActiveStreamRecord(changes[ACTIVE_STREAMS_BY_TAB_KEY]?.newValue);
+      if (oldHasStreams && !newHasStreams) {
+        rehydrateWebDAVAutoSyncAlarm().catch((error) => {
+          console.warn('[WebDAV AutoSync] active stream 結束後重建 alarm 失敗:', error);
+        });
+      }
+    }
 });
 
 // 简化初始化检查
 chrome.runtime.onInstalled.addListener(() => {
-    console.log('扩展已安装/更新:', new Date().toISOString());
+  console.log('扩展已安装/更新:', new Date().toISOString());
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  rehydrateWebDAVAutoSyncAlarm().catch((error) => {
+    console.warn('[WebDAV AutoSync] 啟動時重建 alarm 失敗:', error);
+  });
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm?.name !== WEBDAV_AUTO_SYNC_ALARM_NAME) {
+    return;
+  }
+
+  runScheduledWebDAVAutoSync().catch((error) => {
+    console.error('[WebDAV AutoSync] alarm 執行失敗:', error);
+  });
+});
+
+rehydrateWebDAVAutoSyncAlarm().catch((error) => {
+  console.warn('[WebDAV AutoSync] 背景初始化時重建 alarm 失敗:', error);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -802,29 +1306,8 @@ async function performWebDAVSyncUpload() {
 
         await withWebDAVSyncLock(async () => {
             // 1. 讀取 WebDAV 配置
-            const syncStorage = await getSyncStorage();
-            const [{ webdav_config: storedConfig }, passwordResult] = await Promise.all([
-                syncStorage.get('webdav_config'),
-                chrome.storage.local.get('webdav_encryption_password')
-            ]);
-            if (!storedConfig || !storedConfig.enabled) return;
-
-            let encryptionPassword = '';
-            const storedPassword = passwordResult.webdav_encryption_password;
-            if (storedPassword) {
-                if (isEncryptedPassword(storedPassword)) {
-                    try {
-                        encryptionPassword = await decryptPasswordFromStorage(storedPassword);
-                    } catch (error) {
-                        console.error('[WebDAV SW] 解密本地加密密码失败:', error);
-                        encryptionPassword = '';
-                    }
-                } else {
-                    encryptionPassword = storedPassword;
-                }
-            }
-
-            const config = { ...storedConfig, encryptionPassword };
+            const { syncStorage, config } = await loadWebDAVRuntimeConfig();
+            if (!config || !config.enabled) return;
             if (config.encryptApiKeys && !config.encryptionPassword) {
                 console.log('[WebDAV SW] 加密已启用但未设置加密密码，跳過同步');
                 return;
@@ -838,6 +1321,7 @@ async function performWebDAVSyncUpload() {
                 decryptValue: decrypt,
                 tombstoneMaxAgeMs: TOMBSTONE_MAX_AGE_MS
             });
+            await refreshWebDAVAutoSyncPendingFromDirtyState('close-sync');
             if (result.skipped) return;
 
             console.log(
