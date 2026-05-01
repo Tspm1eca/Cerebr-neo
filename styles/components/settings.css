@@ -85,10 +85,10 @@
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.5) rotate(-120deg);
 }
-
+/*
 #settings-button:hover {
     background-color: var(--cerebr-button-hover-bg);
-}
+} */
 
 #settings-button[data-web-search-mode="disabled"]:hover {
     color: var(--cerebr-text-color);
@@ -138,10 +138,10 @@
                 opacity 0.2s ease;
 }
 
-#new-chat-button:hover {
+/* #new-chat-button:hover {
     background-color: var(--cerebr-button-hover-bg);
     color: var(--cerebr-text-color);
-}
+} */
 
 #new-chat-button:hover svg {
     transform: scale(1.1);
@@ -194,10 +194,10 @@
                 opacity 0.2s ease;
 }
 
-#stop-response-button:hover {
+/* #stop-response-button:hover {
     background-color: var(--cerebr-button-hover-bg);
     color: #ff4d4f;
-}
+} */
 
 #stop-response-button:hover svg {
     transform: scale(1.1);
