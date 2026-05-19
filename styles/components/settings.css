@@ -81,6 +81,31 @@
     transform: translate(-50%, -50%) scale(1) rotate(0deg);
 }
 
+#settings-button.web-search-mode-bounce:not([data-web-search-mode="disabled"]) .settings-icon-compass {
+    animation: settings-web-search-mode-bounce 0.34s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes settings-web-search-mode-bounce {
+    0% {
+        transform: translate(-50%, -50%) scale(1) rotate(0deg);
+    }
+    24% {
+        transform: translate(-50%, -50%) scale(1) rotate(13deg);
+    }
+    48% {
+        transform: translate(-50%, -50%) scale(1) rotate(-10deg);
+    }
+    70% {
+        transform: translate(-50%, -50%) scale(1) rotate(6deg);
+    }
+    88% {
+        transform: translate(-50%, -50%) scale(1) rotate(-3deg);
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(1) rotate(0deg);
+    }
+}
+
 #settings-button[data-web-search-mode="disabled"] .settings-icon-compass {
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.5) rotate(-120deg);

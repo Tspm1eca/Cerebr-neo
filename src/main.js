@@ -1698,6 +1698,7 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         'auto': 'searchProvider.triStateAuto',
         'on': 'searchProvider.triStateOn'
     };
+    const WEB_SEARCH_MODES = ['off', 'auto', 'on'];
 
     function updateWebSearchSwitchUI() {
         webSearchSwitch.dataset.value = webSearchMode;
@@ -1709,16 +1710,17 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 
     // 循环切换模式：off -> auto -> on -> off
     function cycleWebSearchMode() {
-        const modes = ['off', 'auto', 'on'];
-        const currentIndex = modes.indexOf(webSearchMode);
-        const nextIndex = (currentIndex + 1) % modes.length;
-        webSearchMode = modes[nextIndex];
+        const currentIndex = WEB_SEARCH_MODES.indexOf(webSearchMode);
+        const nextIndex = (currentIndex + 1) % WEB_SEARCH_MODES.length;
+        webSearchMode = WEB_SEARCH_MODES[nextIndex];
         return webSearchMode;
     }
 
-    // 监听三态按钮点击
-    webSearchSwitch.addEventListener('click', async (e) => {
-        e.stopPropagation();
+    async function cycleAndSaveWebSearchMode() {
+        if (webSearchSwitch.disabled) {
+            return;
+        }
+
         cycleWebSearchMode();
         updateWebSearchSwitchUI();
         try {
@@ -1726,6 +1728,35 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
         } catch (error) {
             console.error('保存"网络搜索"设置失败:', error);
         }
+    }
+
+    function playSettingsWebSearchModeAnimation() {
+        settingsButton.classList.remove('web-search-mode-bounce');
+        void settingsButton.offsetWidth;
+        settingsButton.classList.add('web-search-mode-bounce');
+    }
+
+    settingsButton.addEventListener('animationend', (e) => {
+        if (e.animationName === 'settings-web-search-mode-bounce') {
+            settingsButton.classList.remove('web-search-mode-bounce');
+        }
+    });
+
+    // 监听三态按钮点击
+    webSearchSwitch.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await cycleAndSaveWebSearchMode();
+    });
+
+    settingsButton.addEventListener('contextmenu', async (e) => {
+        if (!WEB_SEARCH_MODES.includes(settingsButton.dataset.webSearchMode)) {
+            return;
+        }
+
+        e.preventDefault();
+        e.stopPropagation();
+        await cycleAndSaveWebSearchMode();
+        playSettingsWebSearchModeAnimation();
     });
 
     // 先初始化网络搜索模式，确保 webSearchMode 从 storage 正确载入
