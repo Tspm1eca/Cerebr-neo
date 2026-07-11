@@ -4,6 +4,8 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
 const WEBPAGE_SWITCHES_KEY = 'webpageSwitches';
 const WEBPAGE_SWITCHES_BY_SCOPE_KEY = 'webpageSwitchesByScope';
 const GLOBAL_WEBPAGE_SWITCH_SCOPE = 'global';
+let webpageSwitchUpdateQueue = Promise.resolve();
+let webpageMenuDragTargetState = null;
 
 function isPlainObject(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -87,6 +89,40 @@ function getUniqueTabsByUrl(tabs, preferredTabId = null) {
     return tabs.filter((tab) => chosenTabsByUrl.get(tab.url)?.id === tab.id);
 }
 
+async function saveWebpageSwitch(tab, isChecked) {
+    const {
+        scopeKey,
+        switches: currentSwitches,
+        scopedSwitchesByScope
+    } = await getWebpageSwitchScopeState();
+    const nextSwitches = { ...currentSwitches, [tab.id]: isChecked };
+    await saveWebpageSwitchScopeState(scopeKey, nextSwitches, scopedSwitchesByScope);
+}
+
+async function reloadWebpageTabIfNeeded(tab) {
+    const isConnected = await browserAdapter.isTabConnected(tab.id);
+    if (!isConnected) {
+        await browserAdapter.reloadTab(tab.id);
+        console.log(`Webpage-menu: populateWebpageContentMenu Reloaded tab ${tab.id} ${tab.title} (${tab.url}).`);
+        // 可选：刷新后可以给个提示或自动重新打开菜单
+    }
+}
+
+function queueWebpageSwitchUpdate(tab, isChecked) {
+    webpageSwitchUpdateQueue = webpageSwitchUpdateQueue
+        .catch(() => {})
+        .then(() => saveWebpageSwitch(tab, isChecked));
+    return webpageSwitchUpdateQueue;
+}
+
+function isPrimaryMouseButtonPressed(event) {
+    return (event.buttons & 1) === 1;
+}
+
+function resetWebpageMenuDragState() {
+    webpageMenuDragTargetState = null;
+}
+
 async function populateWebpageContentMenu(webpageContentMenu) {
     webpageContentMenu.innerHTML = ''; // 清空现有内容
     let allTabs = await browserAdapter.getAllTabs();
@@ -142,24 +178,64 @@ async function populateWebpageContentMenu(webpageContentMenu) {
             : (tab.id === currentTab?.id);
         switchInput.checked = isEnabled;
 
-        switchInput.addEventListener('change', async (e) => {
+        switchInput.addEventListener('change', (e) => {
             const isChecked = e.target.checked;
-            const {
-                scopeKey,
-                switches: currentSwitches,
-                scopedSwitchesByScope
-            } = await getWebpageSwitchScopeState();
-            const nextSwitches = { ...currentSwitches, [tab.id]: isChecked };
-            await saveWebpageSwitchScopeState(scopeKey, nextSwitches, scopedSwitchesByScope);
+            queueWebpageSwitchUpdate(tab, isChecked)
+                .then(() => {
+                    if (isChecked) {
+                        return reloadWebpageTabIfNeeded(tab);
+                    }
+                    return null;
+                })
+                .catch((error) => {
+                    console.warn(`Webpage-menu: failed to update switch for tab ${tab.id} (${tab.url}):`, error);
+                });
+        });
 
-            // 如果是开启，且标签页未连接，则刷新它
-            if (isChecked) {
-                const isConnected = await browserAdapter.isTabConnected(tab.id);
-                if (!isConnected) {
-                    await browserAdapter.reloadTab(tab.id);
-                    console.log(`Webpage-menu: populateWebpageContentMenu Reloaded tab ${tab.id} ${tab.title} (${tab.url}).`);
-                    // 可选：刷新后可以给个提示或自动重新打开菜单
-                }
+        const setItemChecked = (isChecked) => {
+            if (switchInput.checked === isChecked) {
+                return;
+            }
+
+            switchInput.checked = isChecked;
+            switchInput.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+
+        const applyDragState = () => {
+            if (webpageMenuDragTargetState === null) {
+                webpageMenuDragTargetState = !switchInput.checked;
+            }
+
+            setItemChecked(webpageMenuDragTargetState);
+        };
+
+        item.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) {
+                return;
+            }
+
+            webpageMenuDragTargetState = !switchInput.checked;
+            if (e.target.closest('.switch')) {
+                return;
+            }
+
+            e.preventDefault();
+            setItemChecked(webpageMenuDragTargetState);
+        });
+
+        item.addEventListener('mouseenter', (e) => {
+            if (isPrimaryMouseButtonPressed(e)) {
+                applyDragState();
+            } else {
+                resetWebpageMenuDragState();
+            }
+        });
+
+        item.addEventListener('mousemove', (e) => {
+            if (isPrimaryMouseButtonPressed(e) && !e.target.closest('.switch')) {
+                applyDragState();
+            } else if (!isPrimaryMouseButtonPressed(e)) {
+                resetWebpageMenuDragState();
             }
         });
 
@@ -283,6 +359,11 @@ export function initWebpageMenu({ webpageQAContainer, webpageContentMenu }) {
     webpageQAContainer.addEventListener('mouseleave', hideMenu);
     webpageContentMenu.addEventListener('mouseenter', () => clearTimeout(menuTimeout));
     webpageContentMenu.addEventListener('mouseleave', hideMenu);
+    window.addEventListener('mouseup', (e) => {
+        if (e.button === 0) {
+            resetWebpageMenuDragState();
+        }
+    });
 
     // 防止點擊菜單背景時關閉菜單
     webpageContentMenu.addEventListener('click', (e) => {
