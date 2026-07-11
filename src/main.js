@@ -1196,6 +1196,11 @@ const YT_WATCH_RE = /^https?:\/\/(www\.)?youtube\.com\/watch/;
     // 鼠标离开菜单时隐藏菜单
     settingsMenu.addEventListener('mouseleave', hideMenu);
 
+    // 网页内容二级菜单也属于 settings-menu 的 hover 区域；
+    // 离开二级菜单时需要重新排程隐藏主菜单。
+    webpageContentMenu.addEventListener('mouseenter', () => clearTimeout(menuTimeout));
+    webpageContentMenu.addEventListener('mouseleave', hideMenu);
+
     // 点击按钮：不再切换 settings-menu，改为快速切换“传送网页”
     settingsButton.addEventListener('click', (e) => {
         e.stopPropagation();
