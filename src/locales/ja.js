@@ -80,6 +80,7 @@ export default {
         profileDefault: 'プロファイル {{index}}',
         renameProfile: 'プロファイル名を変更',
         addProfile: 'プロファイルを追加',
+        copyProfile: '現在のプロファイルをコピー',
         deleteProfile: '現在のプロファイルを削除',
         apiKey: 'API キー',
         apiKeyPlaceholder: 'API キーを入力',

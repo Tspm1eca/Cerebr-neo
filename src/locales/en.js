@@ -80,6 +80,7 @@ export default {
         profileDefault: 'Profile {{index}}',
         renameProfile: 'Rename profile',
         addProfile: 'Add profile',
+        copyProfile: 'Copy current profile',
         deleteProfile: 'Delete current profile',
         apiKey: 'API Key',
         apiKeyPlaceholder: 'Enter API Key',

@@ -81,6 +81,7 @@ export default {
         profileDefault: '配置 {{index}}',
         renameProfile: '重新命名配置',
         addProfile: '新增配置',
+        copyProfile: '複製當前配置',
         deleteProfile: '刪除當前配置',
         apiKey: 'API Key',
         apiKeyPlaceholder: '輸入 API Key',

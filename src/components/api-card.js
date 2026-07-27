@@ -47,6 +47,7 @@ export async function initAPICard({
     const profileListDropdown = card.querySelector('.profile-list-dropdown');
     const renameProfileBtn = card.querySelector('.rename-profile-btn');
     const addProfileBtn = card.querySelector('.add-profile-btn');
+    const copyProfileBtn = card.querySelector('.copy-profile-btn');
     const deleteProfileBtn = card.querySelector('.delete-profile-btn');
     const apiKeyInput = card.querySelector('.api-key');
     const baseUrlInput = card.querySelector('.base-url');
@@ -143,6 +144,12 @@ export async function initAPICard({
         profileSelectorText.textContent = config?.profileName || t('api.profileDefault', { index: selectedIndex + 1 });
     }
 
+    function playProfileCopyHighlight() {
+        profileSelector.classList.remove('profile-copy-highlight');
+        void profileSelector.offsetWidth;
+        profileSelector.classList.add('profile-copy-highlight');
+    }
+
     // 更新表单内容
     async function updateFormContent(config) {
         if (!config) return;
@@ -210,6 +217,12 @@ export async function initAPICard({
         }
     });
 
+    profileSelector.addEventListener('animationend', (e) => {
+        if (e.animationName === 'profile-copy-highlight') {
+            profileSelector.classList.remove('profile-copy-highlight');
+        }
+    });
+
     // 點擊外部關閉下拉菜單
     document.addEventListener('click', (e) => {
         if (!profileSelectorContainer.contains(e.target)) {
@@ -241,6 +254,27 @@ export async function initAPICard({
             updateProfileSelector();
             await updateFormContent(newConfig);
             onProfileAdd(newConfig, selectedIndex);
+        });
+    });
+
+    // 複製當前配置按鈕
+    copyProfileBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await withErrorLog('複製配置失敗', async () => {
+            saveCurrentForm();
+
+            const currentConfig = getCurrentConfig();
+            const currentName = currentConfig.profileName || t('api.profileDefault', { index: selectedIndex + 1 });
+            const newConfig = structuredClone(currentConfig);
+            newConfig.profileName = `${currentName}_copy`;
+
+            apiConfigs.push(newConfig);
+            selectedIndex = apiConfigs.length - 1;
+
+            updateProfileSelector();
+            await updateFormContent(newConfig);
+            onProfileAdd(newConfig, selectedIndex);
+            playProfileCopyHighlight();
         });
     });
 

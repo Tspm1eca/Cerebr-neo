@@ -494,6 +494,22 @@
     box-shadow: 0 0 0 1px var(--cerebr-highlight-border-color);
 }
 
+@keyframes profile-copy-highlight {
+    0%, 100% {
+        border-color: var(--cerebr-card-border-color);
+        box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent;
+    }
+    50% {
+        border-color: var(--cerebr-highlight-border-color);
+        box-shadow: 0 0 6px 1px var(--cerebr-highlight-border-color),
+                    0 0 14px 2px var(--cerebr-highlight-border-color);
+    }
+}
+
+.profile-selector.profile-copy-highlight {
+    animation: profile-copy-highlight 1.2s ease-in-out;
+}
+
 .profile-selector-text {
     flex: 1;
     overflow: hidden;
